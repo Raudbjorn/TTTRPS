@@ -1,5 +1,6 @@
 pub mod models;
 pub mod vector_store;
+pub mod voice;
 pub mod llm;
 pub mod llm_router;
 pub mod campaign_manager;
@@ -11,5 +12,5 @@ pub mod personality;
 pub mod session_manager;
 pub mod character_gen;
 pub mod npc_gen;
-pub mod voice;
+
 pub mod audio;

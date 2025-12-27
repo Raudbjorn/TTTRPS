@@ -63,6 +63,13 @@ pub struct CampaignSettings {
     pub auto_snapshot: bool,
     /// Custom genre/subgenre tags
     pub tags: Vec<String>,
+    /// UI Theme (e.g., "fantasy", "scifi", "horror")
+    #[serde(default = "default_theme")]
+    pub theme: String,
+}
+
+fn default_theme() -> String {
+    "fantasy".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

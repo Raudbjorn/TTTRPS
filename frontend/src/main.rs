@@ -27,7 +27,20 @@ fn main() {
     launch(App);
 }
 
+// Global Theme Signal
+pub type ThemeSignal = Signal<String>;
+
 fn App() -> Element {
+    // Initialize theme signal
+    use_context_provider(|| Signal::new("fantasy".to_string()));
+    let mut theme_sig = use_context::<ThemeSignal>();
+
+    // Effect to update body attribute
+    use_effect(move || {
+        let current_theme = theme_sig.read();
+        let _ = document::eval(&format!("document.body.setAttribute('data-theme', '{}')", current_theme));
+    });
+
     rsx! {
         Router::<Route> {}
     }

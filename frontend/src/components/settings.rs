@@ -25,6 +25,9 @@ pub fn Settings() -> Element {
     let mut model_name = use_signal(|| "llama3.2".to_string());
     let mut save_status = use_signal(|| String::new());
 
+    // Consume theme context
+    let mut theme_sig = use_context::<crate::ThemeSignal>();
+
     let save_settings = move |_: MouseEvent| {
         // TODO: Call Tauri backend to save settings securely
         spawn(async move {
@@ -47,7 +50,7 @@ pub fn Settings() -> Element {
 
     rsx! {
         div {
-            class: "p-8 bg-gray-900 text-white min-h-screen font-sans",
+            class: "p-8 bg-theme-primary text-theme-primary min-h-screen font-sans transition-colors duration-300",
             div {
                 class: "max-w-2xl mx-auto",
                 div {
@@ -57,7 +60,7 @@ pub fn Settings() -> Element {
                 }
 
                 div {
-                    class: "bg-gray-800 rounded-lg p-6 space-y-6",
+                    class: "bg-theme-secondary rounded-lg p-6 space-y-6 border border-theme",
                     div {
                         h2 { class: "text-xl font-semibold mb-4", "LLM Configuration" }
 
@@ -65,9 +68,9 @@ pub fn Settings() -> Element {
                             class: "space-y-4",
                             // Provider Selection
                             div {
-                                label { class: "block text-sm font-medium text-gray-400 mb-1", "Provider" }
+                                label { class: "block text-sm font-medium text-theme-secondary mb-1", "Provider" }
                                 select {
-                                    class: "block w-full p-2 bg-gray-700 border border-gray-600 rounded text-white focus:border-blue-500 outline-none",
+                                    class: "block w-full p-2 bg-theme-primary border border-theme rounded text-theme-primary focus:border-blue-500 outline-none",
                                     onchange: move |e| {
                                         let value = e.value();
                                         selected_provider.set(match value.as_str() {
@@ -84,9 +87,9 @@ pub fn Settings() -> Element {
 
                             // API Key / Host
                             div {
-                                label { class: "block text-sm font-medium text-gray-400 mb-1", "{label_text}" }
+                                label { class: "block text-sm font-medium text-theme-secondary mb-1", "{label_text}" }
                                 input {
-                                    class: "block w-full p-2 bg-gray-700 border border-gray-600 rounded text-white focus:border-blue-500 outline-none",
+                                    class: "block w-full p-2 bg-theme-primary border border-theme rounded text-theme-primary focus:border-blue-500 outline-none placeholder-theme-secondary",
                                     r#type: if matches!(*selected_provider.read(), LLMProvider::Ollama) { "text" } else { "password" },
                                     placeholder: "{placeholder_text}",
                                     value: "{api_key_or_host}",
@@ -98,11 +101,30 @@ pub fn Settings() -> Element {
                             div {
                                 label { class: "block text-sm font-medium text-gray-400 mb-1", "Model" }
                                 input {
-                                    class: "block w-full p-2 bg-gray-700 border border-gray-600 rounded text-white focus:border-blue-500 outline-none",
+                                    class: "block w-full p-2 bg-theme-primary border border-theme rounded text-theme-primary focus:border-blue-500 outline-none placeholder-theme-secondary",
                                     placeholder: "llama3.2 / claude-3-sonnet / gemini-pro",
                                     value: "{model_name}",
                                     oninput: move |e| model_name.set(e.value())
                                 }
+                            }
+                        }
+                    }
+
+
+
+                    // Appearance Settings
+                    div {
+                        h2 { class: "text-xl font-semibold mb-4", "Appearance" }
+                        div {
+                            label { class: "block text-sm font-medium text-gray-400 mb-1", "Theme" }
+                            select {
+                                class: "block w-full p-2 bg-theme-primary border border-theme rounded text-theme-primary focus:border-blue-500 outline-none",
+                                value: "{theme_sig}",
+                                onchange: move |e| theme_sig.set(e.value()),
+                                option { value: "fantasy", "Fantasy (Default)" }
+                                option { value: "scifi", "Sci-Fi" }
+                                option { value: "horror", "Horror" }
+                                option { value: "cyberpunk", "Cyberpunk" }
                             }
                         }
                     }

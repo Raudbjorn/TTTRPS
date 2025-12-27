@@ -6,7 +6,8 @@
 mod native_features;
 
 use ttrpg_assistant::commands;
-
+use ttrpg_assistant::core::vector_store::VectorStore;
+use std::sync::Arc;
 use tauri::Manager;
 use std::sync::Mutex as StdMutex;
 use native_features::NativeFeaturesState;
@@ -32,15 +33,25 @@ fn main() {
                     eprintln!("Failed to initialize native features: {}", e);
                 }
             });
+
+            // Initialize VectorStore
+            tauri::async_runtime::block_on(async {
+                let vector_store = VectorStore::with_defaults().await.expect("Failed to initialize VectorStore");
+                vector_store.initialize().await.expect("Failed to create default tables");
+
+                app.manage(commands::AppState {
+                    llm_client: StdMutex::new(None),
+                    llm_config: StdMutex::new(None),
+                    vector_store: Arc::new(vector_store),
+                });
+            });
+
             Ok(())
         })
         // Native features (DragDrop, Dialogs)
         .manage(NativeFeaturesState::new())
-        // New AppState
-        .manage(commands::AppState {
-            llm_client: StdMutex::new(None),
-            llm_config: StdMutex::new(None),
-        })
+        // AppState is managed in setup now because it needs async initialization
+        // .manage(commands::AppState { ... })
         .invoke_handler(tauri::generate_handler![
             native_features::show_native_file_dialog,
             native_features::show_save_dialog,
@@ -61,6 +72,8 @@ fn main() {
             commands::list_campaigns,
             commands::get_campaign,
             commands::delete_campaign,
+            // Voice
+            commands::speak,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -64,6 +64,7 @@ rodio = "0.19"
 lopdf = "0.32"
 epub = "2.1"
 futures-util = "0.3"
+async-trait = "0.1"
 
 # Keychain dependencies
 keyring = "2.3"

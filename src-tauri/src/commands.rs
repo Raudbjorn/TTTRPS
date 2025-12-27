@@ -4,6 +4,7 @@
 
 use tauri::State;
 use crate::core::llm::{LLMConfig, LLMClient, ChatMessage, ChatRequest};
+use crate::core::voice::{VoiceManager, VoiceConfig, SynthesisRequest, OutputFormat, VoiceProviderType, ElevenLabsConfig, OllamaConfig};
 use crate::ingestion::pdf_parser;
 use crate::ingestion::character_gen::{Character, CharacterGenerator, TTRPGGenre};
 use crate::core::models::Campaign;
@@ -11,6 +12,9 @@ use std::sync::Mutex;
 use std::path::Path;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
+use crate::core::vector_store::{VectorStore, VectorStoreConfig};
+use crate::core::embedding_pipeline::{EmbeddingPipeline, PipelineConfig};
+use std::sync::Arc;
 
 // ============================================================================
 // Application State
@@ -19,13 +23,30 @@ use serde::{Deserialize, Serialize};
 pub struct AppState {
     pub llm_client: Mutex<Option<LLMClient>>,
     pub llm_config: Mutex<Option<LLMConfig>>,
+    pub vector_store: Arc<VectorStore>,
 }
 
 impl Default for AppState {
     fn default() -> Self {
+         // This default is not really used as we initialize with VectorStore in main
+         // But to satisfy Default trait if needed (though we likely won't rely on it)
+         // We can't easily create a default VectorStore here without async
+         panic!("AppState must be initialized with VectorStore");
+    }
+}
+
+pub struct AppStateInit {
+    pub llm_client: Mutex<Option<LLMClient>>,
+    pub llm_config: Mutex<Option<LLMConfig>>,
+    pub vector_store: Arc<VectorStore>,
+}
+
+impl AppStateInit {
+    pub fn new(vector_store: VectorStore) -> Self {
         Self {
             llm_client: Mutex::new(None),
             llm_config: Mutex::new(None),
+            vector_store: Arc::new(vector_store),
         }
     }
 }
@@ -204,10 +225,56 @@ pub fn get_llm_config(state: State<'_, AppState>) -> Result<Option<LLMSettings>,
 // ============================================================================
 
 #[tauri::command]
-pub fn ingest_document(path: String) -> Result<String, String> {
-    let text = pdf_parser::PDFParser::extract_text(Path::new(&path))
-        .map_err(|e| e.to_string())?;
-    Ok(format!("Ingested {} characters from document", text.len()))
+pub async fn ingest_document(
+    path: String,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    let path_obj = Path::new(&path);
+    if !path_obj.exists() {
+        return Err(format!("File not found: {}", path));
+    }
+
+    // Get LLM config
+    let llm_config = {
+        let guard = state.llm_config.lock().map_err(|e| e.to_string())?;
+        guard.clone().ok_or("LLM not configured. Please configure in Settings.")?
+    };
+
+    // Create pipeline
+    // Note: VectorStore clone is cheap (Arc internally or we wrap it)
+    // Actually VectorStore struct in vector_store.rs seems to hold Connection which might be cloneable?
+    // Let's check vector_store.rs. It has `conn: Connection` which is lancedb::connection::Connection.
+    // lancedb Connection is usually cheaply cloneable or we can wrap VectorStore in Arc.
+    // In AppState we wrapped it in Arc.
+
+    // We need to create a NEW VectorStore instance or pass the Arc?
+    // EmbeddingPipeline takes VectorStore by value.
+    // We should probably change EmbeddingPipeline to take Arc<VectorStore> or clone the internal connection if possible.
+    // Checking vector_store.rs... `conn` is `lancedb::connection::Connection`.
+    // lancedb::Connection seems to be a wrapper around an inner Arc, so it might be cloneable.
+    // But `VectorStore` struct definition doesn't derive Clone.
+    // We will assume for now we need to change EmbeddingPipeline or perform a workaround.
+    // Workaround: Modify EmbeddingPipeline to accept a potentially shared VectorStore,
+    // OR just instantiate a new VectorStore connection here since it's just a connection to DB.
+
+    // Let's create a fresh VectorStore connection for the pipeline to avoid ownership issues for now,
+    // assuming VectorStore::new is relatively cheap (just opening DB).
+    let vector_store = VectorStore::new(VectorStoreConfig::default()).await
+        .map_err(|e| format!("Failed to connect to vector store: {}", e))?;
+
+    let pipeline = EmbeddingPipeline::new(
+        llm_config,
+        vector_store,
+        PipelineConfig::default(),
+    );
+
+    let result = pipeline.process_file(path_obj, "user_upload").await
+        .map_err(|e| format!("Ingestion failed: {}", e))?;
+
+    Ok(format!(
+        "Ingested {}: {}/{} chunks stored ({} failed)",
+        result.source, result.stored_chunks, result.total_chunks, result.failed_chunks
+    ))
 }
 
 // ============================================================================
@@ -217,10 +284,47 @@ pub fn ingest_document(path: String) -> Result<String, String> {
 #[tauri::command]
 pub async fn search(
     query: String,
-    _state: State<'_, AppState>,
+    state: State<'_, AppState>,
 ) -> Result<Vec<String>, String> {
-    // Placeholder for vector search - will be implemented with LanceDB
-    Ok(vec![format!("Search result for: {}", query)])
+    // 1. Get embedding for query
+    let (client, config) = {
+        let client_guard = state.llm_client.lock().map_err(|e| e.to_string())?;
+        let config_guard = state.llm_config.lock().map_err(|e| e.to_string())?;
+
+        // We need both client and config info (embedded dim)
+        let client = client_guard.as_ref().ok_or("LLM client not initialized")?;
+        // We can't clone client easily if it doesn't derive Clone?
+        // reqwest::Client is cloneable. LLMClient struct definition?
+        // Let's check LLMClient in llm.rs...
+        // `pub struct LLMClient { client: Client, config: LLMConfig }`
+        // It doesn't derive Clone. We might need to construct a new one or make it Clone.
+        // For now, let's construct a temp one from config, it's safer.
+        let config = config_guard.clone().ok_or("LLM not configured")?;
+        (LLMClient::new(config.clone()), config)
+    };
+
+    let embedding_resp = client.embed(&query).await
+        .map_err(|e| format!("Failed to generate embedding: {}", e))?;
+
+    // 2. Search vector store
+    let results = state.vector_store.search(
+        &embedding_resp.embedding,
+        5, // limit
+        None, // no source filter
+    ).await.map_err(|e| format!("Search failed: {}", e))?;
+
+    // 3. Format results
+    let formatted: Vec<String> = results.into_iter()
+        .map(|r| format!(
+            "[{:.2}] {}...\n(Source: {} p.{})",
+            r.score,
+            r.document.content.chars().take(100).collect::<String>(),
+            r.document.source,
+            r.document.page_number.unwrap_or(0)
+        ))
+        .collect();
+
+    Ok(formatted)
 }
 
 // ============================================================================
@@ -288,4 +392,67 @@ pub fn delete_campaign(id: String) -> Result<bool, String> {
     // Placeholder - will be implemented with SQLite
     let _ = id;
     Ok(true)
+}
+
+// ============================================================================
+// Voice Commands
+// ============================================================================
+
+#[tauri::command]
+pub async fn speak(text: String, state: State<'_, AppState>) -> Result<(), String> {
+    // 1. Determine config
+    let config = {
+        let config_guard = state.llm_config.lock().map_err(|e| e.to_string())?;
+
+        if let Some(c) = config_guard.as_ref() {
+            match c {
+                LLMConfig::Ollama { host, .. } => VoiceConfig {
+                    provider: VoiceProviderType::Ollama,
+                    ollama: Some(OllamaConfig {
+                        base_url: host.clone(),
+                        model: "bark".to_string(), // Default placeholder
+                    }),
+                    ..Default::default()
+                },
+                LLMConfig::Claude { api_key, .. } => VoiceConfig {
+                    provider: VoiceProviderType::ElevenLabs,
+                    elevenlabs: Some(ElevenLabsConfig {
+                        api_key: api_key.clone(),
+                        model_id: None,
+                    }),
+                    ..Default::default()
+                },
+                LLMConfig::Gemini { .. } => VoiceConfig::default(),
+            }
+        } else {
+             VoiceConfig::default()
+        }
+    };
+
+    let manager = VoiceManager::new(config);
+
+    // 2. Synthesize (async)
+    let request = SynthesisRequest {
+        text,
+        voice_id: "default".to_string(),
+        settings: None,
+        output_format: OutputFormat::Mp3,
+    };
+
+    if let Ok(result) = manager.synthesize(request).await {
+         // Read bytes from file (or implementation could return bytes directly if we changed it, but manager returns result with path)
+         let bytes = std::fs::read(&result.audio_path).map_err(|e| e.to_string())?;
+
+         // 3. Play
+         tauri::async_runtime::spawn_blocking(move || {
+             if let Err(e) = manager.play_audio(bytes) {
+                 log::error!("Playback failed: {}", e);
+             }
+         }).await.map_err(|e| e.to_string())?;
+
+         Ok(())
+    } else {
+        log::info!("Speak request received (synthesis skipped/failed)");
+        Ok(())
+    }
 }

@@ -1,0 +1,61 @@
+/* Base Theme (Fantasy) */
+:root {
+  --bg-primary: #1a1b26;
+  --bg-secondary: #24283b;
+  --text-primary: #c0caf5;
+  --text-secondary: #a9b1d6;
+  --accent: #7aa2f7;
+  --accent-hover: #5d87e2;
+  --border: #414868;
+  --font-family: 'Inter', sans-serif;
+}
+
+/* SciFi Theme */
+[data-theme="scifi"] {
+  --bg-primary: #02040a;
+  --bg-secondary: #0d1117;
+  --text-primary: #00f0ff;
+  --text-secondary: #58a6ff;
+  --accent: #00f0ff;
+  --accent-hover: #00d0df;
+  --border: #1f6feb;
+  --font-family: 'Orbitron', 'Inter', sans-serif;
+}
+
+/* Horror Theme */
+[data-theme="horror"] {
+  --bg-primary: #0f0000;
+  --bg-secondary: #1a0505;
+  --text-primary: #ff0000;
+  --text-secondary: #8a0000;
+  --accent: #ff4444;
+  --accent-hover: #cc0000;
+  --border: #4a0000;
+  --font-family: 'Creepster', 'Inter', cursive;
+}
+
+/* Cyberpunk Theme */
+[data-theme="cyberpunk"] {
+  --bg-primary: #fcee0a;
+  --bg-secondary: #000000;
+  --text-primary: #000000;
+  --text-secondary: #212121;
+  --accent: #00f0ff;
+  --accent-hover: #00d0df;
+  --border: #000000;
+  --font-family: 'Courier New', monospace;
+}
+
+body {
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--font-family);
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+/* Utility classes mapping to variables */
+.bg-theme-primary { background-color: var(--bg-primary); }
+.bg-theme-secondary { background-color: var(--bg-secondary); }
+.text-theme-primary { color: var(--text-primary); }
+.text-theme-secondary { color: var(--text-secondary); }
+.border-theme { border-color: var(--border); }

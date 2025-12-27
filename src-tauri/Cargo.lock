@@ -9254,6 +9254,7 @@ dependencies = [
  "argon2",
  "arrow-array",
  "arrow-schema",
+ "async-trait",
  "base64 0.22.1",
  "blake3",
  "bytes",
