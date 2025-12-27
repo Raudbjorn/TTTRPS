@@ -5,8 +5,8 @@
   "identifier": "com.ttrpg.assistant",
   "build": {
     "beforeBuildCommand": "",
-    "beforeDevCommand": "cd ../frontend && dx serve",
-    "devUrl": "http://127.0.0.1:8080",
+    "beforeDevCommand": "sh -c 'cd ../frontend || cd frontend || { echo \"[Error] Could not find frontend dir from $PWD\"; exit 1; }; dx serve --port 3030'",
+    "devUrl": "http://127.0.0.1:3030",
     "frontendDist": "../frontend/dist"
   },
   "app": {

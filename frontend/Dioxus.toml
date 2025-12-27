@@ -9,6 +9,7 @@ base_path = "/"
 [web.watcher]
 reload_html = true
 watch_path = ["src", "public"]
+port = 3030
 
 [web.resource]
 style = []

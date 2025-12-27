@@ -90,6 +90,42 @@ pub struct SystemInfo {
     pub version: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VoiceConfig {
+    pub provider: String, // Enum locally handled as string
+    pub cache_dir: Option<String>,
+    pub default_voice_id: Option<String>,
+    pub elevenlabs: Option<ElevenLabsConfig>,
+    pub fish_audio: Option<FishAudioConfig>,
+    pub ollama: Option<OllamaConfig>,
+    pub openai: Option<OpenAIVoiceConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ElevenLabsConfig {
+    pub api_key: String,
+    pub model_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FishAudioConfig {
+    pub api_key: String,
+    pub base_url: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OllamaConfig {
+    pub base_url: String,
+    pub model: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OpenAIVoiceConfig {
+    pub api_key: String,
+    pub model: String,
+    pub voice: String,
+}
+
 // ============================================================================
 // LLM Commands
 // ============================================================================
@@ -116,6 +152,26 @@ pub async fn check_llm_health() -> Result<HealthStatus, String> {
 
 pub async fn get_llm_config() -> Result<Option<LLMSettings>, String> {
     invoke_no_args("get_llm_config").await
+}
+
+pub async fn configure_voice(config: VoiceConfig) -> Result<String, String> {
+    #[derive(Serialize)]
+    struct Args {
+        config: VoiceConfig,
+    }
+    invoke("configure_voice", &Args { config }).await
+}
+
+pub async fn get_voice_config() -> Result<VoiceConfig, String> {
+    invoke_no_args("get_voice_config").await
+}
+
+pub async fn speak(text: String) -> Result<(), String> {
+    #[derive(Serialize)]
+    struct Args {
+        text: String,
+    }
+    invoke("speak", &Args { text }).await
 }
 
 // ============================================================================

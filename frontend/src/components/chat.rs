@@ -1,6 +1,6 @@
 #![allow(non_snake_case)]
 use dioxus::prelude::*;
-use crate::bindings::{chat, ChatRequestPayload, check_llm_health, get_session_usage, SessionUsage};
+use crate::bindings::{chat, ChatRequestPayload, check_llm_health, get_session_usage, SessionUsage, speak};
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
 use crate::components::design_system::{Button, ButtonVariant, Input, LoadingSpinner, Badge, BadgeVariant, Markdown, TypingIndicator};
@@ -11,10 +11,7 @@ extern "C" {
     async fn invoke(cmd: &str, args: JsValue) -> JsValue;
 }
 
-#[derive(Serialize, Deserialize)]
-struct SpeakRequest {
-    text: String,
-}
+// SpeakRequest removed as we use bindings::speak now
 
 #[derive(Clone, PartialEq)]
 pub struct Message {
@@ -64,8 +61,18 @@ pub fn Chat() -> Element {
 
     let play_message = move |text: String| {
         spawn(async move {
-            let args = serde_wasm_bindgen::to_value(&SpeakRequest { text }).unwrap();
-            let _ = invoke("speak", args).await;
+            match speak(text).await {
+                Ok(_) => {}, // Success, audio playing
+                Err(e) => {
+                     // Show error in chat stream as system message or alert
+                     // For now, easy way: push error message to chat
+                     messages.write().push(Message {
+                         role: "error".to_string(),
+                         content: format!("Voice Error: {}", e),
+                         tokens: None,
+                     });
+                }
+            }
         });
     };
 

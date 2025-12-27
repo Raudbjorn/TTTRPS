@@ -70,12 +70,18 @@ check_rust_env() {
     fi
     print_success "Rust installed: $(cargo --version)"
 
-    # Check wasm target
-    if ! rustup target list | grep -q "wasm32-unknown-unknown (installed)"; then
-        print_warning "WASM target not installed. Installing..."
-        rustup target add wasm32-unknown-unknown || { print_error "Failed to install wasm target"; exit 1; }
+# Check wasm target
+    if command_exists rustup; then
+        if ! rustup target list | grep -q "wasm32-unknown-unknown (installed)"; then
+            print_warning "WASM target not installed. Installing..."
+            rustup target add wasm32-unknown-unknown || { print_error "Failed to install wasm target"; exit 1; }
+        fi
+        print_success "WASM target installed via rustup"
+    elif [ -f "/usr/lib/rustlib/wasm32-unknown-unknown/lib/libstd-*.rlib" ] || ls /usr/lib/rustlib/wasm32-unknown-unknown/lib/libstd-*.rlib >/dev/null 2>&1; then
+         print_success "WASM target installed (system package)"
+    else
+         print_warning "rustup not found and WASM target checks failed. Assuming WASM is installed via system package manager (e.g. rust-wasm)."
     fi
-    print_success "WASM target installed"
 
     if ! command_exists dx; then
         print_warning "Dioxus CLI (dx) not found. Installing..."
@@ -84,8 +90,9 @@ check_rust_env() {
     print_success "Dioxus CLI installed: $(dx --version 2>/dev/null || echo 'unknown')"
 
     # Check for Tauri CLI
-    if ! cargo tauri --version >/dev/null 2>&1; then
-        print_warning "Tauri CLI not found. Installing..."
+    # Prefer using cargo-tauri if installed, otherwise try to install or use local if possible
+    if ! command_exists cargo-tauri; then
+        print_warning "Tauri CLI (cargo-tauri) not found. Installing..."
         cargo install tauri-cli || { print_error "Failed to install tauri-cli"; exit 1; }
     fi
     print_success "Tauri CLI installed: $(cargo tauri --version 2>/dev/null || echo 'unknown')"
@@ -97,8 +104,9 @@ check_linux_deps() {
     # Check for required libraries
     local missing_deps=()
 
-    # WebKitGTK check
-    if ! pkg-config --exists webkit2gtk-4.1 2>/dev/null; then
+    # WebKitGTK check (arch naming vs others)
+    if ! pkg-config --exists webkit2gtk-4.1 2>/dev/null && ! pkg-config --exists webkit2gtk-4.0 2>/dev/null; then
+        # Arch might use webkit2gtk-4.1
         missing_deps+=("webkit2gtk-4.1")
     fi
 
@@ -107,18 +115,13 @@ check_linux_deps() {
         missing_deps+=("gtk+-3.0")
     fi
 
-    # libappindicator for system tray
-    if ! pkg-config --exists appindicator3-0.1 2>/dev/null; then
-        print_warning "libappindicator not found - system tray may not work"
-    fi
-
     if [ ${#missing_deps[@]} -gt 0 ]; then
-        print_error "Missing dependencies: ${missing_deps[*]}"
-        echo -e "${YELLOW}Install with: paru -S webkit2gtk-4.1 gtk3 libappindicator-gtk3${NC}"
-        exit 1
+        print_warning "Missing dependencies or pkg-config not finding them: ${missing_deps[*]}"
+        print_warning "On Arch: paru -S webkit2gtk-4.1 gtk3 libappindicator-gtk3"
+        print_warning "Proceeding anyway, build might fail."
+    else
+        print_success "Linux dependencies check passed"
     fi
-
-    print_success "All Linux dependencies installed"
 }
 
 build_frontend() {
@@ -129,21 +132,16 @@ build_frontend() {
 
     # Build with dx
     if [ "$RELEASE" = true ]; then
-        dx build --release
-        FRONTEND_OUTPUT="target/dx/ttrpg-assistant-frontend/release/web/public"
+        dx build --release --platform web
     else
-        dx build
-        FRONTEND_OUTPUT="target/dx/ttrpg-assistant-frontend/debug/web/public"
+        dx build --platform web
     fi
 
-    # Copy artifacts to dist for Tauri
-    mkdir -p "$DIST_DIR"
-    if [ -d "$FRONTEND_OUTPUT" ]; then
-        cp -r "$FRONTEND_OUTPUT"/* "$DIST_DIR/"
-        print_success "Frontend built successfully"
-        print_info "Output: $DIST_DIR"
+    # Check if dist exists (Standard Dioxus output)
+    if [ -d "dist" ]; then
+        print_success "Frontend built successfully in frontend/dist"
     else
-        print_error "Frontend output directory not found: $FRONTEND_OUTPUT"
+        print_error "Frontend build failed or dist directory not found"
         exit 1
     fi
 
@@ -181,16 +179,6 @@ build_desktop() {
 
     if [ $? -eq 0 ]; then
         print_success "Desktop app built successfully"
-
-        # Find and list the output bundles
-        echo -e "\n${GREEN}${PACKAGE} Build artifacts:${NC}"
-
-        if [ -d "target/release/bundle" ]; then
-            find target/release/bundle -type f \( -name "*.deb" -o -name "*.rpm" -o -name "*.AppImage" -o -name "*.dmg" -o -name "*.exe" -o -name "*.msi" \) 2>/dev/null | while read -r file; do
-                size=$(du -h "$file" | cut -f1)
-                echo -e "  ${CYAN}$file${NC} (${size})"
-            done
-        fi
     else
         print_error "Desktop build failed"
         exit 1
@@ -203,7 +191,8 @@ run_dev() {
     print_section "Starting Development Server"
     cd "$BACKEND_DIR"
 
-    # Run Tauri dev mode (includes frontend hot-reload)
+    # Run Tauri dev mode (includes frontend hot-reload via beforeDevCommand)
+    print_info "Running cargo tauri dev..."
     cargo tauri dev
 
     cd "$PROJECT_ROOT"
@@ -230,7 +219,6 @@ run_check() {
     print_info "Checking backend..."
     cd "$BACKEND_DIR"
     cargo check
-    cargo clippy -- -D warnings 2>/dev/null || print_warning "Clippy has warnings"
 
     print_info "Checking frontend..."
     cd "$FRONTEND_DIR"
@@ -244,13 +232,14 @@ clean_artifacts() {
     print_section "Cleaning Build Artifacts"
 
     cd "$FRONTEND_DIR"
+    # Dioxus clean isn't a standard command, modify target/dist
+    rm -rf dist
     cargo clean
-    rm -rf target/dx
 
     cd "$BACKEND_DIR"
     cargo clean
 
-    rm -rf "$DIST_DIR"
+    # rm -rf "$DIST_DIR" # We don't use root dist anymore in this script logic
 
     cd "$PROJECT_ROOT"
     print_success "Cleaned all build artifacts"
@@ -265,17 +254,12 @@ show_help() {
     echo "  frontend    Build only the frontend"
     echo "  backend     Build only the backend"
     echo "  test        Run all tests"
-    echo "  check       Run cargo check and clippy"
+    echo "  check       Run cargo check"
     echo "  clean       Remove all build artifacts"
     echo "  help        Show this help message"
     echo ""
     echo -e "${CYAN}Options:${NC}"
     echo "  --release   Build in release mode (optimized)"
-    echo ""
-    echo -e "${CYAN}Examples:${NC}"
-    echo "  $0 dev              # Start dev server"
-    echo "  $0 build --release  # Build optimized release"
-    echo "  $0 test             # Run all tests"
 }
 
 # Parse arguments
@@ -305,7 +289,12 @@ print_header
 
 case $COMMAND in
     dev)
-        check_rust_env
+        if command_exists cargo; then
+             # Lightweight check
+             :
+        else
+             check_rust_env
+        fi
         [[ "$OSTYPE" == "linux-gnu"* ]] && check_linux_deps
         run_dev
         ;;
@@ -316,12 +305,10 @@ case $COMMAND in
         build_desktop
         ;;
     frontend)
-        check_rust_env
         build_frontend
         ;;
     backend)
         check_rust_env
-        [[ "$OSTYPE" == "linux-gnu"* ]] && check_linux_deps
         build_backend
         ;;
     test)

@@ -27,8 +27,9 @@ fn main() {
         .setup(|app| {
             let handle = app.handle().clone();
             let state = app.state::<NativeFeaturesState>().inner().clone();
+            let handle_clone = handle.clone();
             tauri::async_runtime::spawn(async move {
-                if let Err(e) = state.initialize(&handle).await {
+                if let Err(e) = state.initialize(&handle_clone).await {
                     eprintln!("Failed to initialize native features: {}", e);
                 }
             });
@@ -52,7 +53,7 @@ fn main() {
                     session_manager: sm,
                     npc_store: ns,
                     credentials: creds,
-                    voice_manager: vm,
+                    voice_manager: vm, // vm is now RwLock<VoiceManager>
                     sidecar_manager,
                     search_client,
                     personality_store,
@@ -134,7 +135,8 @@ fn main() {
 
             // Voice Commands (Using MY updated 'speak', but keeping config ones if needed)
             commands::speak,
-            // commands::configure_voice, // Removed
+            commands::configure_voice,
+            commands::get_voice_config,
             // commands::audio::get_audio_devices, // Logic moved
             // commands::audio::set_audio_output,
             // commands::synthesize_voice, // Remote had this, but I refactored to use speak/VoiceManager

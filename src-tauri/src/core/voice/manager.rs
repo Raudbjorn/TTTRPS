@@ -43,6 +43,10 @@ impl VoiceManager {
         }
     }
 
+    pub fn get_config(&self) -> &VoiceConfig {
+        &self.config
+    }
+
     pub async fn synthesize(&self, request: SynthesisRequest) -> Result<SynthesisResult> {
         // 1. Check Cache
         let cache_key = self.cache_key(&request);

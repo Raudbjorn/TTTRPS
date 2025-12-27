@@ -1,6 +1,9 @@
 #![allow(non_snake_case)]
 use dioxus::prelude::*;
-use crate::bindings::{configure_llm, get_llm_config, save_api_key, check_llm_health, LLMSettings, HealthStatus};
+use crate::bindings::{
+    configure_llm, get_llm_config, save_api_key, check_llm_health, LLMSettings, HealthStatus,
+    configure_voice, get_voice_config, VoiceConfig, ElevenLabsConfig, OllamaConfig
+};
 use crate::components::design_system::{Button, ButtonVariant, Input, Select, Card, CardHeader, CardBody, Badge, BadgeVariant};
 
 #[derive(Clone, PartialEq)]
@@ -43,6 +46,11 @@ pub fn Settings() -> Element {
     let mut is_saving = use_signal(|| false);
     let mut health_status = use_signal(|| Option::<HealthStatus>::None);
 
+    // Voice Signals
+    let mut selected_voice_provider = use_signal(|| "Disabled".to_string());
+    let mut voice_api_key_or_host = use_signal(|| String::new());
+    let mut voice_model_id = use_signal(|| String::new());
+
     // Load existing config on mount
     use_effect(move || {
         spawn(async move {
@@ -69,6 +77,41 @@ pub fn Settings() -> Element {
                 model_name.set(config.model);
                 if let Some(emb) = config.embedding_model {
                     embedding_model.set(emb);
+                }
+            }
+
+            // Load Voice Config
+            if let Ok(config) = get_voice_config().await {
+                // Determine provider string from enum-like handling or explicit fields
+                // Backend returns "Disabled", "ElevenLabs", "Ollama", etc in provider field (string) because we mapped it?
+                // Wait, backend returns VoiceConfig struct where provider is VoiceProviderType.
+                // In bindings.rs, VoiceConfig provider is String.
+                // It seems serialization of enum uses variant name by default.
+
+                let provider_str = match config.provider.as_str() {
+                    "ElevenLabs" => "ElevenLabs",
+                    "Ollama" => "Ollama",
+                    "FishAudio" => "FishAudio",
+                    "OpenAI" => "OpenAI",
+                    _ => "Disabled",
+                };
+                selected_voice_provider.set(provider_str.to_string());
+
+                match provider_str {
+                    "ElevenLabs" => {
+                        if let Some(c) = config.elevenlabs {
+                            voice_api_key_or_host.set(c.api_key); // Might be masked
+                            voice_model_id.set(c.model_id.unwrap_or_default());
+                        }
+                    }
+                    "Ollama" => {
+                        if let Some(c) = config.ollama {
+                            voice_api_key_or_host.set(c.base_url);
+                            voice_model_id.set(c.model);
+                        }
+                    }
+                    // Handle others if needed
+                    _ => {}
                 }
             }
 
@@ -191,6 +234,58 @@ pub fn Settings() -> Element {
                 }
             }
             is_saving.set(false);
+            // Save Voice Settings
+            let voice_prov = selected_voice_provider.read().clone();
+            let voice_val = voice_api_key_or_host.read().clone();
+            let voice_mod = voice_model_id.read().clone();
+
+            let voice_config = if voice_prov == "Disabled" {
+                VoiceConfig {
+                    provider: "Disabled".to_string(),
+                    cache_dir: None,
+                    default_voice_id: None,
+                    elevenlabs: None,
+                    fish_audio: None,
+                    ollama: None,
+                    openai: None,
+                }
+            } else {
+                let mut base = VoiceConfig {
+                    provider: voice_prov.clone(),
+                    cache_dir: None,
+                    default_voice_id: None,
+                    elevenlabs: None,
+                    fish_audio: None,
+                    ollama: None,
+                    openai: None,
+                };
+
+                match voice_prov.as_str() {
+                    "ElevenLabs" => {
+                        base.elevenlabs = Some(ElevenLabsConfig {
+                            api_key: voice_val,
+                            model_id: Some(voice_mod),
+                        });
+                    }
+                    "Ollama" => {
+                        base.ollama = Some(OllamaConfig {
+                            base_url: voice_val,
+                            model: voice_mod,
+                        });
+                    }
+                    // Add OpenAI/FishAudio implementations later if needed
+                    _ => {}
+                }
+                base
+            };
+
+            if let Err(e) = configure_voice(voice_config).await {
+                 save_status.set(format!("Voice Config Error: {}", e));
+                 is_saving.set(false);
+                 return;
+            }
+
+            is_saving.set(false);
         });
     };
 
@@ -309,6 +404,56 @@ pub fn Settings() -> Element {
                                     placeholder: "nomic-embed-text",
                                     value: "{embedding_model}",
                                     oninput: move |val| embedding_model.set(val)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Card {
+                    CardHeader { h2 { class: "text-lg font-semibold", "Audio Configuration" } }
+                    CardBody {
+                        class: "space-y-4",
+                         div {
+                            label { class: "block text-sm font-medium text-theme-secondary mb-1", "Voice Provider" }
+                            Select {
+                                value: selected_voice_provider.read().clone(),
+                                onchange: move |val: String| {
+                                    selected_voice_provider.set(val.clone());
+                                    // Reset fields based on provider defaults if needed
+                                    if val == "Ollama" {
+                                        voice_api_key_or_host.set("http://localhost:11434".to_string());
+                                        voice_model_id.set("bark".to_string());
+                                    } else if val == "ElevenLabs" {
+                                        voice_api_key_or_host.set(String::new());
+                                        voice_model_id.set("eleven_multilingual_v2".to_string());
+                                    }
+                                },
+                                option { value: "Disabled", "Disabled" }
+                                option { value: "ElevenLabs", "ElevenLabs" }
+                                option { value: "Ollama", "Ollama (Local)" }
+                            }
+                        }
+
+                        if *selected_voice_provider.read() != "Disabled" {
+                            div {
+                                label { class: "block text-sm font-medium text-theme-secondary mb-1",
+                                    if *selected_voice_provider.read() == "Ollama" { "Base URL" } else { "API Key" }
+                                }
+                                Input {
+                                    r#type: if *selected_voice_provider.read() == "Ollama" { "text" } else { "password" },
+                                    placeholder: if *selected_voice_provider.read() == "Ollama" { "http://localhost:11434" } else { "sk-..." },
+                                    value: "{voice_api_key_or_host}",
+                                    oninput: move |val| voice_api_key_or_host.set(val)
+                                }
+                            }
+
+                             div {
+                                label { class: "block text-sm font-medium text-theme-secondary mb-1", "Model ID / Voice Model" }
+                                Input {
+                                    placeholder: "e.g. eleven_multilingual_v2",
+                                    value: "{voice_model_id}",
+                                    oninput: move |val| voice_model_id.set(val)
                                 }
                             }
                         }

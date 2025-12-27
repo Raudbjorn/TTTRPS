@@ -48,7 +48,7 @@ pub struct AppState {
     pub session_manager: SessionManager,
     pub npc_store: NPCStore,
     pub credentials: CredentialManager,
-    pub voice_manager: Arc<VoiceManager>,
+    pub voice_manager: RwLock<VoiceManager>,
     pub sidecar_manager: Arc<SidecarManager>,
     pub search_client: Arc<SearchClient>,
     pub personality_store: Arc<PersonalityStore>,
@@ -82,13 +82,13 @@ impl AppStateInit {
 
 // Helper init for default state components
 impl AppState {
-    pub fn init_defaults() -> (CampaignManager, SessionManager, NPCStore, CredentialManager, Arc<VoiceManager>, Arc<SidecarManager>, Arc<SearchClient>, Arc<PersonalityStore>) {
+    pub fn init_defaults() -> (CampaignManager, SessionManager, NPCStore, CredentialManager, RwLock<VoiceManager>, Arc<SidecarManager>, Arc<SearchClient>, Arc<PersonalityStore>) {
         (
             CampaignManager::new(),
             SessionManager::new(),
             NPCStore::new(),
             CredentialManager::with_service("ttrpg-assistant"),
-            Arc::new(VoiceManager::new(VoiceConfig {
+            RwLock::new(VoiceManager::new(VoiceConfig {
                 cache_dir: Some(PathBuf::from("./voice_cache")),
                 ..Default::default()
             })),
@@ -419,6 +419,64 @@ pub async fn search(
 
     Ok(formatted)
 }
+
+#[tauri::command]
+pub fn configure_voice(
+    config: VoiceConfig,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    // 1. If API keys are provided in config, save them securely and mask them in config
+    if let Some(mut elevenlabs) = config.elevenlabs.clone() {
+        if !elevenlabs.api_key.is_empty() && elevenlabs.api_key != "********" {
+            state.credentials.store_secret("elevenlabs_api_key", &elevenlabs.api_key)
+                .map_err(|e| e.to_string())?;
+        }
+    }
+
+    // Note: For simplicity in this iteration, we re-create the manager with the new config.
+    // In a real app, we might update the existing one.
+    // We also need to retrieve secrets if they are masked.
+
+    let mut effective_config = config.clone();
+
+    // Restore secrets from credential manager if masked
+    if let Some(ref mut elevenlabs) = effective_config.elevenlabs {
+        if elevenlabs.api_key.is_empty() || elevenlabs.api_key == "********" {
+             if let Ok(secret) = state.credentials.get_secret("elevenlabs_api_key") {
+                 elevenlabs.api_key = secret;
+             }
+        }
+    }
+
+    let new_manager = VoiceManager::new(effective_config);
+
+    // Update state
+    match state.voice_manager.write() {
+        Ok(mut manager) => {
+            *manager = new_manager;
+            Ok("Voice configuration updated successfully".to_string())
+        }
+        Err(e) => Err(format!("Failed to acquire lock: {}", e))
+    }
+}
+
+#[tauri::command]
+pub fn get_voice_config(state: State<'_, AppState>) -> Result<VoiceConfig, String> {
+    match state.voice_manager.read() {
+        Ok(manager) => {
+            let mut config = manager.get_config().clone();
+            // Mask secrets
+            if let Some(ref mut elevenlabs) = config.elevenlabs {
+                if !elevenlabs.api_key.is_empty() {
+                    elevenlabs.api_key = "********".to_string();
+                }
+            }
+            Ok(config)
+        }
+        Err(e) => Err(format!("Failed to acquire lock: {}", e))
+    }
+}
+
 
 // ============================================================================
 // Character Generation Commands
