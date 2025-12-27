@@ -6,6 +6,7 @@
 
 // Public module exports
 pub mod core;
+pub mod database;
 pub mod ingestion;
 pub mod commands;
 
