@@ -178,6 +178,7 @@ impl CampaignManager {
                 max_auto_snapshots: MAX_SNAPSHOTS_DEFAULT,
                 auto_snapshot: true,
                 tags: vec![],
+                theme: "fantasy".to_string(),
             },
         };
 
