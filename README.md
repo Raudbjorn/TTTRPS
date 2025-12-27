@@ -92,6 +92,10 @@ Configure your preferred LLM provider in the Settings panel:
 - Run: `ollama run llama3.2` or your preferred model
 - No API key required
 
+**OpenAI**
+- Get API key from: https://platform.openai.com/
+- Recommended models: gpt-4o, gpt-4-turbo
+
 ### Voice Synthesis
 
 **ElevenLabs**

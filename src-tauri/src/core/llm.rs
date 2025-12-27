@@ -63,6 +63,11 @@ pub enum LLMConfig {
         api_key: String,
         model: String,
     },
+    OpenAI {
+        api_key: String,
+        model: String,
+        embedding_model: Option<String>,
+    },
 }
 
 fn default_claude_max_tokens() -> u32 {
@@ -161,6 +166,7 @@ impl LLMClient {
             LLMConfig::Ollama { .. } => "ollama",
             LLMConfig::Claude { .. } => "claude",
             LLMConfig::Gemini { .. } => "gemini",
+            LLMConfig::OpenAI { .. } => "openai",
         }
     }
 
@@ -175,6 +181,9 @@ impl LLMClient {
             }
             LLMConfig::Gemini { api_key, model } => {
                 self.gemini_chat(api_key, model, request).await
+            }
+            LLMConfig::OpenAI { api_key, model, .. } => {
+                self.openai_chat(api_key, model, request).await
             }
         }
     }
@@ -194,6 +203,10 @@ impl LLMClient {
             }
             LLMConfig::Gemini { api_key, .. } => {
                 self.gemini_embed(api_key, text).await
+            }
+            LLMConfig::OpenAI { api_key, embedding_model, .. } => {
+                let model = embedding_model.as_deref().unwrap_or("text-embedding-3-small");
+                self.openai_embed(api_key, model, text).await
             }
         }
     }
@@ -215,6 +228,9 @@ impl LLMClient {
             LLMConfig::Gemini { api_key, .. } => {
                 // Simple validation
                 Ok(api_key.starts_with("AIza"))
+            }
+            LLMConfig::OpenAI { api_key, .. } => {
+                Ok(api_key.starts_with("sk-"))
             }
         }
     }
@@ -552,6 +568,136 @@ impl LLMClient {
         Ok(EmbeddingResponse {
             embedding,
             model: "text-embedding-004".to_string(),
+            dimensions,
+        })
+    }
+
+
+    // ========================================================================
+    // OpenAI Implementation
+    // ========================================================================
+
+    async fn openai_chat(&self, api_key: &str, model: &str, request: ChatRequest) -> Result<ChatResponse> {
+        let url = "https://api.openai.com/v1/chat/completions";
+
+        let messages: Vec<serde_json::Value> = request.messages.iter()
+            .map(|m| serde_json::json!({
+                "role": match m.role {
+                    MessageRole::User => "user",
+                    MessageRole::Assistant => "assistant",
+                    MessageRole::System => "system",
+                },
+                "content": m.content
+            }))
+            .collect();
+
+        // If system prompt is separate, prepend it
+        let mut final_messages = messages;
+        if let Some(system) = &request.system_prompt {
+            final_messages.insert(0, serde_json::json!({
+                "role": "system",
+                "content": system
+            }));
+        }
+
+        let mut body = serde_json::json!({
+            "model": model,
+            "messages": final_messages,
+        });
+
+        if let Some(temp) = request.temperature {
+            body["temperature"] = serde_json::Value::Number(serde_json::Number::from_f64(temp as f64).unwrap());
+        }
+        if let Some(max) = request.max_tokens {
+            body["max_tokens"] = serde_json::Value::Number(serde_json::Number::from(max));
+        }
+
+        let resp = self.client.post(url)
+            .header("Authorization", format!("Bearer {}", api_key))
+            .header("Content-Type", "application/json")
+            .json(&body)
+            .send()
+            .await?;
+
+        let status = resp.status();
+
+        if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+            let retry_after = resp.headers()
+                .get("retry-after")
+                .and_then(|v| v.to_str().ok())
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(20);
+            return Err(LLMError::RateLimited { retry_after_secs: retry_after });
+        }
+
+        if !status.is_success() {
+            let text = resp.text().await.unwrap_or_default();
+            return Err(LLMError::ApiError { status: status.as_u16(), message: text });
+        }
+
+        let json: serde_json::Value = resp.json().await?;
+
+        let content = json["choices"]
+            .as_array()
+            .and_then(|arr| arr.first())
+            .and_then(|c| c["message"]["content"].as_str())
+            .ok_or_else(|| LLMError::InvalidResponse("Missing content".to_string()))?
+            .to_string();
+
+        let usage = json["usage"].as_object().map(|u| TokenUsage {
+            input_tokens: u["prompt_tokens"].as_u64().unwrap_or(0) as u32,
+            output_tokens: u["completion_tokens"].as_u64().unwrap_or(0) as u32,
+        });
+
+        Ok(ChatResponse {
+            content,
+            model: json["model"].as_str().unwrap_or(model).to_string(),
+            usage,
+            finish_reason: json["choices"]
+                .as_array()
+                .and_then(|arr| arr.first())
+                .and_then(|c| c["finish_reason"].as_str())
+                .map(|s| s.to_string()),
+        })
+    }
+
+    async fn openai_embed(&self, api_key: &str, model: &str, text: &str) -> Result<EmbeddingResponse> {
+        let url = "https://api.openai.com/v1/embeddings";
+
+        let body = serde_json::json!({
+            "model": model,
+            "input": text
+        });
+
+        let resp = self.client.post(url)
+            .header("Authorization", format!("Bearer {}", api_key))
+            .header("Content-Type", "application/json")
+            .json(&body)
+            .send()
+            .await?;
+
+        if !resp.status().is_success() {
+            let status = resp.status().as_u16();
+            let text = resp.text().await.unwrap_or_default();
+            return Err(LLMError::ApiError { status, message: text });
+        }
+
+        let json: serde_json::Value = resp.json().await?;
+
+        let embedding: Vec<f32> = json["data"]
+            .as_array()
+            .and_then(|arr| arr.first())
+            .and_then(|d| d["embedding"].as_array())
+            .ok_or_else(|| LLMError::InvalidResponse("Missing embedding".to_string()))?
+            .iter()
+            .map(|v| v.as_f64().unwrap_or(0.0) as f32)
+            .collect();
+
+        let dimensions = embedding.len();
+
+        Ok(EmbeddingResponse {
+            embedding,
+            model: model.to_string(),
             dimensions,
         })
     }

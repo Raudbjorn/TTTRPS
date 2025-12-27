@@ -3,6 +3,7 @@ use dioxus::prelude::*;
 use crate::bindings::{chat, ChatRequestPayload, check_llm_health, get_session_usage, SessionUsage};
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
+use crate::components::design_system::{Button, ButtonVariant, Input, LoadingSpinner, Badge, BadgeVariant, Markdown, TypingIndicator};
 
 #[wasm_bindgen]
 extern "C" {
@@ -191,8 +192,9 @@ pub fn Chat() -> Element {
                 div {
                     class: "flex items-center gap-4",
                     // Usage indicator
-                    button {
-                        class: "flex items-center gap-2 text-xs px-2 py-1 bg-gray-700 rounded hover:bg-gray-600",
+                    Button {
+                        variant: ButtonVariant::Secondary,
+                        class: "text-xs py-1",
                         onclick: move |_| {
                             let current = *show_usage_panel.read();
                             show_usage_panel.set(!current);
@@ -279,11 +281,40 @@ pub fn Chat() -> Element {
                                         }
                                     }
                                 }
+                                button {
+                                    class: "p-2 bg-gray-700 rounded-full hover:bg-gray-600 text-gray-300 hover:text-white ml-2",
+                                    title: "Copy",
+                                    onclick: {
+                                        let c = msg.content.clone();
+                                        move |_| {
+                                            let c = c.clone();
+                                            spawn(async move {
+                                                if let Some(window) = web_sys::window() {
+                                                    let navigator = window.navigator();
+                                                    let clipboard = navigator.clipboard();
+                                                    let _ = wasm_bindgen_futures::JsFuture::from(clipboard.write_text(&c)).await;
+                                                }
+                                            });
+                                        }
+                                    },
+                                    svg {
+                                        class: "w-4 h-4",
+                                        view_box: "0 0 24 24",
+                                        fill: "none",
+                                        stroke: "currentColor",
+                                        "stroke-width": "2",
+                                        path { d: "M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" }
+                                    }
+                                }
                             }
                         }
                         div {
-                            class: "whitespace-pre-wrap",
-                            "{msg.content}"
+                            class: "min-w-0 break-words", // Ensure container handles overflow
+                            if msg.role == "assistant" {
+                                Markdown { content: msg.content.clone() }
+                            } else {
+                                div { class: "whitespace-pre-wrap text-white", "{msg.content}" }
+                            }
                         }
                         if let Some((input, output)) = msg.tokens {
                             div {
@@ -295,13 +326,10 @@ pub fn Chat() -> Element {
                 }
                 if *is_loading.read() {
                     div {
-                        class: "bg-gray-800 p-3 rounded-lg max-w-3xl animate-pulse",
+                        class: "bg-gray-800 p-3 rounded-lg max-w-3xl",
                         div { class: "flex items-center gap-2",
-                            div { class: "w-2 h-2 bg-blue-500 rounded-full animate-bounce" }
-                            div { class: "w-2 h-2 bg-blue-500 rounded-full animate-bounce", style: "animation-delay: 0.1s" }
-                            div { class: "w-2 h-2 bg-blue-500 rounded-full animate-bounce", style: "animation-delay: 0.2s" }
-                            span { class: "text-gray-400 ml-2", "Thinking..." }
-                            span { class: "text-xs text-gray-600 ml-2", "(This might take a moment if standard model is slow)" }
+                            TypingIndicator {}
+                            span { class: "text-xs text-gray-500", "Thinking..." }
                         }
                     }
                 }
@@ -311,19 +339,19 @@ pub fn Chat() -> Element {
                 class: "p-4 bg-theme-secondary border-t border-theme",
                 div {
                     class: "flex gap-2 max-w-4xl mx-auto",
-                    input {
-                        class: "flex-1 p-2 rounded bg-theme-primary text-theme-primary border border-theme focus:border-blue-500 outline-none placeholder-theme-secondary",
-                        placeholder: "Ask the DM...",
-                        value: "{message_input}",
-                        disabled: *is_loading.read(),
-                        oninput: move |e| message_input.set(e.value()),
-                        onkeydown: handle_keydown
+                    div { class: "flex-1",
+                        Input {
+                            value: "{message_input}",
+                            placeholder: "Ask the DM...",
+                            disabled: *is_loading.read(),
+                            oninput: move |val| message_input.set(val),
+                            onkeydown: handle_keydown
+                        }
                     }
-                    button {
-                        class: if *is_loading.read() { "px-4 py-2 bg-gray-600 rounded cursor-not-allowed" } else { "px-4 py-2 bg-blue-600 rounded hover:bg-blue-500 transition-colors" },
+                    Button {
+                        loading: *is_loading.read(),
                         onclick: send_message,
-                        disabled: *is_loading.read(),
-                        if *is_loading.read() { "..." } else { "Send" }
+                        "Send"
                     }
                 }
             }

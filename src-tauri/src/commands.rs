@@ -276,6 +276,13 @@ pub fn get_llm_config(state: State<'_, AppState>) -> Result<Option<LLMSettings>,
             model: model.clone(),
             embedding_model: None,
         },
+        LLMConfig::OpenAI { model, embedding_model, .. } => LLMSettings {
+            provider: "openai".to_string(),
+            api_key: Some("********".to_string()),
+            host: None,
+            model: model.clone(),
+            embedding_model: embedding_model.clone(),
+        },
     }))
 }
 
@@ -891,6 +898,7 @@ pub async fn speak(text: String, state: State<'_, AppState>) -> Result<(), Strin
                     ..Default::default()
                 },
                 LLMConfig::Gemini { .. } => VoiceConfig::default(),
+                LLMConfig::OpenAI { .. } => VoiceConfig::default(),
             }
         } else {
              VoiceConfig::default()

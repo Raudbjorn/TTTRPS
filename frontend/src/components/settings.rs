@@ -1,12 +1,14 @@
 #![allow(non_snake_case)]
 use dioxus::prelude::*;
 use crate::bindings::{configure_llm, get_llm_config, save_api_key, check_llm_health, LLMSettings, HealthStatus};
+use crate::components::design_system::{Button, ButtonVariant, Input, Select, Card, CardHeader, CardBody, Badge, BadgeVariant};
 
 #[derive(Clone, PartialEq)]
 pub enum LLMProvider {
     Ollama,
     Claude,
     Gemini,
+    OpenAI,
 }
 
 impl std::fmt::Display for LLMProvider {
@@ -15,6 +17,7 @@ impl std::fmt::Display for LLMProvider {
             LLMProvider::Ollama => write!(f, "Ollama"),
             LLMProvider::Claude => write!(f, "Claude"),
             LLMProvider::Gemini => write!(f, "Gemini"),
+            LLMProvider::OpenAI => write!(f, "OpenAI"),
         }
     }
 }
@@ -25,6 +28,7 @@ impl LLMProvider {
             LLMProvider::Ollama => "ollama".to_string(),
             LLMProvider::Claude => "claude".to_string(),
             LLMProvider::Gemini => "gemini".to_string(),
+            LLMProvider::OpenAI => "openai".to_string(),
         }
     }
 }
@@ -54,6 +58,10 @@ pub fn Settings() -> Element {
                     }
                     "gemini" => {
                         selected_provider.set(LLMProvider::Gemini);
+                        api_key_or_host.set(String::new());
+                    }
+                    "openai" => {
+                        selected_provider.set(LLMProvider::OpenAI);
                         api_key_or_host.set(String::new());
                     }
                     _ => {}
@@ -144,6 +152,24 @@ pub fn Settings() -> Element {
                         model,
                         embedding_model: None,
                     }
+                    }
+
+                "openai" => {
+                    // Save API key securely first
+                    if !api_key_or_host_val.is_empty() {
+                        if let Err(e) = save_api_key("openai".to_string(), api_key_or_host_val.clone()).await {
+                            save_status.set(format!("Failed to save API key: {}", e));
+                            is_saving.set(false);
+                            return;
+                        }
+                    }
+                    LLMSettings {
+                        provider: "openai".to_string(),
+                        api_key: if api_key_or_host_val.is_empty() { None } else { Some(api_key_or_host_val) },
+                        host: None,
+                        model,
+                        embedding_model: None,
+                    }
                 }
                 _ => {
                     save_status.set("Unknown provider".to_string());
@@ -172,12 +198,14 @@ pub fn Settings() -> Element {
         LLMProvider::Ollama => "http://localhost:11434",
         LLMProvider::Claude => "sk-ant-...",
         LLMProvider::Gemini => "AIza...",
+        LLMProvider::OpenAI => "sk-...",
     };
 
     let label_text = match *selected_provider.read() {
         LLMProvider::Ollama => "Ollama Host",
         LLMProvider::Claude => "Claude API Key",
         LLMProvider::Gemini => "Gemini API Key",
+        LLMProvider::OpenAI => "OpenAI API Key",
     };
 
     let show_embedding_model = matches!(*selected_provider.read(), LLMProvider::Ollama);
@@ -186,117 +214,115 @@ pub fn Settings() -> Element {
         div {
             class: "p-8 bg-theme-primary text-theme-primary min-h-screen font-sans transition-colors duration-300",
             div {
-                class: "max-w-2xl mx-auto",
+                class: "max-w-2xl mx-auto space-y-6",
                 div {
-                    class: "flex items-center mb-8",
-                    Link { to: crate::Route::Chat {}, class: "mr-4 text-gray-400 hover:text-white", "← Back to Chat" }
-                    h1 { class: "text-2xl font-bold", "Settings" }
+                    class: "flex items-center justify-between",
+                    div {
+                        class: "flex items-center gap-4",
+                        Link { to: crate::Route::Chat {}, class: "text-gray-400 hover:text-white transition-colors",
+                             "← Back"
+                        }
+                        h1 { class: "text-2xl font-bold", "Settings" }
+                    }
+                    if let Some(status) = health_status.read().as_ref() {
+                         Badge {
+                            variant: if status.healthy { BadgeVariant::Success } else { BadgeVariant::Error },
+                            "{status.message}"
+                        }
+                    }
                 }
 
-                div {
-                    class: "bg-theme-secondary rounded-lg p-6 space-y-6 border border-theme",
-
-                    // Connection Status
-                    if let Some(status) = health_status.read().as_ref() {
-                        div {
-                            class: if status.healthy { "p-3 bg-green-900 border border-green-700 rounded-lg" } else { "p-3 bg-yellow-900 border border-yellow-700 rounded-lg" },
-                            div { class: "flex items-center gap-2",
-                                div {
-                                    class: if status.healthy { "w-3 h-3 bg-green-500 rounded-full" } else { "w-3 h-3 bg-yellow-500 rounded-full" }
-                                }
-                                span {
-                                    class: if status.healthy { "text-green-300" } else { "text-yellow-300" },
-                                    "{status.message}"
-                                }
-                            }
-                        }
+                Card {
+                    CardHeader {
+                         h2 { class: "text-lg font-semibold", "LLM Configuration" }
                     }
-                    div {
-                        h2 { class: "text-xl font-semibold mb-4", "LLM Configuration" }
-
+                    CardBody {
+                        class: "space-y-4",
+                        // Provider Selection
                         div {
-                            class: "space-y-4",
-                            // Provider Selection
-                            div {
-                                label { class: "block text-sm font-medium text-theme-secondary mb-1", "Provider" }
-                                select {
-                                    class: "block w-full p-2 bg-theme-primary border border-theme rounded text-theme-primary focus:border-blue-500 outline-none",
-                                    onchange: move |e| {
-                                        let value = e.value();
-                                        let provider = match value.as_str() {
-                                            "Claude" => LLMProvider::Claude,
-                                            "Gemini" => LLMProvider::Gemini,
-                                            _ => LLMProvider::Ollama,
-                                        };
-                                        selected_provider.set(provider.clone());
-                                        // Reset the input based on provider
-                                        match provider {
-                                            LLMProvider::Ollama => {
-                                                api_key_or_host.set("http://localhost:11434".to_string());
-                                                model_name.set("llama3.2".to_string());
-                                            }
-                                            LLMProvider::Claude => {
-                                                api_key_or_host.set(String::new());
-                                                model_name.set("claude-3-5-sonnet-20241022".to_string());
-                                            }
-                                            LLMProvider::Gemini => {
-                                                api_key_or_host.set(String::new());
-                                                model_name.set("gemini-pro".to_string());
-                                            }
+                            label { class: "block text-sm font-medium text-theme-secondary mb-1", "Provider" }
+                            Select {
+                                value: selected_provider.read().to_string_key(), // Map back to string or handle in onchange
+                                onchange: move |val: String| {
+                                    // Map "Ollama" etc value from options back to enum?
+                                    // Wait, options values are string.
+                                    let provider = match val.as_str() {
+                                        "Claude" => LLMProvider::Claude,
+                                        "Gemini" => LLMProvider::Gemini,
+                                        "OpenAI" => LLMProvider::OpenAI,
+                                        _ => LLMProvider::Ollama,
+                                    };
+                                    selected_provider.set(provider.clone());
+                                    // Reset defaults
+                                    match provider {
+                                        LLMProvider::Ollama => {
+                                             api_key_or_host.set("http://localhost:11434".to_string());
+                                             model_name.set("llama3.2".to_string());
                                         }
-                                    },
-                                    option { value: "Ollama", selected: matches!(*selected_provider.read(), LLMProvider::Ollama), "Ollama (Local)" }
-                                    option { value: "Claude", selected: matches!(*selected_provider.read(), LLMProvider::Claude), "Claude (Anthropic)" }
-                                    option { value: "Gemini", selected: matches!(*selected_provider.read(), LLMProvider::Gemini), "Gemini (Google)" }
-                                }
-                            }
-
-                            // API Key / Host
-                            div {
-                                label { class: "block text-sm font-medium text-theme-secondary mb-1", "{label_text}" }
-                                input {
-                                    class: "block w-full p-2 bg-theme-primary border border-theme rounded text-theme-primary focus:border-blue-500 outline-none placeholder-theme-secondary",
-                                    r#type: if matches!(*selected_provider.read(), LLMProvider::Ollama) { "text" } else { "password" },
-                                    placeholder: "{placeholder_text}",
-                                    value: "{api_key_or_host}",
-                                    oninput: move |e| api_key_or_host.set(e.value())
-                                }
-                            }
-
-                            // Model Name
-                            div {
-                                label { class: "block text-sm font-medium text-gray-400 mb-1", "Model" }
-                                input {
-                                    class: "block w-full p-2 bg-theme-primary border border-theme rounded text-theme-primary focus:border-blue-500 outline-none placeholder-theme-secondary",
-                                    placeholder: "llama3.2 / claude-3-5-sonnet / gemini-pro",
-                                    value: "{model_name}",
-                                    oninput: move |e| model_name.set(e.value())
-                                }
-                            }
-
-                            // Embedding Model (Ollama only)
-                            if show_embedding_model {
-                                div {
-                                    label { class: "block text-sm font-medium text-gray-400 mb-1", "Embedding Model" }
-                                    input {
-                                        class: "block w-full p-2 bg-gray-700 border border-gray-600 rounded text-white focus:border-blue-500 outline-none",
-                                        placeholder: "nomic-embed-text",
-                                        value: "{embedding_model}",
-                                        oninput: move |e| embedding_model.set(e.value())
+                                        LLMProvider::Claude => {
+                                             api_key_or_host.set(String::new());
+                                             model_name.set("claude-3-5-sonnet-20241022".to_string());
+                                        }
+                                        LLMProvider::Gemini => {
+                                             api_key_or_host.set(String::new());
+                                             model_name.set("gemini-pro".to_string());
+                                        }
+                                        LLMProvider::OpenAI => {
+                                             api_key_or_host.set(String::new());
+                                             model_name.set("gpt-4o".to_string());
+                                        }
                                     }
+                                },
+                                option { value: "Ollama", selected: matches!(*selected_provider.read(), LLMProvider::Ollama), "Ollama (Local)" }
+                                option { value: "Claude", selected: matches!(*selected_provider.read(), LLMProvider::Claude), "Claude (Anthropic)" }
+                                option { value: "Gemini", selected: matches!(*selected_provider.read(), LLMProvider::Gemini), "Gemini (Google)" }
+                                option { value: "OpenAI", selected: matches!(*selected_provider.read(), LLMProvider::OpenAI), "OpenAI" }
+                            }
+                        }
+
+                        // API Key / Host
+                        div {
+                            label { class: "block text-sm font-medium text-theme-secondary mb-1", "{label_text}" }
+                            Input {
+                                r#type: if matches!(*selected_provider.read(), LLMProvider::Ollama) { "text" } else { "password" },
+                                placeholder: "{placeholder_text}",
+                                value: "{api_key_or_host}",
+                                oninput: move |val| api_key_or_host.set(val)
+                            }
+                        }
+
+                        // Model Name
+                        div {
+                            label { class: "block text-sm font-medium text-theme-secondary mb-1", "Model" }
+                            Input {
+                                placeholder: "e.g. llama3.2, gpt-4o",
+                                value: "{model_name}",
+                                oninput: move |val| model_name.set(val)
+                            }
+                        }
+
+                        // Embedding Model
+                        if show_embedding_model {
+                            div {
+                                label { class: "block text-sm font-medium text-theme-secondary mb-1", "Embedding Model" }
+                                Input {
+                                    placeholder: "nomic-embed-text",
+                                    value: "{embedding_model}",
+                                    oninput: move |val| embedding_model.set(val)
                                 }
                             }
                         }
                     }
-                    // Appearance Settings
-                    div {
-                        h2 { class: "text-xl font-semibold mb-4", "Appearance" }
+                }
+
+                Card {
+                    CardHeader { h2 { class: "text-lg font-semibold", "Appearance" } }
+                    CardBody {
                         div {
-                            label { class: "block text-sm font-medium text-gray-400 mb-1", "Theme" }
-                            select {
-                                class: "block w-full p-2 bg-theme-primary border border-theme rounded text-theme-primary focus:border-blue-500 outline-none",
+                            label { class: "block text-sm font-medium text-theme-secondary mb-1", "Theme" }
+                            Select {
                                 value: "{theme_sig}",
-                                onchange: move |e| theme_sig.set(e.value()),
+                                onchange: move |val| theme_sig.set(val),
                                 option { value: "fantasy", "Fantasy (Default)" }
                                 option { value: "scifi", "Sci-Fi" }
                                 option { value: "horror", "Horror" }
@@ -304,46 +330,27 @@ pub fn Settings() -> Element {
                             }
                         }
                     }
+                }
 
-                    // Voice Settings Section
-                    div {
-                        h2 { class: "text-xl font-semibold mb-4", "Voice Settings" }
-                        div {
-                            class: "p-4 bg-gray-700 rounded text-center text-gray-400",
-                            "Voice configuration coming soon..."
-                        }
+                // Actions
+                div {
+                    class: "flex justify-end gap-4 pt-4 border-t border-gray-700",
+                    if !save_status.read().is_empty() {
+                         span {
+                            class: if save_status.read().contains("Error") || save_status.read().contains("Failed") { "text-red-400 self-center mr-auto" } else { "text-green-400 self-center mr-auto" },
+                            "{save_status}"
+                         }
                     }
-
-                    // Save Button
-                    div {
-                        class: "pt-4 border-t border-gray-700 flex justify-between items-center",
-                        div {
-                            class: "flex-1",
-                            if !save_status.read().is_empty() {
-                                p {
-                                    class: if save_status.read().contains("Error") || save_status.read().contains("failed") {
-                                        "text-sm text-red-400"
-                                    } else {
-                                        "text-sm text-green-400"
-                                    },
-                                    "{save_status}"
-                                }
-                            }
-                        }
-                        div {
-                            class: "flex gap-2",
-                            button {
-                                class: "px-4 py-2 bg-gray-600 rounded hover:bg-gray-500 transition-colors",
-                                onclick: test_connection,
-                                "Test Connection"
-                            }
-                            button {
-                                class: if *is_saving.read() { "px-6 py-2 bg-gray-600 rounded cursor-not-allowed font-medium" } else { "px-6 py-2 bg-green-600 rounded hover:bg-green-500 transition-colors font-medium" },
-                                onclick: save_settings,
-                                disabled: *is_saving.read(),
-                                if *is_saving.read() { "Saving..." } else { "Save Changes" }
-                            }
-                        }
+                    Button {
+                        variant: ButtonVariant::Secondary,
+                        onclick: test_connection,
+                        "Test Connection"
+                    }
+                    Button {
+                        variant: ButtonVariant::Primary,
+                        loading: *is_saving.read(),
+                        onclick: save_settings,
+                        "Save Changes"
                     }
                 }
             }
