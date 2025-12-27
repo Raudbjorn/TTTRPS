@@ -69,6 +69,7 @@ async-trait = "0.1"
 # Keychain dependencies
 keyring = "2.3"
 tracing = "0.1.44"
+meilisearch-sdk = "0.31.0"
 # Platform-specific dependencies
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.54", features = ["Win32_Foundation", "Win32_System_JobObjects", "Win32_Security", "Win32_Security_Credentials"] }

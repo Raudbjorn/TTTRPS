@@ -39,7 +39,10 @@ fn main() {
                 vector_store.initialize().await.expect("Failed to create default tables");
 
                 // Initialize managers
-                let (cm, sm, ns, creds, vm) = commands::AppState::init_defaults();
+                let (cm, sm, ns, creds, vm, sidecar_manager, search_client, personality_store) = commands::AppState::init_defaults();
+
+                // Start Meilisearch Sidecar
+                sidecar_manager.start(handle.clone());
 
                 app.manage(commands::AppState {
                     llm_client: std::sync::RwLock::new(None),
@@ -50,6 +53,9 @@ fn main() {
                     npc_store: ns,
                     credentials: creds,
                     voice_manager: vm,
+                    sidecar_manager,
+                    search_client,
+                    personality_store,
                 });
             });
 

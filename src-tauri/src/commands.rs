@@ -32,6 +32,9 @@ use crate::core::credentials::CredentialManager;
 // Voice imports consolidated above
 use crate::core::audio::AudioVolumes;
 use crate::ingestion::pdf_parser::PDFParser;
+use crate::core::sidecar_manager::SidecarManager;
+use crate::core::search_client::SearchClient;
+use crate::core::personality::PersonalityStore;
 
 // ============================================================================
 // Application State
@@ -46,6 +49,9 @@ pub struct AppState {
     pub npc_store: NPCStore,
     pub credentials: CredentialManager,
     pub voice_manager: Arc<VoiceManager>,
+    pub sidecar_manager: Arc<SidecarManager>,
+    pub search_client: Arc<SearchClient>,
+    pub personality_store: Arc<PersonalityStore>,
 }
 
 impl Default for AppState {
@@ -76,7 +82,7 @@ impl AppStateInit {
 
 // Helper init for default state components
 impl AppState {
-    pub fn init_defaults() -> (CampaignManager, SessionManager, NPCStore, CredentialManager, Arc<VoiceManager>) {
+    pub fn init_defaults() -> (CampaignManager, SessionManager, NPCStore, CredentialManager, Arc<VoiceManager>, Arc<SidecarManager>, Arc<SearchClient>, Arc<PersonalityStore>) {
         (
             CampaignManager::new(),
             SessionManager::new(),
@@ -86,6 +92,9 @@ impl AppState {
                 cache_dir: Some(PathBuf::from("./voice_cache")),
                 ..Default::default()
             })),
+            Arc::new(SidecarManager::new()),
+            Arc::new(SearchClient::new("http://localhost:7700", Some("masterKey"))), // TODO: Configurable key
+            Arc::new(PersonalityStore::new()),
         )
     }
 }
@@ -99,6 +108,7 @@ impl AppState {
 pub struct ChatRequestPayload {
     pub message: String,
     pub system_prompt: Option<String>,
+    pub personality_id: Option<String>,
     pub context: Option<Vec<String>>,
 }
 
@@ -196,12 +206,28 @@ pub async fn chat(
         content: payload.message,
     });
 
-    let request = ChatRequest {
-        messages,
-        system_prompt: Some(payload.system_prompt.unwrap_or_else(|| {
+    // Determine effective system prompt
+    let system_prompt = if let Some(pid) = &payload.personality_id {
+        // Try to load personality
+        match state.personality_store.get(pid) {
+            Ok(profile) => profile.to_system_prompt(),
+            Err(_) => {
+                // Fallback if not found
+                 payload.system_prompt.clone().unwrap_or_else(|| {
+                    "You are a helpful TTRPG Game Master assistant.".to_string()
+                })
+            }
+        }
+    } else {
+         payload.system_prompt.clone().unwrap_or_else(|| {
             "You are a helpful TTRPG Game Master assistant. Help the user with their tabletop RPG questions, \
              provide rules clarifications, generate content, and assist with running their campaign.".to_string()
-        })),
+        })
+    };
+
+    let request = ChatRequest {
+        messages,
+        system_prompt: Some(system_prompt),
         temperature: Some(0.7),
         max_tokens: Some(2048),
     };

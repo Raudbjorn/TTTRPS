@@ -29,3 +29,5 @@ pub mod session_summary;
 pub mod search_analytics;
 pub mod name_gen;
 pub mod voice_queue;
+pub mod sidecar_manager;
+pub mod search_client;

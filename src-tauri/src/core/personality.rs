@@ -60,8 +60,62 @@ pub struct PersonalityProfile {
     pub metadata: HashMap<String, String>,
     /// Creation timestamp
     pub created_at: String,
-    /// Last update timestamp
     pub updated_at: String,
+}
+
+impl PersonalityProfile {
+    pub fn to_system_prompt(&self) -> String {
+        let mut prompt = format!("You are {}.\n\n", self.name);
+
+        // Speech Patterns
+        prompt.push_str("SPEECH PATTERNS:\n");
+        prompt.push_str(&format!("- Formality Level: {}/10\n", self.speech_patterns.formality));
+        prompt.push_str(&format!("- Pacing: {}\n", self.speech_patterns.pacing));
+        prompt.push_str(&format!("- Vocabulary: {}\n", self.speech_patterns.vocabulary_style));
+        if let Some(dialect) = &self.speech_patterns.dialect_notes {
+            prompt.push_str(&format!("- Dialect/Accent: {}\n", dialect));
+        }
+        if !self.speech_patterns.common_phrases.is_empty() {
+            prompt.push_str("- Common Phrases:\n");
+            for phrase in &self.speech_patterns.common_phrases {
+                prompt.push_str(&format!("  * \"{}\"\n", phrase));
+            }
+        }
+        prompt.push('\n');
+
+        // Traits
+        if !self.traits.is_empty() {
+            prompt.push_str("PERSONALITY TRAITS:\n");
+            for trait_info in &self.traits {
+                prompt.push_str(&format!("- {} (Intensity {}/10): {}\n",
+                    trait_info.trait_name, trait_info.intensity, trait_info.manifestation));
+            }
+            prompt.push('\n');
+        }
+
+        // Behavior
+        prompt.push_str("BEHAVIOR:\n");
+        prompt.push_str(&format!("- General Attitude: {}\n", self.behavioral_tendencies.general_attitude));
+        prompt.push_str(&format!("- Toward Strangers: {}\n", self.behavioral_tendencies.stranger_response));
+        prompt.push_str(&format!("- Toward Authority: {}\n", self.behavioral_tendencies.authority_response));
+        prompt.push_str(&format!("- Toward Conflict: {}\n", self.behavioral_tendencies.conflict_response));
+        prompt.push('\n');
+
+        // Knowledge
+        if !self.knowledge_areas.is_empty() {
+            prompt.push_str("KNOWLEDGE AREAS:\n");
+            for area in &self.knowledge_areas {
+                prompt.push_str(&format!("- {}\n", area));
+            }
+            prompt.push('\n');
+        }
+
+        // Instructions
+        prompt.push_str("CORE INSTRUCTIONS:\n");
+        prompt.push_str("Adopt this persona completely. React to the user's input as this character would. Do not break character unless explicitly asked.");
+
+        prompt
+    }
 }
 
 /// Speech patterns and verbal mannerisms
