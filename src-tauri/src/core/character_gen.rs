@@ -130,7 +130,7 @@ pub struct CharacterTrait {
     pub mechanical_effect: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum TraitType {
     Personality,
     Background,
