@@ -27,6 +27,16 @@ This document outlines the step-by-step process to replace the current fragmente
         - Enable Vector Search (embedders).
         - Configure `open-ai` or `ollama` embedder based on user settings (this might require dynamic settings updates).
 
+- [ ] **Phase 2.5: Specialized Indexes & Federated Search**
+    - **Concept**: Implement separate indexes for distinct content types to leverage specialized embedders.
+    - **Action**: Create distinct indexes:
+        - `index_rules`: Uses "Technical/Instructional" embedder (e.g., `text-embedding-3-small`).
+        - `index_fiction`: Uses "Narrative/Prose" embedder (e.g., higher dimensional narrative model).
+        - `index_chat`: Uses "Conversational" embedder.
+    - **Refactor**: Update `search_library` command to use **Meilisearch Multi-Search**.
+        - Construct a federated query that targets all relevant indexes simultaneously.
+        - Add logic to aggregate and categorize results ("Rules", "Lore", "Chat Logs") in the frontend response.
+
 - [ ] **Refactor Ingestion Pipeline**
     - **Modify**: `src-tauri/src/ingestion/mod.rs`
     - **Action**: Instead of calling `vector_store::add` and `keyword_search::add`, call `search_client::add_documents`.
