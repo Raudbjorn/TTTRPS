@@ -190,7 +190,11 @@ impl SearchClient {
                 let task = self.client
                     .create_index(name, primary_key)
                     .await?;
-                task.wait_for_completion(&self.client, None, None).await?;
+                task.wait_for_completion(
+                    &self.client,
+                    Some(std::time::Duration::from_millis(100)),
+                    Some(std::time::Duration::from_secs(30)),
+                ).await?;
                 Ok(self.client.index(name))
             }
         }
@@ -213,7 +217,11 @@ impl SearchClient {
         for index_name in [INDEX_RULES, INDEX_FICTION, INDEX_CHAT, INDEX_DOCUMENTS] {
             let index = self.client.index(index_name);
             let task = index.set_settings(&base_settings).await?;
-            task.wait_for_completion(&self.client, None, None).await?;
+            task.wait_for_completion(
+                &self.client,
+                Some(std::time::Duration::from_millis(100)),
+                Some(std::time::Duration::from_secs(30)),
+            ).await?;
         }
 
         log::info!("Initialized Meilisearch indexes: rules, fiction, chat, documents");
@@ -294,7 +302,13 @@ impl SearchClient {
 
         let index = self.client.index(index_name);
         let task = index.add_documents(&documents, Some("id")).await?;
-        task.wait_for_completion(&self.client, None, None).await?;
+
+        // Wait with explicit timeout (30 seconds) and polling interval (100ms)
+        task.wait_for_completion(
+            &self.client,
+            Some(std::time::Duration::from_millis(100)),
+            Some(std::time::Duration::from_secs(30)),
+        ).await?;
 
         log::info!("Added {} documents to index '{}'", documents.len(), index_name);
         Ok(())
@@ -322,7 +336,11 @@ impl SearchClient {
             .collect();
 
         let task = index.delete_documents(&ids).await?;
-        task.wait_for_completion(&self.client, None, None).await?;
+        task.wait_for_completion(
+            &self.client,
+            Some(std::time::Duration::from_millis(100)),
+            Some(std::time::Duration::from_secs(30)),
+        ).await?;
 
         log::info!("Deleted {} documents from index '{}' matching filter", ids.len(), index_name);
         Ok(())
@@ -332,7 +350,11 @@ impl SearchClient {
     pub async fn delete_document(&self, index_name: &str, doc_id: &str) -> Result<()> {
         let index = self.client.index(index_name);
         let task = index.delete_document(doc_id).await?;
-        task.wait_for_completion(&self.client, None, None).await?;
+        task.wait_for_completion(
+            &self.client,
+            Some(std::time::Duration::from_millis(100)),
+            Some(std::time::Duration::from_secs(30)),
+        ).await?;
         Ok(())
     }
 
@@ -524,7 +546,14 @@ impl SearchClient {
     pub async fn clear_index(&self, index_name: &str) -> Result<()> {
         let index = self.client.index(index_name);
         let task = index.delete_all_documents().await?;
-        task.wait_for_completion(&self.client, None, None).await?;
+
+        // Wait with explicit timeout (30 seconds) and polling interval (100ms)
+        task.wait_for_completion(
+            &self.client,
+            Some(std::time::Duration::from_millis(100)),
+            Some(std::time::Duration::from_secs(30)),
+        ).await?;
+
         log::info!("Cleared all documents from index '{}'", index_name);
         Ok(())
     }
