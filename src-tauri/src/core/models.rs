@@ -1,16 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ContentChunk {
-    pub id: String,
-    pub source_id: String,
-    pub content: String,
-    pub page_number: i32,
-    pub section: Option<String>,
-    pub chunk_type: String, // "rule", "table", "narrative"
-    pub metadata: HashMap<String, String>,
-}
+// Re-export ContentChunk from chunker module
+pub use crate::ingestion::chunker::ContentChunk;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SourceDocument {
