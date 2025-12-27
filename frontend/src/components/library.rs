@@ -1,6 +1,5 @@
 #![allow(non_snake_case)]
 use dioxus::prelude::*;
-use crate::bindings::ingest_pdf;
 
 #[derive(Clone, PartialEq)]
 pub struct SourceDocument {
@@ -14,8 +13,8 @@ pub struct SourceDocument {
 #[component]
 pub fn Library() -> Element {
     let mut ingestion_status = use_signal(|| String::new());
-    let mut documents = use_signal(|| Vec::<SourceDocument>::new());
-    let mut total_chunks = use_signal(|| 0_usize);
+    let documents = use_signal(|| Vec::<SourceDocument>::new());
+    let total_chunks = use_signal(|| 0_usize);
     let vector_store_status = "LanceDB Ready";
     let mut is_ingesting = use_signal(|| false);
     let mut search_query = use_signal(|| String::new());

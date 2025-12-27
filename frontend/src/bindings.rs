@@ -156,6 +156,326 @@ pub async fn ingest_pdf(path: String) -> Result<IngestResult, String> {
 }
 
 // ============================================================================
+// Campaign Types
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Campaign {
+    pub id: String,
+    pub name: String,
+    pub system: String,
+    pub description: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+    pub session_count: u32,
+    pub player_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SnapshotSummary {
+    pub id: String,
+    pub description: String,
+    pub created_at: String,
+    pub snapshot_type: String,
+}
+
+// ============================================================================
+// Campaign Commands
+// ============================================================================
+
+pub async fn list_campaigns() -> Result<Vec<Campaign>, String> {
+    invoke_no_args("list_campaigns").await
+}
+
+pub async fn create_campaign(name: String, system: String) -> Result<Campaign, String> {
+    #[derive(Serialize)]
+    struct Args {
+        name: String,
+        system: String,
+    }
+    invoke("create_campaign", &Args { name, system }).await
+}
+
+pub async fn get_campaign(id: String) -> Result<Option<Campaign>, String> {
+    #[derive(Serialize)]
+    struct Args {
+        id: String,
+    }
+    invoke("get_campaign", &Args { id }).await
+}
+
+pub async fn delete_campaign(id: String) -> Result<(), String> {
+    #[derive(Serialize)]
+    struct Args {
+        id: String,
+    }
+    invoke("delete_campaign", &Args { id }).await
+}
+
+pub async fn list_snapshots(campaign_id: String) -> Result<Vec<SnapshotSummary>, String> {
+    #[derive(Serialize)]
+    struct Args {
+        campaign_id: String,
+    }
+    invoke("list_snapshots", &Args { campaign_id }).await
+}
+
+pub async fn create_snapshot(campaign_id: String, description: String) -> Result<String, String> {
+    #[derive(Serialize)]
+    struct Args {
+        campaign_id: String,
+        description: String,
+    }
+    invoke("create_snapshot", &Args { campaign_id, description }).await
+}
+
+pub async fn restore_snapshot(campaign_id: String, snapshot_id: String) -> Result<(), String> {
+    #[derive(Serialize)]
+    struct Args {
+        campaign_id: String,
+        snapshot_id: String,
+    }
+    invoke("restore_snapshot", &Args { campaign_id, snapshot_id }).await
+}
+
+// ============================================================================
+// Session Types
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GameSession {
+    pub id: String,
+    pub campaign_id: String,
+    pub session_number: u32,
+    pub status: String,
+    pub started_at: String,
+    pub ended_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionSummary {
+    pub id: String,
+    pub session_number: u32,
+    pub duration_mins: u64,
+    pub combat_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CombatState {
+    pub id: String,
+    pub round: u32,
+    pub current_turn: usize,
+    pub combatants: Vec<Combatant>,
+    pub is_active: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Combatant {
+    pub id: String,
+    pub name: String,
+    pub initiative: i32,
+    pub hp_current: i32,
+    pub hp_max: i32,
+    pub combatant_type: String,
+    pub conditions: Vec<String>,
+    pub is_active: bool,
+}
+
+// ============================================================================
+// Session Commands
+// ============================================================================
+
+pub async fn start_session(campaign_id: String, session_number: u32) -> Result<GameSession, String> {
+    #[derive(Serialize)]
+    struct Args {
+        campaign_id: String,
+        session_number: u32,
+    }
+    invoke("start_session", &Args { campaign_id, session_number }).await
+}
+
+pub async fn get_session(session_id: String) -> Result<Option<GameSession>, String> {
+    #[derive(Serialize)]
+    struct Args {
+        session_id: String,
+    }
+    invoke("get_session", &Args { session_id }).await
+}
+
+pub async fn get_active_session(campaign_id: String) -> Result<Option<GameSession>, String> {
+    #[derive(Serialize)]
+    struct Args {
+        campaign_id: String,
+    }
+    invoke("get_active_session", &Args { campaign_id }).await
+}
+
+pub async fn list_sessions(campaign_id: String) -> Result<Vec<SessionSummary>, String> {
+    #[derive(Serialize)]
+    struct Args {
+        campaign_id: String,
+    }
+    invoke("list_sessions", &Args { campaign_id }).await
+}
+
+pub async fn end_session(session_id: String) -> Result<SessionSummary, String> {
+    #[derive(Serialize)]
+    struct Args {
+        session_id: String,
+    }
+    invoke("end_session", &Args { session_id }).await
+}
+
+// ============================================================================
+// Combat Commands
+// ============================================================================
+
+pub async fn start_combat(session_id: String) -> Result<CombatState, String> {
+    #[derive(Serialize)]
+    struct Args {
+        session_id: String,
+    }
+    invoke("start_combat", &Args { session_id }).await
+}
+
+pub async fn end_combat(session_id: String) -> Result<(), String> {
+    #[derive(Serialize)]
+    struct Args {
+        session_id: String,
+    }
+    invoke("end_combat", &Args { session_id }).await
+}
+
+pub async fn get_combat(session_id: String) -> Result<Option<CombatState>, String> {
+    #[derive(Serialize)]
+    struct Args {
+        session_id: String,
+    }
+    invoke("get_combat", &Args { session_id }).await
+}
+
+pub async fn add_combatant(
+    session_id: String,
+    name: String,
+    initiative: i32,
+    combatant_type: String,
+) -> Result<Combatant, String> {
+    #[derive(Serialize)]
+    struct Args {
+        session_id: String,
+        name: String,
+        initiative: i32,
+        combatant_type: String,
+    }
+    invoke("add_combatant", &Args { session_id, name, initiative, combatant_type }).await
+}
+
+pub async fn remove_combatant(session_id: String, combatant_id: String) -> Result<(), String> {
+    #[derive(Serialize)]
+    struct Args {
+        session_id: String,
+        combatant_id: String,
+    }
+    invoke("remove_combatant", &Args { session_id, combatant_id }).await
+}
+
+pub async fn next_turn(session_id: String) -> Result<Option<Combatant>, String> {
+    #[derive(Serialize)]
+    struct Args {
+        session_id: String,
+    }
+    invoke("next_turn", &Args { session_id }).await
+}
+
+pub async fn damage_combatant(session_id: String, combatant_id: String, amount: i32) -> Result<i32, String> {
+    #[derive(Serialize)]
+    struct Args {
+        session_id: String,
+        combatant_id: String,
+        amount: i32,
+    }
+    invoke("damage_combatant", &Args { session_id, combatant_id, amount }).await
+}
+
+pub async fn heal_combatant(session_id: String, combatant_id: String, amount: i32) -> Result<i32, String> {
+    #[derive(Serialize)]
+    struct Args {
+        session_id: String,
+        combatant_id: String,
+        amount: i32,
+    }
+    invoke("heal_combatant", &Args { session_id, combatant_id, amount }).await
+}
+
+pub async fn add_condition(session_id: String, combatant_id: String, condition_name: String) -> Result<(), String> {
+    #[derive(Serialize)]
+    struct Args {
+        session_id: String,
+        combatant_id: String,
+        condition_name: String,
+    }
+    invoke("add_condition", &Args { session_id, combatant_id, condition_name }).await
+}
+
+pub async fn remove_condition(session_id: String, combatant_id: String, condition_name: String) -> Result<(), String> {
+    #[derive(Serialize)]
+    struct Args {
+        session_id: String,
+        combatant_id: String,
+        condition_name: String,
+    }
+    invoke("remove_condition", &Args { session_id, combatant_id, condition_name }).await
+}
+
+// ============================================================================
+// Character Types
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Character {
+    pub id: String,
+    pub name: String,
+    pub system: String,
+    pub character_type: String,
+    pub level: Option<u32>,
+    pub attributes: Vec<AttributeValue>,
+    pub skills: Vec<String>,
+    pub backstory: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AttributeValue {
+    pub name: String,
+    pub value: i32,
+    pub modifier: Option<i32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GenerationOptions {
+    pub system: String,
+    pub character_type: Option<String>,
+    pub level: Option<u32>,
+    pub name: Option<String>,
+    pub include_backstory: bool,
+}
+
+// ============================================================================
+// Character Commands
+// ============================================================================
+
+pub async fn generate_character(options: GenerationOptions) -> Result<Character, String> {
+    #[derive(Serialize)]
+    struct Args {
+        options: GenerationOptions,
+    }
+    invoke("generate_character", &Args { options }).await
+}
+
+pub async fn get_supported_systems() -> Result<Vec<String>, String> {
+    invoke_no_args("get_supported_systems").await
+}
+
+// ============================================================================
 // Utility Commands
 // ============================================================================
 
