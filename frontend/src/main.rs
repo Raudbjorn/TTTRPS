@@ -11,6 +11,7 @@ mod components {
     pub mod campaigns;
     pub mod session;
     pub mod character;
+    pub mod design_system;
 }
 use components::chat::Chat;
 use components::settings::Settings;
@@ -47,7 +48,7 @@ pub type ThemeSignal = Signal<String>;
 fn App() -> Element {
     // Initialize theme signal
     use_context_provider(|| Signal::new("fantasy".to_string()));
-    let mut theme_sig = use_context::<ThemeSignal>();
+    let theme_sig = use_context::<ThemeSignal>();
 
     // Effect to update body attribute
     use_effect(move || {
