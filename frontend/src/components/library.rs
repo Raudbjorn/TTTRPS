@@ -1,6 +1,6 @@
 #![allow(non_snake_case)]
 use dioxus::prelude::*;
-use crate::bindings::ingest_pdf;
+use crate::bindings::{ingest_pdf, search, get_vector_store_status, SearchOptions};
 
 #[derive(Clone, PartialEq)]
 pub struct SourceDocument {
@@ -16,7 +16,13 @@ pub fn Library() -> Element {
     let mut ingestion_status = use_signal(|| String::new());
     let mut documents = use_signal(|| Vec::<SourceDocument>::new());
     let mut total_chunks = use_signal(|| 0_usize);
-    let vector_store_status = "LanceDB Ready";
+
+    let status_resource = use_resource(move || async move {
+        get_vector_store_status().await.unwrap_or_else(|e| format!("Error: {}", e))
+    });
+
+    let current_status = status_resource.read().clone().unwrap_or_else(|| "Checking...".to_string());
+
     let mut is_ingesting = use_signal(|| false);
     let mut search_query = use_signal(|| String::new());
     let mut is_drag_over = use_signal(|| false);
@@ -72,17 +78,31 @@ pub fn Library() -> Element {
         ingestion_status.set(format!("Searching for: '{}'...", query));
 
         spawn(async move {
-            // TODO: Call actual search binding when implemented
-            // For now, show placeholder
-            search_results.set(vec![
-                SearchResult {
-                    title: "Sample Result".to_string(),
-                    snippet: format!("Results for '{}' will appear here once search is implemented.", query),
-                    source: "Library Search".to_string(),
-                    score: 0.95,
+            match search(query.clone(), None).await {
+                Ok(results) => {
+                    let mapped_results: Vec<SearchResult> = results.into_iter().map(|r| {
+                        let snippet = if r.content.len() > 150 {
+                            format!("{}...", &r.content[0..150])
+                        } else {
+                            r.content.clone()
+                        };
+
+                        SearchResult {
+                            title: format!("{} (p.{})", r.source, r.page_number.unwrap_or(0)),
+                            snippet,
+                            source: format!("{} / {}", r.source_type, r.index),
+                            score: r.score,
+                        }
+                    }).collect();
+
+                    search_results.set(mapped_results);
+                    ingestion_status.set(format!("Found {} results for: '{}'", search_results.len(), query));
                 },
-            ]);
-            ingestion_status.set(format!("Found results for: '{}'", query));
+                Err(e) => {
+                    ingestion_status.set(format!("Search failed: {}", e));
+                    search_results.set(Vec::new());
+                }
+            }
             is_searching.set(false);
         });
     };
@@ -226,7 +246,10 @@ pub fn Library() -> Element {
                             div {
                                 class: "flex justify-between items-center p-2 bg-gray-700 rounded",
                                 span { class: "text-gray-400", "Vector Store" }
-                                span { class: "text-green-400 font-mono text-sm", "{vector_store_status}" }
+                                span {
+                                    class: if current_status.contains("Ready") { "text-green-400 font-mono text-sm" } else { "text-red-400 font-mono text-sm" },
+                                    "{current_status}"
+                                }
                             }
                             div {
                                 class: "flex justify-between items-center p-2 bg-gray-700 rounded",

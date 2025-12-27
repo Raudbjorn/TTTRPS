@@ -15,7 +15,6 @@
 [0;36m⚙️ Starting Development Server[0m
 [0;36m────────────────────────────────────────────────────────────────────────────────[0m
 [0;34m⚙️ Running cargo tauri dev...[0m
-[2m   0.177s[0m [32m INFO[0m Installing tailwindcss@v3.4.15
 [2m   0.202s[0m [32m INFO[0m -----------------------------------------------------------------
                 Serving your app: ttrpg-assistant-frontend! 🚀
                 • Press [33m`ctrl+c`[0m to exit the server
@@ -25,10 +24,11 @@
                 • Press [33m`/`[0m for more commands and shortcuts
                 Learn more at [34mhttps://dioxuslabs.com/learn/0.7/getting_started[0m
                ----------------------------------------------------------------
-[2m   0.202s[0m [32m INFO[0m Installing tailwindcss@v3.4.15
-Meilisearch sidecar started with PID: 1698870
-Meilisearch terminated: TerminatedPayload { code: Some(1), signal: None }
-[2m  16.213s[0m [32m INFO[0m Build completed successfully in [33m471ms[0m, launching app! 💫
-[2m 124.838s[0m [32m INFO[0m Build completed in [33m462ms[0m
+[2m   7.549s[0m [32m INFO[0m Build completed successfully in [33m3096ms[0m, launching app! 💫
+DEBUG: check_llm_health called
+DEBUG: check_llm_health called
+DEBUG: check_llm_health called
+DEBUG: check_llm_health called
+DEBUG: check_llm_health called
 
 [0;32m🚀 Done![0m

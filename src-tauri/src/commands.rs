@@ -281,6 +281,7 @@ pub async fn chat(
 
 #[tauri::command]
 pub async fn check_llm_health(state: State<'_, AppState>) -> Result<HealthStatus, String> {
+    println!("DEBUG: check_llm_health called");
     let config_opt = state.llm_config.read().unwrap().clone();
 
     match config_opt {
@@ -947,22 +948,37 @@ pub fn search_npcs(
 // ============================================================================
 
 #[tauri::command]
-pub fn ingest_pdf(path: String) -> Result<IngestResult, String> {
-    let path = std::path::Path::new(&path);
+pub async fn ingest_pdf(
+    path: String,
+    state: State<'_, AppState>,
+) -> Result<IngestResult, String> {
+    let path_buf = std::path::Path::new(&path);
 
-    let pages = PDFParser::extract_text_with_pages(path)
+    // Process using MeilisearchPipeline
+    let result = state.ingestion_pipeline
+        .process_file(
+            &state.search_client,
+            path_buf,
+            "document",
+            None // No campaign ID for generic library ingestion
+        )
+        .await
         .map_err(|e| e.to_string())?;
 
-    let total_chars: usize = pages.iter().map(|(_, text)| text.len()).sum();
-
     Ok(IngestResult {
-        page_count: pages.len(),
-        character_count: total_chars,
-        source_name: path.file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("unknown")
-            .to_string(),
+        page_count: 0, // Simplified pipeline result doesn't return page count yet
+        character_count: result.total_chunks * 500, // Approximation if needed, or update IngestResult
+        source_name: result.source,
     })
+}
+
+#[tauri::command]
+pub async fn get_vector_store_status(state: State<'_, AppState>) -> Result<String, String> {
+    match state.search_client.health_check().await {
+        Ok(true) => Ok("Meilisearch Ready".to_string()),
+        Ok(false) => Ok("Meilisearch Unhealthy".to_string()),
+        Err(e) => Ok(format!("Error: {}", e)),
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]

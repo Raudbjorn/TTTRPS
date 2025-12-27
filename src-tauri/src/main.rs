@@ -148,6 +148,7 @@ fn main() {
             commands::search,
             commands::check_meilisearch_health,
             commands::reindex_library,
+            commands::get_vector_store_status,
 
             // Voice Commands
             commands::speak,

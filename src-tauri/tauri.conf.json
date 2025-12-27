@@ -15,6 +15,7 @@
       "iconAsTemplate": true,
       "menuOnLeftClick": false
     },
+    "withGlobalTauri": true,
     "security": {
       "csp": "default-src 'self' tauri: asset:; script-src 'self' tauri: 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline' tauri: asset:; connect-src 'self' ipc: tauri: asset: http://localhost:* http://127.0.0.1:* ws://localhost:* https://api.openai.com https://api.anthropic.com; img-src 'self' data: blob: tauri: asset: https:; font-src 'self' data: tauri: asset:; media-src 'self' tauri: asset:; worker-src 'self' tauri: asset:; child-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'self'",
       "dangerousDisableAssetCspModification": false,

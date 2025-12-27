@@ -166,6 +166,10 @@ pub async fn get_voice_config() -> Result<VoiceConfig, String> {
     invoke_no_args("get_voice_config").await
 }
 
+pub async fn get_vector_store_status() -> Result<String, String> {
+    invoke("get_vector_store_status", &()).await
+}
+
 pub async fn speak(text: String) -> Result<(), String> {
     #[derive(Serialize)]
     struct Args {
@@ -571,35 +575,30 @@ pub async fn reindex_library(index_name: Option<String>) -> Result<String, Strin
 // ============================================================================
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SearchQuery {
-    pub query: String,
-    pub search_type: String,  // "hybrid", "semantic", "keyword"
-    pub limit: Option<usize>,
-    pub source_filter: Option<Vec<String>>,
+pub struct SearchOptions {
+    pub limit: usize,
+    pub source_type: Option<String>,
+    pub campaign_id: Option<String>,
+    pub index: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SearchResult {
-    pub id: String,
+pub struct SearchResultPayload {
     pub content: String,
     pub source: String,
+    pub source_type: String,
+    pub page_number: Option<u32>,
     pub score: f32,
-    pub metadata: Option<std::collections::HashMap<String, String>>,
+    pub index: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SearchResponse {
-    pub results: Vec<SearchResult>,
-    pub query_time_ms: u64,
-    pub total_results: usize,
-}
-
-pub async fn search(query: SearchQuery) -> Result<SearchResponse, String> {
+pub async fn search(query: String, options: Option<SearchOptions>) -> Result<Vec<SearchResultPayload>, String> {
     #[derive(Serialize)]
     struct Args {
-        query: SearchQuery,
+        query: String,
+        options: Option<SearchOptions>,
     }
-    invoke("search", &Args { query }).await
+    invoke("search", &Args { query, options }).await
 }
 
 pub async fn semantic_search(query: String, limit: usize) -> Result<Vec<SearchResult>, String> {
