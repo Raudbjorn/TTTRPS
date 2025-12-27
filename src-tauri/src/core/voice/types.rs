@@ -47,6 +47,7 @@ pub struct VoiceConfig {
     pub elevenlabs: Option<ElevenLabsConfig>,
     pub fish_audio: Option<FishAudioConfig>,
     pub ollama: Option<OllamaConfig>,
+    pub openai: Option<OpenAIVoiceConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Hash)]
@@ -54,6 +55,7 @@ pub enum VoiceProviderType {
     ElevenLabs,
     FishAudio,
     Ollama,
+    OpenAI,
     System,
     Disabled,
 }
@@ -76,6 +78,13 @@ pub struct OllamaConfig {
     pub model: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OpenAIVoiceConfig {
+    pub api_key: String,
+    pub model: String,      // "tts-1" or "tts-1-hd"
+    pub voice: String,      // "alloy", "echo", "fable", "onyx", "nova", "shimmer"
+}
+
 impl Default for VoiceConfig {
     fn default() -> Self {
         Self {
@@ -85,6 +94,7 @@ impl Default for VoiceConfig {
             elevenlabs: None,
             fish_audio: None,
             ollama: None,
+            openai: None,
         }
     }
 }

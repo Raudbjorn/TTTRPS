@@ -62,6 +62,7 @@ impl VoiceManager {
             VoiceProviderType::ElevenLabs => "elevenlabs",
             VoiceProviderType::FishAudio => "fish_audio",
             VoiceProviderType::Ollama => "ollama",
+            VoiceProviderType::OpenAI => "openai",
             VoiceProviderType::System => return Err(VoiceError::NotConfigured("System TTS not supported yet".to_string())),
             VoiceProviderType::Disabled => return Err(VoiceError::NotConfigured("Voice synthesis disabled".to_string())),
         };

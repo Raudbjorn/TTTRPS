@@ -276,12 +276,12 @@ pub fn get_llm_config(state: State<'_, AppState>) -> Result<Option<LLMSettings>,
             model: model.clone(),
             embedding_model: None,
         },
-        LLMConfig::OpenAI { model, embedding_model, .. } => LLMSettings {
+        LLMConfig::OpenAI { model, .. } => LLMSettings {
             provider: "openai".to_string(),
             api_key: Some("********".to_string()),
             host: None,
             model: model.clone(),
-            embedding_model: embedding_model.clone(),
+            embedding_model: None,
         },
     }))
 }
@@ -898,7 +898,15 @@ pub async fn speak(text: String, state: State<'_, AppState>) -> Result<(), Strin
                     ..Default::default()
                 },
                 LLMConfig::Gemini { .. } => VoiceConfig::default(),
-                LLMConfig::OpenAI { .. } => VoiceConfig::default(),
+                LLMConfig::OpenAI { api_key, .. } => VoiceConfig {
+                    provider: VoiceProviderType::OpenAI,
+                    openai: Some(crate::core::voice::OpenAIVoiceConfig {
+                        api_key: api_key.clone(),
+                        model: "tts-1".to_string(),
+                        voice: "alloy".to_string(),
+                    }),
+                    ..Default::default()
+                },
             }
         } else {
              VoiceConfig::default()

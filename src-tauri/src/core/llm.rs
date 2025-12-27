@@ -66,8 +66,21 @@ pub enum LLMConfig {
     OpenAI {
         api_key: String,
         model: String,
-        embedding_model: Option<String>,
+        #[serde(default = "default_openai_max_tokens")]
+        max_tokens: u32,
+        #[serde(default)]
+        organization_id: Option<String>,
+        #[serde(default = "default_openai_base_url")]
+        base_url: String,
     },
+}
+
+fn default_openai_max_tokens() -> u32 {
+    4096
+}
+
+fn default_openai_base_url() -> String {
+    "https://api.openai.com/v1".to_string()
 }
 
 fn default_claude_max_tokens() -> u32 {
@@ -182,8 +195,8 @@ impl LLMClient {
             LLMConfig::Gemini { api_key, model } => {
                 self.gemini_chat(api_key, model, request).await
             }
-            LLMConfig::OpenAI { api_key, model, .. } => {
-                self.openai_chat(api_key, model, request).await
+            LLMConfig::OpenAI { api_key, model, max_tokens, organization_id, base_url } => {
+                self.openai_chat(api_key, model, *max_tokens, organization_id.as_deref(), base_url, request).await
             }
         }
     }
@@ -204,9 +217,8 @@ impl LLMClient {
             LLMConfig::Gemini { api_key, .. } => {
                 self.gemini_embed(api_key, text).await
             }
-            LLMConfig::OpenAI { api_key, embedding_model, .. } => {
-                let model = embedding_model.as_deref().unwrap_or("text-embedding-3-small");
-                self.openai_embed(api_key, model, text).await
+            LLMConfig::OpenAI { api_key, base_url, .. } => {
+                self.openai_embed(api_key, base_url, text).await
             }
         }
     }
@@ -229,8 +241,17 @@ impl LLMClient {
                 // Simple validation
                 Ok(api_key.starts_with("AIza"))
             }
-            LLMConfig::OpenAI { api_key, .. } => {
-                Ok(api_key.starts_with("sk-"))
+            LLMConfig::OpenAI { api_key, base_url, .. } => {
+                // Check models endpoint to validate API key
+                let url = format!("{}/models", base_url);
+                match self.client.get(&url)
+                    .header("Authorization", format!("Bearer {}", api_key))
+                    .send()
+                    .await
+                {
+                    Ok(resp) => Ok(resp.status().is_success()),
+                    Err(_) => Ok(false),
+                }
             }
         }
     }
@@ -572,62 +593,80 @@ impl LLMClient {
         })
     }
 
-
     // ========================================================================
     // OpenAI Implementation
     // ========================================================================
 
-    async fn openai_chat(&self, api_key: &str, model: &str, request: ChatRequest) -> Result<ChatResponse> {
-        let url = "https://api.openai.com/v1/chat/completions";
+    async fn openai_chat(
+        &self,
+        api_key: &str,
+        model: &str,
+        max_tokens: u32,
+        organization_id: Option<&str>,
+        base_url: &str,
+        request: ChatRequest,
+    ) -> Result<ChatResponse> {
+        let url = format!("{}/chat/completions", base_url);
 
-        let messages: Vec<serde_json::Value> = request.messages.iter()
-            .map(|m| serde_json::json!({
-                "role": match m.role {
-                    MessageRole::User => "user",
-                    MessageRole::Assistant => "assistant",
-                    MessageRole::System => "system",
-                },
-                "content": m.content
-            }))
-            .collect();
+        // Build messages array
+        let mut messages: Vec<serde_json::Value> = Vec::new();
 
-        // If system prompt is separate, prepend it
-        let mut final_messages = messages;
+        // Add system prompt as first message if present
         if let Some(system) = &request.system_prompt {
-            final_messages.insert(0, serde_json::json!({
+            messages.push(serde_json::json!({
                 "role": "system",
                 "content": system
             }));
         }
 
+        // Add conversation messages
+        for msg in &request.messages {
+            messages.push(serde_json::json!({
+                "role": match msg.role {
+                    MessageRole::System => "system",
+                    MessageRole::User => "user",
+                    MessageRole::Assistant => "assistant",
+                },
+                "content": msg.content
+            }));
+        }
+
         let mut body = serde_json::json!({
             "model": model,
-            "messages": final_messages,
+            "messages": messages,
+            "max_tokens": request.max_tokens.unwrap_or(max_tokens)
         });
 
         if let Some(temp) = request.temperature {
-            body["temperature"] = serde_json::Value::Number(serde_json::Number::from_f64(temp as f64).unwrap());
-        }
-        if let Some(max) = request.max_tokens {
-            body["max_tokens"] = serde_json::Value::Number(serde_json::Number::from(max));
+            body["temperature"] = serde_json::Value::Number(
+                serde_json::Number::from_f64(temp as f64).unwrap()
+            );
         }
 
-        let resp = self.client.post(url)
+        let mut req_builder = self.client.post(&url)
             .header("Authorization", format!("Bearer {}", api_key))
-            .header("Content-Type", "application/json")
-            .json(&body)
-            .send()
-            .await?;
+            .header("Content-Type", "application/json");
+
+        if let Some(org_id) = organization_id {
+            req_builder = req_builder.header("OpenAI-Organization", org_id);
+        }
+
+        let resp = req_builder.json(&body).send().await?;
 
         let status = resp.status();
 
+        // Handle rate limiting
         if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
             let retry_after = resp.headers()
                 .get("retry-after")
                 .and_then(|v| v.to_str().ok())
                 .and_then(|s| s.parse().ok())
-                .unwrap_or(20);
+                .unwrap_or(60);
             return Err(LLMError::RateLimited { retry_after_secs: retry_after });
+        }
+
+        if status == reqwest::StatusCode::UNAUTHORIZED {
+            return Err(LLMError::AuthError("Invalid OpenAI API key".to_string()));
         }
 
         if !status.is_success() {
@@ -637,11 +676,12 @@ impl LLMClient {
 
         let json: serde_json::Value = resp.json().await?;
 
+        // Extract content from choices array
         let content = json["choices"]
             .as_array()
             .and_then(|arr| arr.first())
             .and_then(|c| c["message"]["content"].as_str())
-            .ok_or_else(|| LLMError::InvalidResponse("Missing content".to_string()))?
+            .ok_or_else(|| LLMError::InvalidResponse("Missing content in response".to_string()))?
             .to_string();
 
         let usage = json["usage"].as_object().map(|u| TokenUsage {
@@ -649,27 +689,29 @@ impl LLMClient {
             output_tokens: u["completion_tokens"].as_u64().unwrap_or(0) as u32,
         });
 
+        let finish_reason = json["choices"]
+            .as_array()
+            .and_then(|arr| arr.first())
+            .and_then(|c| c["finish_reason"].as_str())
+            .map(|s| s.to_string());
+
         Ok(ChatResponse {
             content,
             model: json["model"].as_str().unwrap_or(model).to_string(),
             usage,
-            finish_reason: json["choices"]
-                .as_array()
-                .and_then(|arr| arr.first())
-                .and_then(|c| c["finish_reason"].as_str())
-                .map(|s| s.to_string()),
+            finish_reason,
         })
     }
 
-    async fn openai_embed(&self, api_key: &str, model: &str, text: &str) -> Result<EmbeddingResponse> {
-        let url = "https://api.openai.com/v1/embeddings";
+    async fn openai_embed(&self, api_key: &str, base_url: &str, text: &str) -> Result<EmbeddingResponse> {
+        let url = format!("{}/embeddings", base_url);
 
         let body = serde_json::json!({
-            "model": model,
+            "model": "text-embedding-3-small",
             "input": text
         });
 
-        let resp = self.client.post(url)
+        let resp = self.client.post(&url)
             .header("Authorization", format!("Bearer {}", api_key))
             .header("Content-Type", "application/json")
             .json(&body)
@@ -688,7 +730,7 @@ impl LLMClient {
             .as_array()
             .and_then(|arr| arr.first())
             .and_then(|d| d["embedding"].as_array())
-            .ok_or_else(|| LLMError::InvalidResponse("Missing embedding".to_string()))?
+            .ok_or_else(|| LLMError::InvalidResponse("Missing embedding in response".to_string()))?
             .iter()
             .map(|v| v.as_f64().unwrap_or(0.0) as f32)
             .collect();
@@ -697,7 +739,7 @@ impl LLMClient {
 
         Ok(EmbeddingResponse {
             embedding,
-            model: model.to_string(),
+            model: "text-embedding-3-small".to_string(),
             dimensions,
         })
     }

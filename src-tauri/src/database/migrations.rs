@@ -7,7 +7,7 @@ use sqlx::Row;
 use tracing::{info, warn};
 
 /// Current database schema version
-const SCHEMA_VERSION: i32 = 1;
+const SCHEMA_VERSION: i32 = 2;
 
 /// Run all pending migrations
 pub async fn run_migrations(pool: &SqlitePool) -> Result<(), sqlx::Error> {
@@ -58,6 +58,7 @@ async fn get_current_version(pool: &SqlitePool) -> Result<i32, sqlx::Error> {
 async fn run_migration(pool: &SqlitePool, version: i32) -> Result<(), sqlx::Error> {
     let (name, sql) = match version {
         1 => ("initial_schema", MIGRATION_V1),
+        2 => ("extended_features", MIGRATION_V2),
         _ => {
             warn!("Unknown migration version: {}", version);
             return Ok(());
@@ -218,4 +219,221 @@ CREATE TABLE IF NOT EXISTS session_usage (
     requests INTEGER NOT NULL DEFAULT 0,
     cost_usd REAL NOT NULL DEFAULT 0.0
 );
+"#;
+
+/// Migration v2: Extended features (locations, plots, analytics, etc.)
+const MIGRATION_V2: &str = r#"
+-- Locations table (hierarchical location management)
+CREATE TABLE IF NOT EXISTS locations (
+    id TEXT PRIMARY KEY,
+    campaign_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    location_type TEXT NOT NULL,
+    description TEXT,
+    parent_id TEXT,
+    connections_json TEXT NOT NULL DEFAULT '[]',
+    npcs_present_json TEXT NOT NULL DEFAULT '[]',
+    features_json TEXT NOT NULL DEFAULT '[]',
+    secrets_json TEXT NOT NULL DEFAULT '[]',
+    attributes_json TEXT NOT NULL DEFAULT '{}',
+    tags_json TEXT NOT NULL DEFAULT '[]',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (campaign_id) REFERENCES campaigns(id) ON DELETE CASCADE,
+    FOREIGN KEY (parent_id) REFERENCES locations(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_locations_campaign ON locations(campaign_id);
+CREATE INDEX IF NOT EXISTS idx_locations_parent ON locations(parent_id);
+CREATE INDEX IF NOT EXISTS idx_locations_type ON locations(location_type);
+
+-- Plot points table (quest and story tracking)
+CREATE TABLE IF NOT EXISTS plot_points (
+    id TEXT PRIMARY KEY,
+    campaign_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    description TEXT,
+    status TEXT NOT NULL DEFAULT 'pending',
+    priority TEXT NOT NULL DEFAULT 'side',
+    involved_npcs_json TEXT NOT NULL DEFAULT '[]',
+    involved_locations_json TEXT NOT NULL DEFAULT '[]',
+    prerequisites_json TEXT NOT NULL DEFAULT '[]',
+    unlocks_json TEXT NOT NULL DEFAULT '[]',
+    consequences_json TEXT NOT NULL DEFAULT '[]',
+    rewards_json TEXT NOT NULL DEFAULT '[]',
+    notes_json TEXT NOT NULL DEFAULT '[]',
+    tags_json TEXT NOT NULL DEFAULT '[]',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    started_at TEXT,
+    resolved_at TEXT,
+    FOREIGN KEY (campaign_id) REFERENCES campaigns(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_plot_points_campaign ON plot_points(campaign_id);
+CREATE INDEX IF NOT EXISTS idx_plot_points_status ON plot_points(status);
+CREATE INDEX IF NOT EXISTS idx_plot_points_priority ON plot_points(priority);
+
+-- Plot arcs table (grouping of related plot points)
+CREATE TABLE IF NOT EXISTS plot_arcs (
+    id TEXT PRIMARY KEY,
+    campaign_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    description TEXT,
+    plot_points_json TEXT NOT NULL DEFAULT '[]',
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (campaign_id) REFERENCES campaigns(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_plot_arcs_campaign ON plot_arcs(campaign_id);
+
+-- Session summaries table
+CREATE TABLE IF NOT EXISTS session_summaries (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    campaign_id TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    key_events_json TEXT NOT NULL DEFAULT '[]',
+    combat_outcomes_json TEXT NOT NULL DEFAULT '[]',
+    npcs_encountered_json TEXT NOT NULL DEFAULT '[]',
+    locations_visited_json TEXT NOT NULL DEFAULT '[]',
+    loot_acquired_json TEXT NOT NULL DEFAULT '[]',
+    xp_awarded INTEGER,
+    recap TEXT,
+    generated_at TEXT NOT NULL,
+    FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
+    FOREIGN KEY (campaign_id) REFERENCES campaigns(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_session_summaries_session ON session_summaries(session_id);
+CREATE INDEX IF NOT EXISTS idx_session_summaries_campaign ON session_summaries(campaign_id);
+
+-- Search analytics table
+CREATE TABLE IF NOT EXISTS search_records (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    query TEXT NOT NULL,
+    result_count INTEGER NOT NULL DEFAULT 0,
+    clicked INTEGER NOT NULL DEFAULT 0,
+    execution_time_ms INTEGER NOT NULL DEFAULT 0,
+    search_type TEXT NOT NULL,
+    timestamp TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_search_records_timestamp ON search_records(timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_search_records_query ON search_records(query);
+
+-- Voice generation cache table
+CREATE TABLE IF NOT EXISTS voice_cache (
+    id TEXT PRIMARY KEY,
+    text_hash TEXT NOT NULL UNIQUE,
+    voice_id TEXT NOT NULL,
+    file_path TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    last_accessed TEXT NOT NULL,
+    access_count INTEGER NOT NULL DEFAULT 1
+);
+
+CREATE INDEX IF NOT EXISTS idx_voice_cache_hash ON voice_cache(text_hash);
+CREATE INDEX IF NOT EXISTS idx_voice_cache_accessed ON voice_cache(last_accessed DESC);
+
+-- Voice generation queue table
+CREATE TABLE IF NOT EXISTS voice_queue (
+    id TEXT PRIMARY KEY,
+    text TEXT NOT NULL,
+    voice_id TEXT NOT NULL,
+    priority TEXT NOT NULL DEFAULT 'normal',
+    status TEXT NOT NULL DEFAULT 'pending',
+    campaign_id TEXT,
+    npc_id TEXT,
+    created_at TEXT NOT NULL,
+    started_at TEXT,
+    completed_at TEXT,
+    result_path TEXT,
+    error TEXT,
+    retry_count INTEGER NOT NULL DEFAULT 0,
+    max_retries INTEGER NOT NULL DEFAULT 3
+);
+
+CREATE INDEX IF NOT EXISTS idx_voice_queue_status ON voice_queue(status);
+CREATE INDEX IF NOT EXISTS idx_voice_queue_priority ON voice_queue(priority);
+CREATE INDEX IF NOT EXISTS idx_voice_queue_campaign ON voice_queue(campaign_id);
+
+-- Audit logs table
+CREATE TABLE IF NOT EXISTS audit_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_type TEXT NOT NULL,
+    severity TEXT NOT NULL,
+    actor TEXT,
+    target TEXT,
+    details_json TEXT,
+    timestamp TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_audit_logs_timestamp ON audit_logs(timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_type ON audit_logs(event_type);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_severity ON audit_logs(severity);
+
+-- Budget tracking table
+CREATE TABLE IF NOT EXISTS budget_periods (
+    id TEXT PRIMARY KEY,
+    period_type TEXT NOT NULL,
+    period_start TEXT NOT NULL,
+    period_end TEXT NOT NULL,
+    budget_limit_usd REAL NOT NULL,
+    spent_usd REAL NOT NULL DEFAULT 0.0,
+    provider TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_budget_period_type ON budget_periods(period_type);
+CREATE INDEX IF NOT EXISTS idx_budget_period_start ON budget_periods(period_start);
+
+-- Budget spending records
+CREATE TABLE IF NOT EXISTS budget_spending (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    period_id TEXT NOT NULL,
+    amount_usd REAL NOT NULL,
+    provider TEXT NOT NULL,
+    model TEXT NOT NULL,
+    tokens INTEGER NOT NULL DEFAULT 0,
+    timestamp TEXT NOT NULL,
+    FOREIGN KEY (period_id) REFERENCES budget_periods(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_budget_spending_period ON budget_spending(period_id);
+CREATE INDEX IF NOT EXISTS idx_budget_spending_timestamp ON budget_spending(timestamp DESC);
+
+-- Alerts table
+CREATE TABLE IF NOT EXISTS alerts (
+    id TEXT PRIMARY KEY,
+    alert_type TEXT NOT NULL,
+    severity TEXT NOT NULL,
+    title TEXT NOT NULL,
+    message TEXT NOT NULL,
+    context_json TEXT,
+    acknowledged INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    acknowledged_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_alerts_type ON alerts(alert_type);
+CREATE INDEX IF NOT EXISTS idx_alerts_severity ON alerts(severity);
+CREATE INDEX IF NOT EXISTS idx_alerts_acknowledged ON alerts(acknowledged);
+CREATE INDEX IF NOT EXISTS idx_alerts_created ON alerts(created_at DESC);
+
+-- Cost predictions table
+CREATE TABLE IF NOT EXISTS cost_predictions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    period_start TEXT NOT NULL,
+    period_end TEXT NOT NULL,
+    predicted_cost_usd REAL NOT NULL,
+    confidence_low REAL NOT NULL,
+    confidence_high REAL NOT NULL,
+    usage_pattern TEXT,
+    anomaly_detected INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_cost_predictions_period ON cost_predictions(period_start, period_end);
 "#;
