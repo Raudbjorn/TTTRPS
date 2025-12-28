@@ -13,6 +13,10 @@ use wasm_bindgen::prelude::*;
 extern "C" {
     #[wasm_bindgen(js_namespace = ["window", "__TAURI__", "core"], js_name = "invoke")]
     async fn invoke_raw(cmd: &str, args: JsValue) -> JsValue;
+
+    // Dialog plugin - file picker
+    #[wasm_bindgen(js_namespace = ["window", "__TAURI__", "dialog"], js_name = "open")]
+    async fn dialog_open(options: JsValue) -> JsValue;
 }
 
 /// Invoke a Tauri command with typed arguments and response
@@ -39,6 +43,94 @@ pub async fn invoke_no_args<R: for<'de> Deserialize<'de>>(cmd: &str) -> Result<R
     #[derive(Serialize)]
     struct Empty {}
     invoke(cmd, &Empty {}).await
+}
+
+// ============================================================================
+// File Dialog
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize)]
+pub struct FileFilter {
+    pub name: String,
+    pub extensions: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenDialogOptions {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub filters: Option<Vec<FileFilter>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub default_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub directory: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub multiple: Option<bool>,
+}
+
+/// Open a file picker dialog
+/// Returns the selected file path(s) or None if cancelled
+pub async fn open_file_dialog(options: OpenDialogOptions) -> Option<String> {
+    let options_js = serde_wasm_bindgen::to_value(&options).ok()?;
+    let result = dialog_open(options_js).await;
+
+    if result.is_null() || result.is_undefined() {
+        return None;
+    }
+
+    // Result can be a string (single file) or array (multiple files)
+    // For single file mode, it returns the path directly
+    serde_wasm_bindgen::from_value(result).ok()
+}
+
+/// Open a file picker for PDF documents
+pub async fn pick_pdf_file() -> Option<String> {
+    open_file_dialog(OpenDialogOptions {
+        title: Some("Select PDF Document".to_string()),
+        filters: Some(vec![
+            FileFilter {
+                name: "PDF Documents".to_string(),
+                extensions: vec!["pdf".to_string()],
+            },
+            FileFilter {
+                name: "All Files".to_string(),
+                extensions: vec!["*".to_string()],
+            },
+        ]),
+        default_path: None,
+        directory: Some(false),
+        multiple: Some(false),
+    }).await
+}
+
+/// Open a file picker for any supported document type
+pub async fn pick_document_file() -> Option<String> {
+    open_file_dialog(OpenDialogOptions {
+        title: Some("Select Document".to_string()),
+        filters: Some(vec![
+            FileFilter {
+                name: "Documents".to_string(),
+                extensions: vec!["pdf".to_string(), "epub".to_string(), "txt".to_string(), "md".to_string()],
+            },
+            FileFilter {
+                name: "PDF".to_string(),
+                extensions: vec!["pdf".to_string()],
+            },
+            FileFilter {
+                name: "EPUB".to_string(),
+                extensions: vec!["epub".to_string()],
+            },
+            FileFilter {
+                name: "All Files".to_string(),
+                extensions: vec!["*".to_string()],
+            },
+        ]),
+        default_path: None,
+        directory: Some(false),
+        multiple: Some(false),
+    }).await
 }
 
 // ============================================================================

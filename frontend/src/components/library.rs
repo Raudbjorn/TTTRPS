@@ -1,6 +1,6 @@
 #![allow(non_snake_case)]
 use dioxus::prelude::*;
-use crate::bindings::{ingest_pdf, ingest_document, search, IngestOptions, SearchOptions, check_meilisearch_health};
+use crate::bindings::{ingest_pdf, ingest_document, search, IngestOptions, SearchOptions, check_meilisearch_health, pick_document_file};
 
 #[derive(Clone, PartialEq)]
 pub struct SourceDocument {
@@ -42,64 +42,61 @@ pub fn Library() -> Element {
     let mut search_results = use_signal(|| Vec::<SearchResult>::new());
     let mut is_searching = use_signal(|| false);
 
-    // Handle file path from drag/drop or file picker (for future Tauri file dialog integration)
-    let _process_file = move |path: String| {
-        is_ingesting.set(true);
-        let filename = path.split('/').last().unwrap_or(&path).to_string();
-        ingestion_status.set(format!("Parsing {}...", filename));
-
+    let handle_ingest = move |_: MouseEvent| {
         spawn(async move {
-            // Step 1: Parse the PDF to get stats
-            match ingest_pdf(path.clone()).await {
-                Ok(result) => {
-                    ingestion_status.set(format!("Indexing {} to Meilisearch...", result.source_name));
+            // Open file picker dialog
+            if let Some(path) = pick_document_file().await {
+                is_ingesting.set(true);
+                let filename = path.split('/').last().unwrap_or(&path).to_string();
+                ingestion_status.set(format!("Parsing {}...", filename));
 
-                    // Step 2: Index the document into Meilisearch
-                    let options = IngestOptions {
-                        source_type: "documents".to_string(),
-                        campaign_id: None,
-                    };
+                // Step 1: Parse the PDF to get stats
+                match ingest_pdf(path.clone()).await {
+                    Ok(result) => {
+                        ingestion_status.set(format!("Indexing {} to Meilisearch...", result.source_name));
 
-                    match ingest_document(path.clone(), Some(options)).await {
-                        Ok(_index_result) => {
-                            let doc = SourceDocument {
-                                name: result.source_name.clone(),
-                                status: "Indexed".to_string(),
-                                status_class: "text-green-400 text-xs".to_string(),
-                                chunk_count: result.character_count / 500, // Approximate chunks
-                                page_count: result.page_count,
-                            };
-                            documents.write().push(doc);
-                            *total_chunks.write() += result.character_count / 500;
-                            ingestion_status.set(format!(
-                                "Indexed {} ({} pages, {} chars) into Meilisearch",
-                                result.source_name, result.page_count, result.character_count
-                            ));
-                        }
-                        Err(e) => {
-                            // PDF parsed but indexing failed
-                            let doc = SourceDocument {
-                                name: result.source_name.clone(),
-                                status: "Parse Only".to_string(),
-                                status_class: "text-yellow-400 text-xs".to_string(),
-                                chunk_count: result.character_count / 500,
-                                page_count: result.page_count,
-                            };
-                            documents.write().push(doc);
-                            ingestion_status.set(format!("Parsed but indexing failed: {}", e));
+                        // Step 2: Index the document into Meilisearch
+                        let options = IngestOptions {
+                            source_type: "documents".to_string(),
+                            campaign_id: None,
+                        };
+
+                        match ingest_document(path.clone(), Some(options)).await {
+                            Ok(_index_result) => {
+                                let doc = SourceDocument {
+                                    name: result.source_name.clone(),
+                                    status: "Indexed".to_string(),
+                                    status_class: "text-green-400 text-xs".to_string(),
+                                    chunk_count: result.character_count / 500,
+                                    page_count: result.page_count,
+                                };
+                                documents.write().push(doc);
+                                *total_chunks.write() += result.character_count / 500;
+                                ingestion_status.set(format!(
+                                    "Indexed {} ({} pages, {} chars) into Meilisearch",
+                                    result.source_name, result.page_count, result.character_count
+                                ));
+                            }
+                            Err(e) => {
+                                let doc = SourceDocument {
+                                    name: result.source_name.clone(),
+                                    status: "Parse Only".to_string(),
+                                    status_class: "text-yellow-400 text-xs".to_string(),
+                                    chunk_count: result.character_count / 500,
+                                    page_count: result.page_count,
+                                };
+                                documents.write().push(doc);
+                                ingestion_status.set(format!("Parsed but indexing failed: {}", e));
+                            }
                         }
                     }
+                    Err(e) => {
+                        ingestion_status.set(format!("Error parsing document: {}", e));
+                    }
                 }
-                Err(e) => {
-                    ingestion_status.set(format!("Error parsing PDF: {}", e));
-                }
+                is_ingesting.set(false);
             }
-            is_ingesting.set(false);
         });
-    };
-
-    let handle_ingest = move |_: MouseEvent| {
-        ingestion_status.set("Use the file picker or drag-and-drop a PDF file".to_string());
     };
 
     let refresh_status = move |_: MouseEvent| {
