@@ -974,10 +974,10 @@ pub async fn ingest_pdf(
 
 #[tauri::command]
 pub async fn get_vector_store_status(state: State<'_, AppState>) -> Result<String, String> {
-    match state.search_client.health_check().await {
-        Ok(true) => Ok("Meilisearch Ready".to_string()),
-        Ok(false) => Ok("Meilisearch Unhealthy".to_string()),
-        Err(e) => Ok(format!("Error: {}", e)),
+    if state.search_client.health_check().await {
+        Ok("Meilisearch Ready".to_string())
+    } else {
+        Ok("Meilisearch Unhealthy".to_string())
     }
 }
 
