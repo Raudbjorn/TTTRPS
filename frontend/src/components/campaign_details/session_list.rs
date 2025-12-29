@@ -13,8 +13,9 @@ pub fn SessionList(props: SessionListProps) -> Element {
     // Mocking status logic since it's missing from backend
     // In real app, we'd sort these.
 
-    // Grouping (Mock logic)
-    // Assuming largest session number is "Current", others "Past", and maybe we fake a "Planned"
+    // TODO [BE B5]: Replace this mock grouping logic with backend status field
+    // Currently using session_number heuristic - backend should return SessionSummary.status
+    // See tasks.md for proper implementation plan
 
     let mut past_sessions = vec![];
     let mut current_session = None;
@@ -30,7 +31,7 @@ pub fn SessionList(props: SessionListProps) -> Element {
         }
     }
 
-    // Mock a planned session
+    // Mock a planned session - TODO: Remove when backend supports Planned status
     let planned_mock = SessionSummary {
         id: "planned-1".to_string(),
         session_number: max_sess_num + 1,
@@ -60,8 +61,8 @@ pub fn SessionList(props: SessionListProps) -> Element {
                                 div { class: "w-2 h-2 rounded-full bg-green-500 animate-pulse" }
                                 span { class: "text-zinc-500 text-xs font-semibold", "CURRENT" }
                             }
-                            div {
-                                class: "bg-zinc-800/50 border border-purple-500/30 rounded p-3 cursor-pointer hover:bg-zinc-800 transition-colors",
+                            button {
+                                class: "bg-zinc-800/50 border border-purple-500/30 rounded p-3 cursor-pointer hover:bg-zinc-800 transition-colors w-full text-left",
                                 onclick: move |_| props.on_select_session.call(curr_id.clone()),
                                 div { class: "text-sm font-bold text-white", "Session {curr.session_number}" }
                                 div { class: "text-xs text-zinc-400 mt-1", "Active Now" }
@@ -87,8 +88,8 @@ pub fn SessionList(props: SessionListProps) -> Element {
                     for s in past_sessions {
                          let s_id = s.id.clone();
                          rsx! {
-                             div {
-                                class: "group flex items-center justify-between px-2 py-2 rounded text-zinc-400 hover:text-white hover:bg-zinc-800/50 cursor-pointer",
+                             button {
+                                class: "group flex items-center justify-between px-2 py-2 rounded text-zinc-400 hover:text-white hover:bg-zinc-800/50 cursor-pointer w-full text-left",
                                 onclick: move |_| props.on_select_session.call(s_id.clone()),
                                 div { class: "text-sm", "Session {s.session_number}" }
                                 div { class: "text-xs text-zinc-600", "{s.duration_mins}m" }

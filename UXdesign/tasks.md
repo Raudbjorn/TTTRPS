@@ -40,10 +40,14 @@
 
 - [ ] **[BE] B2**: Implement NPC conversation Tauri commands (P0)
   - `list_npc_conversations(campaign_id)` → Vec<NpcConversation>
-  - `get_npc_conversation(npc_id)` → NpcConversation
+  - `get_npc_conversation(npc_id, offset?, limit?)` → NpcConversation
   - `add_npc_message(npc_id, content, role)` → ConversationMessage
   - `mark_npc_read(npc_id)` → ()
   - Files: `src-tauri/src/commands.rs`
+  - **Design Note**: Support pagination for message history. Long-running campaigns
+    may have hundreds of messages per NPC. Use cursor-based pagination with
+    `offset`/`limit` parameters on `get_npc_conversation`. Frontend should implement
+    infinite scroll or "Load More" pattern.
 
 - [ ] **[BE] B3**: Add thread/reply support to conversation messages (P1)
   - `parent_message_id` field for threading

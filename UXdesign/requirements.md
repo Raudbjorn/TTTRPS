@@ -83,8 +83,10 @@ UI visually adapts to campaign setting with **theme interpolation**:
 #### Theme Interpolation
 For settings that blend genres, themes can interpolate:
 ```
-Delta Green = cosmic(0.5) + noir(0.5)
-Shadowrun = neon(0.7) + fantasy(0.3)
+Delta Green = cosmic(0.4) + noir(0.6)
+Shadowrun = neon(0.6) + fantasy(0.3) + terminal(0.1)
+Blades in Dark = noir(0.5) + fantasy(0.3) + cosmic(0.2)
+Starfinder = fantasy(0.5) + terminal(0.4) + neon(0.1)
 Custom = sliders for manual blend
 ```
 

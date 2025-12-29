@@ -29,14 +29,18 @@ pub fn NPCList(props: NPCListProps) -> Element {
             // Header
             div { class: "p-4 border-b border-zinc-800 flex justify-between items-center",
                 h2 { class: "text-zinc-400 text-xs font-bold uppercase tracking-wider", "Dramatis Personae" }
-                button { class: "text-zinc-500 hover:text-white transition-colors", "+" }
+                button {
+                    class: "text-zinc-500 hover:text-white transition-colors",
+                    aria_label: "Add NPC",
+                    "+"
+                }
             }
 
             // List
             div { class: "flex-1 overflow-y-auto p-2 space-y-2",
                for npc in npcs.read().clone() {
-                   div {
-                       class: "flex items-center gap-3 p-2 rounded hover:bg-zinc-800 transition-colors cursor-pointer group",
+                   button {
+                       class: "flex items-center gap-3 p-2 rounded hover:bg-zinc-800 transition-colors cursor-pointer group w-full text-left",
                        // Avatar Mock
                        div {
                            class: "w-8 h-8 rounded bg-zinc-700 flex items-center justify-center text-xs font-bold text-zinc-300 border border-zinc-600 group-hover:border-zinc-500",

@@ -78,6 +78,12 @@ pub fn Session(campaign_id: String) -> Element {
 
     // Theme Logic - Dynamic Class Selection based on Campaign System
     // Supports: fantasy, cosmic, terminal, noir, neon (per design.md)
+    //
+    // TODO [FE F4]: Implement theme interpolation for blended settings
+    // Currently uses single theme detection. Design spec (design.md) calls for
+    // weighted theme blending via CSS custom property interpolation, e.g.:
+    //   Delta Green = cosmic(0.4) + noir(0.6)
+    // See ThemeWeights struct in design.md for full implementation plan.
     let theme_class = use_memo(move || {
         match campaign.read().as_ref() {
             Some(c) => {
@@ -319,6 +325,8 @@ fn ActiveSessionWorkspace(session: GameSession, on_session_ended: EventHandler<(
                                  {
                                      let cid_dmg = combatant.id.clone();
                                      let cid_heal = combatant.id.clone();
+                                     let cid_remove = combatant.id.clone();
+                                     let combatant_name = combatant.name.clone();
                                      rsx! {
                                          div {
                                      class: if idx == c.current_turn { "bg-purple-900/20 flex items-center p-3 border-l-4 border-purple-500" } else { "flex items-center p-3 hover:bg-zinc-700/50" },
@@ -329,11 +337,13 @@ fn ActiveSessionWorkspace(session: GameSession, on_session_ended: EventHandler<(
                                         div { class: "font-bold text-zinc-200", "{combatant.name}" }
                                         div { class: "text-xs text-zinc-500 uppercase", "{combatant.combatant_type}" }
                                      }
-                                     // HP
+                                     // HP & Actions
                                      div { class: "flex items-center gap-3",
                                         div { class: "text-zinc-400 font-mono", "{combatant.hp_current} / {combatant.hp_max}" }
                                         // Quick Actions
-                                        button { class: "w-8 h-8 rounded bg-red-900/50 text-red-400 hover:bg-red-600 hover:text-white",
+                                        button {
+                                            class: "w-8 h-8 rounded bg-red-900/50 text-red-400 hover:bg-red-600 hover:text-white",
+                                            aria_label: "Deal 1 damage to {combatant_name}",
                                             onclick: move |_| {
                                                 let sid = session_id.clone();
                                                 let cid = cid_dmg.clone();
@@ -345,8 +355,10 @@ fn ActiveSessionWorkspace(session: GameSession, on_session_ended: EventHandler<(
                                             },
                                             "-"
                                         }
-                                         button { class: "w-8 h-8 rounded bg-green-900/50 text-green-400 hover:bg-green-600 hover:text-white",
-                                             onclick: move |_| {
+                                        button {
+                                            class: "w-8 h-8 rounded bg-green-900/50 text-green-400 hover:bg-green-600 hover:text-white",
+                                            aria_label: "Heal 1 HP for {combatant_name}",
+                                            onclick: move |_| {
                                                 let sid = session_id.clone();
                                                 let cid = cid_heal.clone();
                                                 spawn(async move {
@@ -355,13 +367,28 @@ fn ActiveSessionWorkspace(session: GameSession, on_session_ended: EventHandler<(
                                                     }
                                                 });
                                             },
-                                             "+"
+                                            "+"
+                                        }
+                                        button {
+                                            class: "w-8 h-8 rounded bg-zinc-700/50 text-zinc-400 hover:bg-zinc-600 hover:text-white ml-2",
+                                            aria_label: "Remove {combatant_name} from combat",
+                                            onclick: move |_| {
+                                                let sid = session_id.clone();
+                                                let cid = cid_remove.clone();
+                                                spawn(async move {
+                                                    if remove_combatant(sid.clone(), cid).await.is_ok() {
+                                                         if let Ok(Some(c)) = get_combat(sid).await { combat.set(Some(c)); }
+                                                    }
+                                                });
+                                            },
+                                            "×"
                                         }
                                      }
                                  }
                              }
                          }
-
+                         }
+                         }
                          // Add Combatant
                          div { class: "p-4 bg-zinc-900/50 flex gap-2 border-t border-zinc-700",
                             input {
@@ -373,8 +400,18 @@ fn ActiveSessionWorkspace(session: GameSession, on_session_ended: EventHandler<(
                             input {
                                 class: "bg-zinc-800 border-zinc-700 rounded px-3 py-2 text-sm text-white w-20 text-center",
                                 placeholder: "Init",
+                                r#type: "number",
                                 value: "{new_combatant_init}",
                                 oninput: move |e| new_combatant_init.set(e.value())
+                            }
+                            select {
+                                class: "bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-sm text-white",
+                                value: "{new_combatant_type}",
+                                onchange: move |e| new_combatant_type.set(e.value()),
+                                option { value: "player", "Player" }
+                                option { value: "monster", selected: true, "Monster" }
+                                option { value: "npc", "NPC" }
+                                option { value: "ally", "Ally" }
                             }
                             button {
                                 class: "px-4 py-2 bg-zinc-700 hover:bg-zinc-600 text-white rounded text-sm font-medium",
@@ -414,3 +451,4 @@ fn ActiveSessionWorkspace(session: GameSession, on_session_ended: EventHandler<(
         }
     }
 }
+
