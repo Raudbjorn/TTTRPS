@@ -528,7 +528,7 @@ CREATE TABLE npcs (
     personality TEXT,
     motivations TEXT,
     stats TEXT,          -- JSON
-    voice_profile_id TEXT REFERENCES voice_profiles(id),
+    voice_profile_id TEXT REFERENCES voice_profiles(id) ON DELETE SET NULL,
     relationships TEXT,  -- JSON
     quest_hooks TEXT,    -- JSON
     created_at TEXT NOT NULL,
