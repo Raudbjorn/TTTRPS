@@ -35,6 +35,12 @@ pub enum LLMError {
     #[error("Embedding not supported for provider: {0}")]
     EmbeddingNotSupported(String),
 
+    #[error("Streaming not supported for provider: {0}")]
+    StreamingNotSupported(String),
+
+    #[error("Stream cancelled")]
+    StreamCancelled,
+
     #[error("Serialization error: {0}")]
     SerializationError(#[from] serde_json::Error),
 }
@@ -1279,6 +1285,296 @@ impl LLMClient {
             model: "text-embedding-3-small".to_string(),
             dimensions,
         })
+    }
+
+    // ========================================================================
+    // Streaming Methods
+    // ========================================================================
+
+    /// Check if this provider supports streaming
+    pub fn supports_streaming(&self) -> bool {
+        match &self.config {
+            LLMConfig::Ollama { .. } => true,
+            LLMConfig::Claude { .. } => true,
+            LLMConfig::OpenAI { .. } => true,
+            LLMConfig::Gemini { .. } => true,
+            LLMConfig::OpenRouter { .. } => true,
+            LLMConfig::Mistral { .. } => true,
+            LLMConfig::Groq { .. } => true,
+            LLMConfig::Together { .. } => true,
+            LLMConfig::DeepSeek { .. } => true,
+            // Cohere uses a different streaming format
+            LLMConfig::Cohere { .. } => false,
+        }
+    }
+
+    /// Get the stream provider type for parsing
+    fn get_stream_provider(&self) -> crate::core::streaming::StreamProvider {
+        use crate::core::streaming::StreamProvider;
+        match &self.config {
+            LLMConfig::Ollama { .. } => StreamProvider::Ollama,
+            LLMConfig::Claude { .. } => StreamProvider::Claude,
+            LLMConfig::Gemini { .. } => StreamProvider::Gemini,
+            // OpenAI and OpenAI-compatible providers
+            _ => StreamProvider::OpenAI,
+        }
+    }
+
+    /// Send a streaming chat request, calling the callback for each chunk
+    pub async fn chat_stream<F>(
+        &self,
+        request: ChatRequest,
+        mut on_chunk: F,
+    ) -> Result<crate::core::streaming::StreamingResponse>
+    where
+        F: FnMut(crate::core::streaming::StreamingChunk) + Send,
+    {
+        use crate::core::streaming::{StreamParser, StreamingManager};
+        use futures_util::StreamExt;
+
+        if !self.supports_streaming() {
+            return Err(LLMError::StreamingNotSupported(self.provider_name().to_string()));
+        }
+
+        let response = match &self.config {
+            LLMConfig::Ollama { host, model, .. } => {
+                self.start_ollama_stream(host, model, request).await?
+            }
+            LLMConfig::Claude { api_key, model, max_tokens } => {
+                self.start_claude_stream(api_key, model, *max_tokens, request).await?
+            }
+            LLMConfig::OpenAI { api_key, model, max_tokens, organization_id, base_url } => {
+                self.start_openai_stream(api_key, model, *max_tokens, organization_id.as_deref(), base_url, request).await?
+            }
+            LLMConfig::Gemini { api_key, model } => {
+                self.start_gemini_stream(api_key, model, request).await?
+            }
+            // OpenAI-compatible providers
+            LLMConfig::OpenRouter { api_key, model } => {
+                self.start_openai_stream(api_key, model, 4096, None, "https://openrouter.ai/api/v1", request).await?
+            }
+            LLMConfig::Mistral { api_key, model } => {
+                self.start_openai_stream(api_key, model, 4096, None, "https://api.mistral.ai/v1", request).await?
+            }
+            LLMConfig::Groq { api_key, model } => {
+                self.start_openai_stream(api_key, model, 4096, None, "https://api.groq.com/openai/v1", request).await?
+            }
+            LLMConfig::Together { api_key, model } => {
+                self.start_openai_stream(api_key, model, 4096, None, "https://api.together.xyz/v1", request).await?
+            }
+            LLMConfig::DeepSeek { api_key, model } => {
+                self.start_openai_stream(api_key, model, 4096, None, "https://api.deepseek.com/v1", request).await?
+            }
+            _ => return Err(LLMError::StreamingNotSupported(self.provider_name().to_string())),
+        };
+
+        // Parse the stream
+        let mut parser = StreamParser::new(self.get_stream_provider());
+        let mut manager = StreamingManager::new();
+        let mut stream = response.bytes_stream();
+
+        while let Some(chunk_result) = stream.next().await {
+            let bytes = chunk_result?;
+            let text = String::from_utf8_lossy(&bytes);
+
+            for chunk in parser.parse(&text) {
+                on_chunk(chunk.clone());
+                manager.process_chunk(chunk);
+            }
+        }
+
+        Ok(manager.into_response())
+    }
+
+    /// Start an Ollama streaming request
+    async fn start_ollama_stream(&self, host: &str, model: &str, request: ChatRequest) -> Result<reqwest::Response> {
+        let url = format!("{}/api/chat", host);
+
+        let mut messages: Vec<serde_json::Value> = Vec::new();
+        if let Some(system) = &request.system_prompt {
+            messages.push(serde_json::json!({"role": "system", "content": system}));
+        }
+        for msg in &request.messages {
+            messages.push(serde_json::json!({
+                "role": match msg.role {
+                    MessageRole::System => "system",
+                    MessageRole::User => "user",
+                    MessageRole::Assistant => "assistant",
+                },
+                "content": msg.content
+            }));
+        }
+
+        let body = serde_json::json!({
+            "model": model,
+            "messages": messages,
+            "stream": true,
+            "options": {
+                "temperature": request.temperature.unwrap_or(0.7)
+            }
+        });
+
+        let resp = self.client.post(&url).json(&body).send().await?;
+
+        if !resp.status().is_success() {
+            let status = resp.status().as_u16();
+            let text = resp.text().await.unwrap_or_default();
+            return Err(LLMError::ApiError { status, message: text });
+        }
+
+        Ok(resp)
+    }
+
+    /// Start a Claude streaming request
+    async fn start_claude_stream(&self, api_key: &str, model: &str, max_tokens: u32, request: ChatRequest) -> Result<reqwest::Response> {
+        const API_URL: &str = "https://api.anthropic.com/v1/messages";
+        const API_VERSION: &str = "2023-06-01";
+
+        let messages: Vec<serde_json::Value> = request.messages.iter()
+            .filter(|m| m.role != MessageRole::System)
+            .map(|m| serde_json::json!({
+                "role": match m.role {
+                    MessageRole::User => "user",
+                    MessageRole::Assistant => "assistant",
+                    MessageRole::System => "user",
+                },
+                "content": m.content
+            }))
+            .collect();
+
+        let mut body = serde_json::json!({
+            "model": model,
+            "messages": messages,
+            "max_tokens": request.max_tokens.unwrap_or(max_tokens),
+            "stream": true
+        });
+
+        if let Some(system) = &request.system_prompt {
+            body["system"] = serde_json::Value::String(system.clone());
+        }
+        if let Some(temp) = request.temperature {
+            body["temperature"] = serde_json::json!(temp);
+        }
+
+        let resp = self.client.post(API_URL)
+            .header("x-api-key", api_key)
+            .header("anthropic-version", API_VERSION)
+            .header("content-type", "application/json")
+            .json(&body)
+            .send()
+            .await?;
+
+        if !resp.status().is_success() {
+            let status = resp.status().as_u16();
+            let text = resp.text().await.unwrap_or_default();
+            return Err(LLMError::ApiError { status, message: text });
+        }
+
+        Ok(resp)
+    }
+
+    /// Start an OpenAI-compatible streaming request
+    async fn start_openai_stream(
+        &self,
+        api_key: &str,
+        model: &str,
+        max_tokens: u32,
+        organization_id: Option<&str>,
+        base_url: &str,
+        request: ChatRequest,
+    ) -> Result<reqwest::Response> {
+        let url = format!("{}/chat/completions", base_url);
+
+        let mut messages: Vec<serde_json::Value> = Vec::new();
+        if let Some(system) = &request.system_prompt {
+            messages.push(serde_json::json!({"role": "system", "content": system}));
+        }
+        for msg in &request.messages {
+            messages.push(serde_json::json!({
+                "role": match msg.role {
+                    MessageRole::System => "system",
+                    MessageRole::User => "user",
+                    MessageRole::Assistant => "assistant",
+                },
+                "content": msg.content
+            }));
+        }
+
+        let mut body = serde_json::json!({
+            "model": model,
+            "messages": messages,
+            "max_tokens": request.max_tokens.unwrap_or(max_tokens),
+            "stream": true
+        });
+
+        if let Some(temp) = request.temperature {
+            body["temperature"] = serde_json::json!(temp);
+        }
+
+        let mut req_builder = self.client.post(&url)
+            .header("Authorization", format!("Bearer {}", api_key))
+            .header("Content-Type", "application/json");
+
+        if let Some(org_id) = organization_id {
+            req_builder = req_builder.header("OpenAI-Organization", org_id);
+        }
+
+        let resp = req_builder.json(&body).send().await?;
+
+        if !resp.status().is_success() {
+            let status = resp.status().as_u16();
+            let text = resp.text().await.unwrap_or_default();
+            return Err(LLMError::ApiError { status, message: text });
+        }
+
+        Ok(resp)
+    }
+
+    /// Start a Gemini streaming request
+    async fn start_gemini_stream(&self, api_key: &str, model: &str, request: ChatRequest) -> Result<reqwest::Response> {
+        let url = format!(
+            "https://generativelanguage.googleapis.com/v1beta/models/{}:streamGenerateContent?key={}&alt=sse",
+            model, api_key
+        );
+
+        let mut contents: Vec<serde_json::Value> = Vec::new();
+        for msg in &request.messages {
+            let role = match msg.role {
+                MessageRole::User => "user",
+                MessageRole::Assistant => "model",
+                MessageRole::System => continue,
+            };
+            contents.push(serde_json::json!({
+                "role": role,
+                "parts": [{ "text": msg.content }]
+            }));
+        }
+
+        let mut body = serde_json::json!({ "contents": contents });
+
+        if let Some(system) = &request.system_prompt {
+            body["systemInstruction"] = serde_json::json!({
+                "parts": [{ "text": system }]
+            });
+        }
+
+        if let Some(temp) = request.temperature {
+            body["generationConfig"] = serde_json::json!({ "temperature": temp });
+        }
+
+        let resp = self.client.post(&url)
+            .header("content-type", "application/json")
+            .json(&body)
+            .send()
+            .await?;
+
+        if !resp.status().is_success() {
+            let status = resp.status().as_u16();
+            let text = resp.text().await.unwrap_or_default();
+            return Err(LLMError::ApiError { status, message: text });
+        }
+
+        Ok(resp)
     }
 }
 

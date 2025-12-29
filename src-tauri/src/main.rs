@@ -197,6 +197,10 @@ fn main() {
             commands::get_model_pricing,
             commands::get_model_cost_tier,
             commands::run_provider_health_checks,
+
+            // Streaming Chat Commands
+            commands::chat_stream,
+            commands::supports_streaming,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

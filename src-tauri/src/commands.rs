@@ -2,7 +2,7 @@
 //!
 //! All Tauri IPC commands exposed to the frontend.
 
-use tauri::State;
+use tauri::{Emitter, State};
 use crate::core::voice::{
     VoiceManager, VoiceConfig, VoiceProviderType, ElevenLabsConfig,
     OllamaConfig, SynthesisRequest, OutputFormat
@@ -1691,4 +1691,90 @@ pub async fn run_provider_health_checks(
 ) -> Result<std::collections::HashMap<String, bool>, String> {
     let router = state.llm_router.read().map_err(|e| e.to_string())?;
     Ok(router.health_check_all().await)
+}
+
+// ============================================================================
+// Streaming Chat Commands
+// ============================================================================
+
+/// Event payload for streaming chunks
+#[derive(Clone, serde::Serialize)]
+pub struct StreamChunkEvent {
+    /// The content delta
+    pub content: String,
+    /// Whether this is the final chunk
+    pub is_final: bool,
+    /// Finish reason (if final)
+    pub finish_reason: Option<String>,
+    /// Unique stream ID
+    pub stream_id: String,
+}
+
+/// Start a streaming chat request
+/// Emits "chat-stream-chunk" events as chunks arrive
+#[tauri::command]
+pub async fn chat_stream(
+    message: String,
+    system_prompt: Option<String>,
+    history: Option<Vec<ChatMessage>>,
+    stream_id: String,
+    app: tauri::AppHandle,
+    state: tauri::State<'_, AppState>,
+) -> Result<crate::core::streaming::StreamingResponse, String> {
+    use crate::core::llm::{ChatMessage, ChatRequest, LLMClient};
+
+    // Get the current LLM config
+    let config = {
+        let config_guard = state.llm_config.read().map_err(|e| e.to_string())?;
+        config_guard.clone().ok_or_else(|| "LLM not configured".to_string())?
+    };
+
+    // Check if streaming is supported
+    let client = LLMClient::new(config);
+    if !client.supports_streaming() {
+        return Err(format!("Provider {} does not support streaming", client.provider_name()));
+    }
+
+    // Build messages
+    let mut messages = history.unwrap_or_default();
+    messages.push(ChatMessage::user(message));
+
+    let request = ChatRequest::new(messages)
+        .with_system(system_prompt.unwrap_or_default());
+
+    // Stream with event emission
+    let app_handle = app.clone();
+    let sid = stream_id.clone();
+
+    let result = client.chat_stream(request, move |chunk| {
+        let event = StreamChunkEvent {
+            content: chunk.content.clone(),
+            is_final: chunk.is_final,
+            finish_reason: chunk.finish_reason.clone(),
+            stream_id: sid.clone(),
+        };
+
+        // Emit the chunk event
+        if let Err(e) = app_handle.emit("chat-stream-chunk", event) {
+            log::error!("Failed to emit stream chunk: {}", e);
+        }
+    }).await.map_err(|e| e.to_string())?;
+
+    Ok(result)
+}
+
+/// Check if the current LLM provider supports streaming
+#[tauri::command]
+pub fn supports_streaming(
+    state: tauri::State<'_, AppState>,
+) -> Result<bool, String> {
+    let config = state.llm_config.read().map_err(|e| e.to_string())?;
+
+    match &*config {
+        Some(cfg) => {
+            let client = LLMClient::new(cfg.clone());
+            Ok(client.supports_streaming())
+        }
+        None => Ok(false),
+    }
 }
