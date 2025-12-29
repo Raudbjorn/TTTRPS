@@ -161,6 +161,7 @@ fn main() {
             commands::speak,
             commands::configure_voice,
             commands::get_voice_config,
+            commands::detect_voice_providers,
 
             // Audio Commands
             commands::get_audio_volumes,

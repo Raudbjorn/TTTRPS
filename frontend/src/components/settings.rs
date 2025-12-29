@@ -2,7 +2,9 @@
 use dioxus::prelude::*;
 use crate::bindings::{
     configure_llm, get_llm_config, save_api_key, check_llm_health, LLMSettings, HealthStatus,
-    configure_voice, get_voice_config, VoiceConfig, ElevenLabsConfig, OllamaConfig,
+    configure_voice, get_voice_config, detect_voice_providers, VoiceConfig, ElevenLabsConfig, OllamaConfig,
+    ChatterboxConfig, GptSoVitsConfig, XttsV2Config, FishSpeechConfig, DiaConfig,
+    ProviderStatus, VoiceProviderDetection,
     check_meilisearch_health, reindex_library, MeilisearchStatus,
     list_ollama_models, OllamaModel,
     list_claude_models, list_openai_models, list_gemini_models,
@@ -76,6 +78,8 @@ pub fn Settings() -> Element {
     let mut selected_voice_provider = use_signal(|| "Disabled".to_string());
     let mut voice_api_key_or_host = use_signal(|| String::new());
     let mut voice_model_id = use_signal(|| String::new());
+    let mut voice_provider_detection = use_signal(|| VoiceProviderDetection::default());
+    let mut is_detecting_providers = use_signal(|| false);
 
     // Meilisearch Signals
     let mut meili_status = use_signal(|| Option::<MeilisearchStatus>::None);
@@ -259,6 +263,13 @@ pub fn Settings() -> Element {
             if let Ok(status) = check_meilisearch_health().await {
                 meili_status.set(Some(status));
             }
+
+            // Detect available voice providers
+            is_detecting_providers.set(true);
+            if let Ok(detection) = detect_voice_providers().await {
+                voice_provider_detection.set(detection);
+            }
+            is_detecting_providers.set(false);
         });
     });
 
@@ -386,8 +397,13 @@ pub fn Settings() -> Element {
                     default_voice_id: None,
                     elevenlabs: None,
                     fish_audio: None,
-                    ollama: None,
                     openai: None,
+                    ollama: None,
+                    chatterbox: None,
+                    gpt_sovits: None,
+                    xtts_v2: None,
+                    fish_speech: None,
+                    dia: None,
                 }
             } else {
                 let mut base = VoiceConfig {
@@ -396,8 +412,13 @@ pub fn Settings() -> Element {
                     default_voice_id: None,
                     elevenlabs: None,
                     fish_audio: None,
-                    ollama: None,
                     openai: None,
+                    ollama: None,
+                    chatterbox: None,
+                    gpt_sovits: None,
+                    xtts_v2: None,
+                    fish_speech: None,
+                    dia: None,
                 };
 
                 match voice_prov.as_str() {
@@ -413,7 +434,44 @@ pub fn Settings() -> Element {
                             model: voice_mod,
                         });
                     }
-                    // Add OpenAI/FishAudio implementations later if needed
+                    "Chatterbox" => {
+                        base.chatterbox = Some(ChatterboxConfig {
+                            base_url: voice_val,
+                            reference_audio: None,
+                            exaggeration: Some(0.5),
+                            cfg_weight: Some(0.5),
+                        });
+                    }
+                    "GptSoVits" => {
+                        base.gpt_sovits = Some(GptSoVitsConfig {
+                            base_url: voice_val,
+                            reference_audio: None,
+                            reference_text: None,
+                            language: Some("en".to_string()),
+                            speaker_id: None,
+                        });
+                    }
+                    "XttsV2" => {
+                        base.xtts_v2 = Some(XttsV2Config {
+                            base_url: voice_val,
+                            speaker_wav: None,
+                            language: Some("en".to_string()),
+                        });
+                    }
+                    "FishSpeech" => {
+                        base.fish_speech = Some(FishSpeechConfig {
+                            base_url: voice_val,
+                            reference_audio: None,
+                            reference_text: None,
+                        });
+                    }
+                    "Dia" => {
+                        base.dia = Some(DiaConfig {
+                            base_url: voice_val,
+                            voice_id: None,
+                            dialogue_mode: Some(false),
+                        });
+                    }
                     _ => {}
                 }
                 base
@@ -645,50 +703,174 @@ pub fn Settings() -> Element {
                 }
 
                 Card {
-                    CardHeader { h2 { class: "text-lg font-semibold", "Audio Configuration" } }
+                    CardHeader {
+                        div {
+                            class: "flex items-center justify-between",
+                            h2 { class: "text-lg font-semibold", "Voice Configuration" }
+                            if *is_detecting_providers.read() {
+                                span { class: "text-sm text-gray-400", "Detecting..." }
+                            }
+                        }
+                    }
                     CardBody {
                         class: "space-y-4",
-                         div {
+                        div {
                             label { class: "block text-sm font-medium text-theme-secondary mb-1", "Voice Provider" }
-                            Select {
-                                value: selected_voice_provider.read().clone(),
-                                onchange: move |val: String| {
+                            select {
+                                class: "w-full p-2 rounded bg-gray-700 text-white border border-gray-600 focus:border-purple-500 outline-none",
+                                value: "{selected_voice_provider}",
+                                onchange: move |e| {
+                                    let val = e.value();
                                     selected_voice_provider.set(val.clone());
-                                    // Reset fields based on provider defaults if needed
-                                    if val == "Ollama" {
-                                        voice_api_key_or_host.set("http://localhost:11434".to_string());
-                                        voice_model_id.set("bark".to_string());
-                                    } else if val == "ElevenLabs" {
-                                        voice_api_key_or_host.set(String::new());
-                                        voice_model_id.set("eleven_multilingual_v2".to_string());
+                                    // Set defaults based on provider
+                                    match val.as_str() {
+                                        "Ollama" => {
+                                            voice_api_key_or_host.set("http://localhost:11434".to_string());
+                                            voice_model_id.set("bark".to_string());
+                                        }
+                                        "ElevenLabs" => {
+                                            voice_api_key_or_host.set(String::new());
+                                            voice_model_id.set("eleven_multilingual_v2".to_string());
+                                        }
+                                        "Chatterbox" => {
+                                            voice_api_key_or_host.set("http://localhost:8000".to_string());
+                                            voice_model_id.set(String::new());
+                                        }
+                                        "GptSoVits" => {
+                                            voice_api_key_or_host.set("http://localhost:9880".to_string());
+                                            voice_model_id.set(String::new());
+                                        }
+                                        "XttsV2" => {
+                                            voice_api_key_or_host.set("http://localhost:8080".to_string());
+                                            voice_model_id.set(String::new());
+                                        }
+                                        "FishSpeech" => {
+                                            voice_api_key_or_host.set("http://localhost:8080".to_string());
+                                            voice_model_id.set(String::new());
+                                        }
+                                        "Dia" => {
+                                            voice_api_key_or_host.set("http://localhost:8003".to_string());
+                                            voice_model_id.set(String::new());
+                                        }
+                                        _ => {}
                                     }
                                 },
                                 option { value: "Disabled", "Disabled" }
-                                option { value: "ElevenLabs", "ElevenLabs" }
-                                option { value: "Ollama", "Ollama (Local)" }
+                                // Cloud providers
+                                optgroup { label: "Cloud Providers",
+                                    option { value: "ElevenLabs", "ElevenLabs" }
+                                    option { value: "OpenAI", "OpenAI TTS" }
+                                    option { value: "FishAudio", "Fish Audio (Cloud)" }
+                                }
+                                // Self-hosted providers with availability status
+                                optgroup { label: "Self-Hosted (Local)",
+                                    {
+                                        let detection = voice_provider_detection.read();
+                                        let providers = vec![
+                                            ("Ollama", "Ollama"),
+                                            ("Chatterbox", "Chatterbox"),
+                                            ("GptSoVits", "GPT-SoVITS"),
+                                            ("XttsV2", "XTTS-v2 (Coqui)"),
+                                            ("FishSpeech", "Fish Speech"),
+                                            ("Dia", "Dia"),
+                                        ];
+                                        rsx! {
+                                            for (value, label) in providers {
+                                                {
+                                                    let is_available = detection.providers.iter()
+                                                        .find(|p| p.provider == value)
+                                                        .map(|p| p.available)
+                                                        .unwrap_or(false);
+                                                    let display = if is_available {
+                                                        format!("{} [running]", label)
+                                                    } else {
+                                                        format!("{} [not detected]", label)
+                                                    };
+                                                    let style = if is_available { "" } else { "color: #888;" };
+                                                    rsx! {
+                                                        option {
+                                                            value: value,
+                                                            style: style,
+                                                            "{display}"
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
 
+                        // Provider-specific configuration
                         if *selected_voice_provider.read() != "Disabled" {
-                            div {
-                                label { class: "block text-sm font-medium text-theme-secondary mb-1",
-                                    if *selected_voice_provider.read() == "Ollama" { "Base URL" } else { "API Key" }
-                                }
-                                Input {
-                                    r#type: if *selected_voice_provider.read() == "Ollama" { "text" } else { "password" },
-                                    placeholder: if *selected_voice_provider.read() == "Ollama" { "http://localhost:11434" } else { "sk-..." },
-                                    value: "{voice_api_key_or_host}",
-                                    oninput: move |val| voice_api_key_or_host.set(val)
+                            // Base URL field for local providers
+                            {
+                                let provider = selected_voice_provider.read().clone();
+                                let is_local = matches!(provider.as_str(),
+                                    "Ollama" | "Chatterbox" | "GptSoVits" | "XttsV2" | "FishSpeech" | "Dia"
+                                );
+                                let is_cloud = matches!(provider.as_str(), "ElevenLabs" | "OpenAI" | "FishAudio");
+
+                                rsx! {
+                                    div {
+                                        label { class: "block text-sm font-medium text-theme-secondary mb-1",
+                                            if is_local { "Base URL" } else { "API Key" }
+                                        }
+                                        Input {
+                                            r#type: if is_local { "text" } else { "password" },
+                                            placeholder: if is_local {
+                                                match provider.as_str() {
+                                                    "Ollama" => "http://localhost:11434",
+                                                    "Chatterbox" => "http://localhost:8000",
+                                                    "GptSoVits" => "http://localhost:9880",
+                                                    "XttsV2" => "http://localhost:8080",
+                                                    "FishSpeech" => "http://localhost:8080",
+                                                    "Dia" => "http://localhost:8003",
+                                                    _ => ""
+                                                }
+                                            } else { "sk-..." },
+                                            value: "{voice_api_key_or_host}",
+                                            oninput: move |val| voice_api_key_or_host.set(val)
+                                        }
+                                    }
+
+                                    // Model/Voice ID field (only for some providers)
+                                    if matches!(provider.as_str(), "ElevenLabs" | "OpenAI" | "Ollama") {
+                                        div {
+                                            label { class: "block text-sm font-medium text-theme-secondary mb-1", "Model ID / Voice" }
+                                            Input {
+                                                placeholder: match provider.as_str() {
+                                                    "ElevenLabs" => "eleven_multilingual_v2",
+                                                    "OpenAI" => "alloy, echo, fable, onyx, nova, shimmer",
+                                                    "Ollama" => "bark",
+                                                    _ => ""
+                                                },
+                                                value: "{voice_model_id}",
+                                                oninput: move |val| voice_model_id.set(val)
+                                            }
+                                        }
+                                    }
                                 }
                             }
+                        }
 
-                             div {
-                                label { class: "block text-sm font-medium text-theme-secondary mb-1", "Model ID / Voice Model" }
-                                Input {
-                                    placeholder: "e.g. eleven_multilingual_v2",
-                                    value: "{voice_model_id}",
-                                    oninput: move |val| voice_model_id.set(val)
-                                }
+                        // Refresh detection button
+                        div {
+                            class: "pt-2",
+                            Button {
+                                variant: ButtonVariant::Secondary,
+                                loading: *is_detecting_providers.read(),
+                                onclick: move |_| {
+                                    spawn(async move {
+                                        is_detecting_providers.set(true);
+                                        if let Ok(detection) = detect_voice_providers().await {
+                                            voice_provider_detection.set(detection);
+                                        }
+                                        is_detecting_providers.set(false);
+                                    });
+                                },
+                                "Refresh Detection"
                             }
                         }
                     }
