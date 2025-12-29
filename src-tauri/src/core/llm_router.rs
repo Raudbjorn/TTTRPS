@@ -599,6 +599,20 @@ impl LLMRouter {
     pub fn config(&self) -> &RouterConfig {
         &self.config
     }
+
+    /// Clone the list of providers (for creating temporary routers)
+    pub fn clone_providers(&self) -> Vec<(String, LLMConfig)> {
+        self.providers.clone()
+    }
+
+    /// Create a router from a list of providers (for temporary use like health checks)
+    pub fn from_providers(providers: Vec<(String, LLMConfig)>) -> Self {
+        let mut router = Self::new(RouterConfig::default());
+        for (name, config) in providers {
+            router.add_provider(name, config);
+        }
+        router
+    }
 }
 
 // ============================================================================

@@ -1689,8 +1689,17 @@ pub fn get_model_cost_tier(
 pub async fn run_provider_health_checks(
     state: tauri::State<'_, AppState>,
 ) -> Result<std::collections::HashMap<String, bool>, String> {
-    let router = state.llm_router.read().map_err(|e| e.to_string())?;
-    Ok(router.health_check_all().await)
+    // Clone the router to avoid holding the lock across await
+    let router = {
+        let guard = state.llm_router.read().map_err(|e| e.to_string())?;
+        // LLMRouter doesn't implement Clone, so we need to get the provider configs
+        // and create a new router for health checking
+        guard.clone_providers()
+    };
+
+    // Create a temporary router for health checks
+    let temp_router = crate::core::llm_router::LLMRouter::from_providers(router);
+    Ok(temp_router.health_check_all().await)
 }
 
 // ============================================================================
