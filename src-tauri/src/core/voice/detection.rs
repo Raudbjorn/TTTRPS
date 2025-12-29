@@ -1,6 +1,8 @@
 //! Voice provider detection service
 //!
-//! Probes local endpoints to detect which TTS services are available.
+//! Probes local endpoints to detect which self-hosted TTS services are available.
+//! Cloud providers (ElevenLabs, OpenAI, FishAudio) require API keys and are not
+//! detected here - they are always listed as options in the UI.
 
 use reqwest::Client;
 use std::time::Duration;
@@ -10,12 +12,15 @@ use super::types::{ProviderStatus, VoiceProviderDetection, VoiceProviderType};
 
 const DETECTION_TIMEOUT: Duration = Duration::from_secs(2);
 
-/// Detect all available voice providers
+/// Detect available self-hosted voice providers by probing their default endpoints.
+///
+/// Note: This only detects local/self-hosted providers. Cloud providers (ElevenLabs,
+/// OpenAI TTS, Fish Audio) require API key validation and are handled separately.
 pub async fn detect_providers() -> VoiceProviderDetection {
     let client = Client::builder()
         .timeout(DETECTION_TIMEOUT)
         .build()
-        .unwrap_or_default();
+        .expect("Failed to build HTTP client for provider detection");
 
     let providers_to_check = vec![
         VoiceProviderType::Ollama,
@@ -110,49 +115,24 @@ async fn check_ollama(client: &Client, base_url: &str) -> ProviderStatus {
 
 /// Chatterbox: typically exposes a /health or root endpoint
 async fn check_chatterbox(client: &Client, base_url: &str) -> ProviderStatus {
-    // Try /health first, then root
-    for path in ["/health", "/", "/api/health"] {
-        let url = format!("{}{}", base_url, path);
-        if let Ok(resp) = client.get(&url).send().await {
-            if resp.status().is_success() {
-                return ProviderStatus {
-                    provider: VoiceProviderType::Chatterbox,
-                    available: true,
-                    endpoint: Some(base_url.to_string()),
-                    version: None,
-                    error: None,
-                };
-            }
-        }
-    }
-
-    // Try connecting to the port at least
-    match client.get(base_url).send().await {
-        Ok(_) => ProviderStatus {
-            provider: VoiceProviderType::Chatterbox,
-            available: true,
-            endpoint: Some(base_url.to_string()),
-            version: None,
-            error: None,
-        },
-        Err(e) => ProviderStatus {
-            provider: VoiceProviderType::Chatterbox,
-            available: false,
-            endpoint: Some(base_url.to_string()),
-            version: None,
-            error: Some(connection_error(&e)),
-        },
-    }
+    check_provider_with_paths(
+        client,
+        base_url,
+        VoiceProviderType::Chatterbox,
+        &["/health", "/api/health", "/"],
+    ).await
 }
 
 /// GPT-SoVITS: API at /tts or /
 async fn check_gpt_sovits(client: &Client, base_url: &str) -> ProviderStatus {
-    // GPT-SoVITS typically responds on root or has a /tts endpoint
-    for path in ["/", "/tts", "/api"] {
+    // GPT-SoVITS may return 405 on GET (expects POST) but still indicates it's running
+    let paths = ["/", "/tts", "/api"];
+    let mut last_error: Option<String> = None;
+
+    for path in paths {
         let url = format!("{}{}", base_url, path);
-        if let Ok(resp) = client.get(&url).send().await {
-            // GPT-SoVITS may return 405 on GET but still indicate it's running
-            if resp.status().is_success() || resp.status().as_u16() == 405 {
+        match client.get(&url).send().await {
+            Ok(resp) if resp.status().is_success() || resp.status().as_u16() == 405 => {
                 return ProviderStatus {
                     provider: VoiceProviderType::GptSoVits,
                     available: true,
@@ -160,6 +140,12 @@ async fn check_gpt_sovits(client: &Client, base_url: &str) -> ProviderStatus {
                     version: None,
                     error: None,
                 };
+            }
+            Ok(resp) => {
+                last_error = Some(format!("HTTP {} on {}", resp.status(), path));
+            }
+            Err(e) => {
+                last_error = Some(connection_error(&e));
             }
         }
     }
@@ -169,97 +155,89 @@ async fn check_gpt_sovits(client: &Client, base_url: &str) -> ProviderStatus {
         available: false,
         endpoint: Some(base_url.to_string()),
         version: None,
-        error: Some("Service not responding".to_string()),
+        error: last_error.or_else(|| Some("No valid endpoint found".to_string())),
     }
 }
 
 /// XTTS-v2 (Coqui TTS server): /api/tts or /docs
 async fn check_xtts_v2(client: &Client, base_url: &str) -> ProviderStatus {
-    // Coqui TTS server exposes OpenAPI docs
-    for path in ["/docs", "/", "/api/tts"] {
-        let url = format!("{}{}", base_url, path);
-        if let Ok(resp) = client.get(&url).send().await {
-            if resp.status().is_success() {
-                return ProviderStatus {
-                    provider: VoiceProviderType::XttsV2,
-                    available: true,
-                    endpoint: Some(base_url.to_string()),
-                    version: None,
-                    error: None,
-                };
-            }
-        }
-    }
-
-    ProviderStatus {
-        provider: VoiceProviderType::XttsV2,
-        available: false,
-        endpoint: Some(base_url.to_string()),
-        version: None,
-        error: Some("Service not responding".to_string()),
-    }
+    check_provider_with_paths(
+        client,
+        base_url,
+        VoiceProviderType::XttsV2,
+        &["/docs", "/", "/api/tts"],
+    ).await
 }
 
 /// Fish Speech: /v1/tts or /health
 async fn check_fish_speech(client: &Client, base_url: &str) -> ProviderStatus {
-    for path in ["/health", "/v1/health", "/"] {
-        let url = format!("{}{}", base_url, path);
-        if let Ok(resp) = client.get(&url).send().await {
-            if resp.status().is_success() {
-                return ProviderStatus {
-                    provider: VoiceProviderType::FishSpeech,
-                    available: true,
-                    endpoint: Some(base_url.to_string()),
-                    version: None,
-                    error: None,
-                };
-            }
-        }
-    }
-
-    ProviderStatus {
-        provider: VoiceProviderType::FishSpeech,
-        available: false,
-        endpoint: Some(base_url.to_string()),
-        version: None,
-        error: Some("Service not responding".to_string()),
-    }
+    check_provider_with_paths(
+        client,
+        base_url,
+        VoiceProviderType::FishSpeech,
+        &["/health", "/v1/health", "/"],
+    ).await
 }
 
 /// Dia: /health or /api/health
 async fn check_dia(client: &Client, base_url: &str) -> ProviderStatus {
-    for path in ["/health", "/", "/api/health"] {
+    check_provider_with_paths(
+        client,
+        base_url,
+        VoiceProviderType::Dia,
+        &["/health", "/api/health", "/"],
+    ).await
+}
+
+/// Generic provider check that tries multiple paths and returns detailed errors.
+/// Only marks provider as available if a successful HTTP response is received.
+async fn check_provider_with_paths(
+    client: &Client,
+    base_url: &str,
+    provider: VoiceProviderType,
+    paths: &[&str],
+) -> ProviderStatus {
+    let mut last_error: Option<String> = None;
+
+    for path in paths {
         let url = format!("{}{}", base_url, path);
-        if let Ok(resp) = client.get(&url).send().await {
-            if resp.status().is_success() {
+        match client.get(&url).send().await {
+            Ok(resp) if resp.status().is_success() => {
                 return ProviderStatus {
-                    provider: VoiceProviderType::Dia,
+                    provider,
                     available: true,
                     endpoint: Some(base_url.to_string()),
                     version: None,
                     error: None,
                 };
             }
+            Ok(resp) => {
+                // Got a response but not success - record the status
+                last_error = Some(format!("HTTP {} on {}", resp.status(), path));
+            }
+            Err(e) => {
+                last_error = Some(connection_error(&e));
+            }
         }
     }
 
     ProviderStatus {
-        provider: VoiceProviderType::Dia,
+        provider,
         available: false,
         endpoint: Some(base_url.to_string()),
         version: None,
-        error: Some("Service not responding".to_string()),
+        error: last_error.or_else(|| Some("No valid endpoint found".to_string())),
     }
 }
 
 /// Convert reqwest error to user-friendly message
 fn connection_error(e: &reqwest::Error) -> String {
     if e.is_connect() {
-        "Not running".to_string()
+        "Not running (connection refused)".to_string()
     } else if e.is_timeout() {
-        "Timeout".to_string()
+        "Timeout (service may be slow or unresponsive)".to_string()
     } else {
-        format!("Error: {}", e)
+        format!("Network error: {}", e)
     }
 }
 

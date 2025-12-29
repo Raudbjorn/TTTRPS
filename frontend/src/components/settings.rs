@@ -741,11 +741,11 @@ pub fn Settings() -> Element {
                                             voice_model_id.set(String::new());
                                         }
                                         "XttsV2" => {
-                                            voice_api_key_or_host.set("http://localhost:8080".to_string());
+                                            voice_api_key_or_host.set("http://localhost:5002".to_string());
                                             voice_model_id.set(String::new());
                                         }
                                         "FishSpeech" => {
-                                            voice_api_key_or_host.set("http://localhost:8080".to_string());
+                                            voice_api_key_or_host.set("http://localhost:7860".to_string());
                                             voice_model_id.set(String::new());
                                         }
                                         "Dia" => {
@@ -824,8 +824,8 @@ pub fn Settings() -> Element {
                                                     "Ollama" => "http://localhost:11434",
                                                     "Chatterbox" => "http://localhost:8000",
                                                     "GptSoVits" => "http://localhost:9880",
-                                                    "XttsV2" => "http://localhost:8080",
-                                                    "FishSpeech" => "http://localhost:8080",
+                                                    "XttsV2" => "http://localhost:5002",
+                                                    "FishSpeech" => "http://localhost:7860",
                                                     "Dia" => "http://localhost:8003",
                                                     _ => ""
                                                 }

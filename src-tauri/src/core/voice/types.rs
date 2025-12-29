@@ -76,14 +76,15 @@ pub enum VoiceProviderType {
 }
 
 impl VoiceProviderType {
-    /// Returns the default endpoint for self-hosted providers
+    /// Returns the default endpoint for self-hosted providers.
+    /// Note: Each provider uses a unique port to avoid conflicts.
     pub fn default_endpoint(&self) -> Option<&'static str> {
         match self {
             Self::Ollama => Some("http://localhost:11434"),
             Self::Chatterbox => Some("http://localhost:8000"),
             Self::GptSoVits => Some("http://localhost:9880"),
-            Self::XttsV2 => Some("http://localhost:8080"),
-            Self::FishSpeech => Some("http://localhost:8080"),
+            Self::XttsV2 => Some("http://localhost:5002"),     // Coqui TTS default
+            Self::FishSpeech => Some("http://localhost:7860"), // Fish Speech default
             Self::Dia => Some("http://localhost:8003"),
             _ => None,
         }
@@ -209,7 +210,7 @@ pub struct XttsV2Config {
 impl Default for XttsV2Config {
     fn default() -> Self {
         Self {
-            base_url: "http://localhost:8080".to_string(),
+            base_url: "http://localhost:5002".to_string(), // Coqui TTS default port
             speaker_wav: None,
             language: Some("en".to_string()),
         }
@@ -230,7 +231,7 @@ pub struct FishSpeechConfig {
 impl Default for FishSpeechConfig {
     fn default() -> Self {
         Self {
-            base_url: "http://localhost:8080".to_string(),
+            base_url: "http://localhost:7860".to_string(), // Fish Speech default port
             reference_audio: None,
             reference_text: None,
         }
