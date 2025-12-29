@@ -93,6 +93,8 @@ fn main() {
             commands::list_claude_models,
             commands::list_openai_models,
             commands::list_gemini_models,
+            commands::list_openrouter_models,
+            commands::list_provider_models,
 
             // Campaign Commands
             commands::list_campaigns,
@@ -159,6 +161,10 @@ fn main() {
             commands::speak,
             commands::configure_voice,
             commands::get_voice_config,
+            commands::list_openai_voices,
+            commands::list_openai_tts_models,
+            commands::list_elevenlabs_voices,
+            commands::list_available_voices,
 
             // Audio Commands
             commands::get_audio_volumes,

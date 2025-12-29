@@ -2,10 +2,12 @@
 use dioxus::prelude::*;
 use crate::bindings::{
     configure_llm, get_llm_config, save_api_key, check_llm_health, LLMSettings, HealthStatus,
-    configure_voice, get_voice_config, VoiceConfig, ElevenLabsConfig, OllamaConfig,
+    configure_voice, get_voice_config, VoiceConfig, ElevenLabsConfig, OllamaConfig, OpenAIVoiceConfig,
     check_meilisearch_health, reindex_library, MeilisearchStatus,
     list_ollama_models, OllamaModel,
-    list_claude_models, list_openai_models, list_gemini_models, ModelInfo
+    list_claude_models, list_openai_models, list_gemini_models,
+    list_openrouter_models, list_provider_models, ModelInfo,
+    list_openai_voices, list_openai_tts_models, list_elevenlabs_voices, Voice
 };
 use crate::components::design_system::{Button, ButtonVariant, Input, Select, Card, CardHeader, CardBody, Badge, BadgeVariant};
 
@@ -15,15 +17,27 @@ pub enum LLMProvider {
     Claude,
     Gemini,
     OpenAI,
+    OpenRouter,
+    Mistral,
+    Groq,
+    Together,
+    Cohere,
+    DeepSeek,
 }
 
 impl std::fmt::Display for LLMProvider {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            LLMProvider::Ollama => write!(f, "Ollama"),
-            LLMProvider::Claude => write!(f, "Claude"),
-            LLMProvider::Gemini => write!(f, "Gemini"),
+            LLMProvider::Ollama => write!(f, "Ollama (Local)"),
+            LLMProvider::Claude => write!(f, "Claude (Anthropic)"),
+            LLMProvider::Gemini => write!(f, "Gemini (Google)"),
             LLMProvider::OpenAI => write!(f, "OpenAI"),
+            LLMProvider::OpenRouter => write!(f, "OpenRouter (400+ models)"),
+            LLMProvider::Mistral => write!(f, "Mistral AI"),
+            LLMProvider::Groq => write!(f, "Groq (Fast)"),
+            LLMProvider::Together => write!(f, "Together AI"),
+            LLMProvider::Cohere => write!(f, "Cohere"),
+            LLMProvider::DeepSeek => write!(f, "DeepSeek"),
         }
     }
 }
@@ -35,7 +49,17 @@ impl LLMProvider {
             LLMProvider::Claude => "claude".to_string(),
             LLMProvider::Gemini => "gemini".to_string(),
             LLMProvider::OpenAI => "openai".to_string(),
+            LLMProvider::OpenRouter => "openrouter".to_string(),
+            LLMProvider::Mistral => "mistral".to_string(),
+            LLMProvider::Groq => "groq".to_string(),
+            LLMProvider::Together => "together".to_string(),
+            LLMProvider::Cohere => "cohere".to_string(),
+            LLMProvider::DeepSeek => "deepseek".to_string(),
         }
+    }
+
+    fn requires_api_key(&self) -> bool {
+        !matches!(self, LLMProvider::Ollama)
     }
 }
 
@@ -53,6 +77,10 @@ pub fn Settings() -> Element {
     let mut selected_voice_provider = use_signal(|| "Disabled".to_string());
     let mut voice_api_key_or_host = use_signal(|| String::new());
     let mut voice_model_id = use_signal(|| String::new());
+    let mut selected_voice_id = use_signal(|| String::new());
+    let mut available_voices = use_signal(|| Vec::<Voice>::new());
+    let mut openai_tts_models = use_signal(|| Vec::<(String, String)>::new());
+    let mut is_loading_voices = use_signal(|| false);
 
     // Meilisearch Signals
     let mut meili_status = use_signal(|| Option::<MeilisearchStatus>::None);
@@ -86,13 +114,55 @@ pub fn Settings() -> Element {
         spawn(async move {
             is_loading_models.set(true);
             let models = match provider {
+                // Providers with dedicated API endpoints
                 LLMProvider::Claude => list_claude_models(api_key).await.unwrap_or_default(),
                 LLMProvider::OpenAI => list_openai_models(api_key).await.unwrap_or_default(),
                 LLMProvider::Gemini => list_gemini_models(api_key).await.unwrap_or_default(),
+                LLMProvider::OpenRouter => list_openrouter_models().await.unwrap_or_default(),
+                // Providers using LiteLLM catalog
+                p @ (LLMProvider::Mistral
+                | LLMProvider::Groq
+                | LLMProvider::Together
+                | LLMProvider::Cohere
+                | LLMProvider::DeepSeek) => {
+                    list_provider_models(p.to_string_key()).await.unwrap_or_default()
+                }
                 _ => Vec::new(),
             };
             cloud_models.set(models);
             is_loading_models.set(false);
+        });
+    };
+
+    // Function to fetch voices based on provider
+    let fetch_voices = move |provider: String, api_key: Option<String>| {
+        spawn(async move {
+            is_loading_voices.set(true);
+            match provider.as_str() {
+                "OpenAI" => {
+                    // OpenAI voices are static, no API call needed
+                    if let Ok(voices) = list_openai_voices().await {
+                        available_voices.set(voices);
+                    }
+                    // Also fetch TTS models
+                    if let Ok(models) = list_openai_tts_models().await {
+                        openai_tts_models.set(models);
+                    }
+                }
+                "ElevenLabs" => {
+                    if let Some(key) = api_key {
+                        if !key.is_empty() && !key.starts_with("*") {
+                            if let Ok(voices) = list_elevenlabs_voices(key).await {
+                                available_voices.set(voices);
+                            }
+                        }
+                    }
+                }
+                _ => {
+                    available_voices.set(Vec::new());
+                }
+            }
+            is_loading_voices.set(false);
         });
     };
 
@@ -112,8 +182,7 @@ pub fn Settings() -> Element {
                     }
                     "claude" => {
                         selected_provider.set(LLMProvider::Claude);
-                        api_key_or_host.set(String::new()); // Don't show masked key
-                        // Fetch models (will use fallback without valid key)
+                        api_key_or_host.set(String::new());
                         if let Ok(models) = list_claude_models(None).await {
                             cloud_models.set(models);
                         }
@@ -132,6 +201,48 @@ pub fn Settings() -> Element {
                             cloud_models.set(models);
                         }
                     }
+                    "openrouter" => {
+                        selected_provider.set(LLMProvider::OpenRouter);
+                        api_key_or_host.set(String::new());
+                        if let Ok(models) = list_openrouter_models().await {
+                            cloud_models.set(models);
+                        }
+                    }
+                    "mistral" => {
+                        selected_provider.set(LLMProvider::Mistral);
+                        api_key_or_host.set(String::new());
+                        if let Ok(models) = list_provider_models("mistral".to_string()).await {
+                            cloud_models.set(models);
+                        }
+                    }
+                    "groq" => {
+                        selected_provider.set(LLMProvider::Groq);
+                        api_key_or_host.set(String::new());
+                        if let Ok(models) = list_provider_models("groq".to_string()).await {
+                            cloud_models.set(models);
+                        }
+                    }
+                    "together" => {
+                        selected_provider.set(LLMProvider::Together);
+                        api_key_or_host.set(String::new());
+                        if let Ok(models) = list_provider_models("together".to_string()).await {
+                            cloud_models.set(models);
+                        }
+                    }
+                    "cohere" => {
+                        selected_provider.set(LLMProvider::Cohere);
+                        api_key_or_host.set(String::new());
+                        if let Ok(models) = list_provider_models("cohere".to_string()).await {
+                            cloud_models.set(models);
+                        }
+                    }
+                    "deepseek" => {
+                        selected_provider.set(LLMProvider::DeepSeek);
+                        api_key_or_host.set(String::new());
+                        if let Ok(models) = list_provider_models("deepseek".to_string()).await {
+                            cloud_models.set(models);
+                        }
+                    }
                     _ => {}
                 }
                 model_name.set(config.model);
@@ -147,12 +258,6 @@ pub fn Settings() -> Element {
 
             // Load Voice Config
             if let Ok(config) = get_voice_config().await {
-                // Determine provider string from enum-like handling or explicit fields
-                // Backend returns "Disabled", "ElevenLabs", "Ollama", etc in provider field (string) because we mapped it?
-                // Wait, backend returns VoiceConfig struct where provider is VoiceProviderType.
-                // In bindings.rs, VoiceConfig provider is String.
-                // It seems serialization of enum uses variant name by default.
-
                 let provider_str = match config.provider.as_str() {
                     "ElevenLabs" => "ElevenLabs",
                     "Ollama" => "Ollama",
@@ -165,8 +270,14 @@ pub fn Settings() -> Element {
                 match provider_str {
                     "ElevenLabs" => {
                         if let Some(c) = config.elevenlabs {
-                            voice_api_key_or_host.set(c.api_key); // Might be masked
+                            voice_api_key_or_host.set(c.api_key.clone());
                             voice_model_id.set(c.model_id.unwrap_or_default());
+                            // Fetch ElevenLabs voices if API key is valid
+                            if !c.api_key.is_empty() && !c.api_key.starts_with("*") {
+                                if let Ok(voices) = list_elevenlabs_voices(c.api_key).await {
+                                    available_voices.set(voices);
+                                }
+                            }
                         }
                     }
                     "Ollama" => {
@@ -175,7 +286,20 @@ pub fn Settings() -> Element {
                             voice_model_id.set(c.model);
                         }
                     }
-                    // Handle others if needed
+                    "OpenAI" => {
+                        if let Some(c) = config.openai {
+                            voice_api_key_or_host.set(c.api_key);
+                            voice_model_id.set(c.model);
+                            selected_voice_id.set(c.voice);
+                        }
+                        // Fetch OpenAI voices (static list)
+                        if let Ok(voices) = list_openai_voices().await {
+                            available_voices.set(voices);
+                        }
+                        if let Ok(models) = list_openai_tts_models().await {
+                            openai_tts_models.set(models);
+                        }
+                    }
                     _ => {}
                 }
             }
@@ -308,6 +432,7 @@ pub fn Settings() -> Element {
             let voice_prov = selected_voice_provider.read().clone();
             let voice_val = voice_api_key_or_host.read().clone();
             let voice_mod = voice_model_id.read().clone();
+            let voice_id = selected_voice_id.read().clone();
 
             let voice_config = if voice_prov == "Disabled" {
                 VoiceConfig {
@@ -343,7 +468,13 @@ pub fn Settings() -> Element {
                             model: voice_mod,
                         });
                     }
-                    // Add OpenAI/FishAudio implementations later if needed
+                    "OpenAI" => {
+                        base.openai = Some(OpenAIVoiceConfig {
+                            api_key: voice_val,
+                            model: voice_mod,
+                            voice: voice_id,
+                        });
+                    }
                     _ => {}
                 }
                 base
@@ -364,6 +495,12 @@ pub fn Settings() -> Element {
         LLMProvider::Claude => "sk-ant-...",
         LLMProvider::Gemini => "AIza...",
         LLMProvider::OpenAI => "sk-...",
+        LLMProvider::OpenRouter => "sk-or-...",
+        LLMProvider::Mistral => "API Key",
+        LLMProvider::Groq => "gsk_...",
+        LLMProvider::Together => "API Key",
+        LLMProvider::Cohere => "API Key",
+        LLMProvider::DeepSeek => "sk-...",
     };
 
     let label_text = match *selected_provider.read() {
@@ -371,6 +508,12 @@ pub fn Settings() -> Element {
         LLMProvider::Claude => "Claude API Key",
         LLMProvider::Gemini => "Gemini API Key",
         LLMProvider::OpenAI => "OpenAI API Key",
+        LLMProvider::OpenRouter => "OpenRouter API Key",
+        LLMProvider::Mistral => "Mistral API Key",
+        LLMProvider::Groq => "Groq API Key",
+        LLMProvider::Together => "Together API Key",
+        LLMProvider::Cohere => "Cohere API Key",
+        LLMProvider::DeepSeek => "DeepSeek API Key",
     };
 
     let show_embedding_model = matches!(*selected_provider.read(), LLMProvider::Ollama);
@@ -407,14 +550,18 @@ pub fn Settings() -> Element {
                         div {
                             label { class: "block text-sm font-medium text-theme-secondary mb-1", "Provider" }
                             Select {
-                                value: selected_provider.read().to_string_key(), // Map back to string or handle in onchange
+                                value: selected_provider.read().to_string_key(),
                                 onchange: move |val: String| {
-                                    // Map "Ollama" etc value from options back to enum?
-                                    // Wait, options values are string.
                                     let provider = match val.as_str() {
                                         "Claude" => LLMProvider::Claude,
                                         "Gemini" => LLMProvider::Gemini,
                                         "OpenAI" => LLMProvider::OpenAI,
+                                        "OpenRouter" => LLMProvider::OpenRouter,
+                                        "Mistral" => LLMProvider::Mistral,
+                                        "Groq" => LLMProvider::Groq,
+                                        "Together" => LLMProvider::Together,
+                                        "Cohere" => LLMProvider::Cohere,
+                                        "DeepSeek" => LLMProvider::DeepSeek,
                                         _ => LLMProvider::Ollama,
                                     };
                                     selected_provider.set(provider.clone());
@@ -423,7 +570,6 @@ pub fn Settings() -> Element {
                                         LLMProvider::Ollama => {
                                              api_key_or_host.set("http://localhost:11434".to_string());
                                              model_name.set("llama3.2".to_string());
-                                             // Fetch available models
                                              fetch_ollama_models("http://localhost:11434".to_string());
                                         }
                                         LLMProvider::Claude => {
@@ -441,12 +587,48 @@ pub fn Settings() -> Element {
                                              model_name.set("gpt-4o".to_string());
                                              fetch_cloud_models(LLMProvider::OpenAI, None);
                                         }
+                                        LLMProvider::OpenRouter => {
+                                             api_key_or_host.set(String::new());
+                                             model_name.set("openai/gpt-4o".to_string());
+                                             fetch_cloud_models(LLMProvider::OpenRouter, None);
+                                        }
+                                        LLMProvider::Mistral => {
+                                             api_key_or_host.set(String::new());
+                                             model_name.set("mistral-large-latest".to_string());
+                                             fetch_cloud_models(LLMProvider::Mistral, None);
+                                        }
+                                        LLMProvider::Groq => {
+                                             api_key_or_host.set(String::new());
+                                             model_name.set("llama-3.3-70b-versatile".to_string());
+                                             fetch_cloud_models(LLMProvider::Groq, None);
+                                        }
+                                        LLMProvider::Together => {
+                                             api_key_or_host.set(String::new());
+                                             model_name.set("meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo".to_string());
+                                             fetch_cloud_models(LLMProvider::Together, None);
+                                        }
+                                        LLMProvider::Cohere => {
+                                             api_key_or_host.set(String::new());
+                                             model_name.set("command-r-plus".to_string());
+                                             fetch_cloud_models(LLMProvider::Cohere, None);
+                                        }
+                                        LLMProvider::DeepSeek => {
+                                             api_key_or_host.set(String::new());
+                                             model_name.set("deepseek-chat".to_string());
+                                             fetch_cloud_models(LLMProvider::DeepSeek, None);
+                                        }
                                     }
                                 },
                                 option { value: "Ollama", selected: matches!(*selected_provider.read(), LLMProvider::Ollama), "Ollama (Local)" }
+                                option { value: "OpenRouter", selected: matches!(*selected_provider.read(), LLMProvider::OpenRouter), "OpenRouter (400+ models)" }
                                 option { value: "Claude", selected: matches!(*selected_provider.read(), LLMProvider::Claude), "Claude (Anthropic)" }
-                                option { value: "Gemini", selected: matches!(*selected_provider.read(), LLMProvider::Gemini), "Gemini (Google)" }
                                 option { value: "OpenAI", selected: matches!(*selected_provider.read(), LLMProvider::OpenAI), "OpenAI" }
+                                option { value: "Gemini", selected: matches!(*selected_provider.read(), LLMProvider::Gemini), "Gemini (Google)" }
+                                option { value: "Mistral", selected: matches!(*selected_provider.read(), LLMProvider::Mistral), "Mistral AI" }
+                                option { value: "Groq", selected: matches!(*selected_provider.read(), LLMProvider::Groq), "Groq (Fast)" }
+                                option { value: "Together", selected: matches!(*selected_provider.read(), LLMProvider::Together), "Together AI" }
+                                option { value: "Cohere", selected: matches!(*selected_provider.read(), LLMProvider::Cohere), "Cohere" }
+                                option { value: "DeepSeek", selected: matches!(*selected_provider.read(), LLMProvider::DeepSeek), "DeepSeek" }
                             }
                         }
 
@@ -533,40 +715,139 @@ pub fn Settings() -> Element {
                                 value: selected_voice_provider.read().clone(),
                                 onchange: move |val: String| {
                                     selected_voice_provider.set(val.clone());
-                                    // Reset fields based on provider defaults if needed
-                                    if val == "Ollama" {
-                                        voice_api_key_or_host.set("http://localhost:11434".to_string());
-                                        voice_model_id.set("bark".to_string());
-                                    } else if val == "ElevenLabs" {
-                                        voice_api_key_or_host.set(String::new());
-                                        voice_model_id.set("eleven_multilingual_v2".to_string());
+                                    available_voices.set(Vec::new());
+                                    // Reset fields based on provider defaults
+                                    match val.as_str() {
+                                        "Ollama" => {
+                                            voice_api_key_or_host.set("http://localhost:11434".to_string());
+                                            voice_model_id.set("bark".to_string());
+                                        }
+                                        "ElevenLabs" => {
+                                            voice_api_key_or_host.set(String::new());
+                                            voice_model_id.set("eleven_multilingual_v2".to_string());
+                                        }
+                                        "OpenAI" => {
+                                            voice_api_key_or_host.set(String::new());
+                                            voice_model_id.set("tts-1".to_string());
+                                            selected_voice_id.set("alloy".to_string());
+                                            fetch_voices("OpenAI".to_string(), None);
+                                        }
+                                        _ => {}
                                     }
                                 },
                                 option { value: "Disabled", "Disabled" }
+                                option { value: "OpenAI", "OpenAI TTS" }
                                 option { value: "ElevenLabs", "ElevenLabs" }
                                 option { value: "Ollama", "Ollama (Local)" }
                             }
                         }
 
                         if *selected_voice_provider.read() != "Disabled" {
+                            // API Key / Base URL
                             div {
                                 label { class: "block text-sm font-medium text-theme-secondary mb-1",
                                     if *selected_voice_provider.read() == "Ollama" { "Base URL" } else { "API Key" }
                                 }
                                 Input {
                                     r#type: if *selected_voice_provider.read() == "Ollama" { "text" } else { "password" },
-                                    placeholder: if *selected_voice_provider.read() == "Ollama" { "http://localhost:11434" } else { "sk-..." },
+                                    placeholder: match selected_voice_provider.read().as_str() {
+                                        "Ollama" => "http://localhost:11434",
+                                        "OpenAI" => "sk-...",
+                                        _ => "API Key"
+                                    },
                                     value: "{voice_api_key_or_host}",
                                     oninput: move |val| voice_api_key_or_host.set(val)
                                 }
                             }
 
-                             div {
-                                label { class: "block text-sm font-medium text-theme-secondary mb-1", "Model ID / Voice Model" }
-                                Input {
-                                    placeholder: "e.g. eleven_multilingual_v2",
-                                    value: "{voice_model_id}",
-                                    oninput: move |val| voice_model_id.set(val)
+                            // Model selection - dropdown for OpenAI, text input for others
+                            if *selected_voice_provider.read() == "OpenAI" {
+                                div {
+                                    label { class: "block text-sm font-medium text-theme-secondary mb-1", "TTS Model" }
+                                    select {
+                                        class: "w-full p-2 rounded bg-gray-700 text-white border border-gray-600 focus:border-purple-500 outline-none",
+                                        value: "{voice_model_id}",
+                                        onchange: move |e| voice_model_id.set(e.value()),
+                                        if openai_tts_models.read().is_empty() {
+                                            option { value: "tts-1", "TTS-1 (Fast)" }
+                                            option { value: "tts-1-hd", "TTS-1 HD (High Quality)" }
+                                        }
+                                        for (id, name) in openai_tts_models.read().iter() {
+                                            option {
+                                                value: "{id}",
+                                                selected: *voice_model_id.read() == *id,
+                                                "{name}"
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // Voice selection dropdown for OpenAI
+                                div {
+                                    label { class: "block text-sm font-medium text-theme-secondary mb-1", "Voice" }
+                                    select {
+                                        class: "w-full p-2 rounded bg-gray-700 text-white border border-gray-600 focus:border-purple-500 outline-none",
+                                        value: "{selected_voice_id}",
+                                        onchange: move |e| selected_voice_id.set(e.value()),
+                                        if available_voices.read().is_empty() {
+                                            option { value: "alloy", "Alloy - Neutral and balanced" }
+                                            option { value: "echo", "Echo - Warm and clear" }
+                                            option { value: "fable", "Fable - British accent" }
+                                            option { value: "onyx", "Onyx - Deep and authoritative" }
+                                            option { value: "nova", "Nova - Friendly and upbeat" }
+                                            option { value: "shimmer", "Shimmer - Warm and pleasant" }
+                                        }
+                                        for voice in available_voices.read().iter() {
+                                            option {
+                                                value: "{voice.id}",
+                                                selected: *selected_voice_id.read() == voice.id,
+                                                if let Some(ref desc) = voice.description {
+                                                    "{voice.name} - {desc}"
+                                                } else {
+                                                    "{voice.name}"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            } else if *selected_voice_provider.read() == "ElevenLabs" {
+                                // Model ID input for ElevenLabs
+                                div {
+                                    label { class: "block text-sm font-medium text-theme-secondary mb-1", "Model ID" }
+                                    Input {
+                                        placeholder: "eleven_multilingual_v2",
+                                        value: "{voice_model_id}",
+                                        oninput: move |val| voice_model_id.set(val)
+                                    }
+                                }
+
+                                // Voice selection for ElevenLabs (if voices loaded)
+                                if !available_voices.read().is_empty() {
+                                    div {
+                                        label { class: "block text-sm font-medium text-theme-secondary mb-1", "Voice" }
+                                        select {
+                                            class: "w-full p-2 rounded bg-gray-700 text-white border border-gray-600 focus:border-purple-500 outline-none",
+                                            value: "{selected_voice_id}",
+                                            onchange: move |e| selected_voice_id.set(e.value()),
+                                            for voice in available_voices.read().iter() {
+                                                option {
+                                                    value: "{voice.id}",
+                                                    selected: *selected_voice_id.read() == voice.id,
+                                                    "{voice.name}"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            } else {
+                                // Ollama - just model input
+                                div {
+                                    label { class: "block text-sm font-medium text-theme-secondary mb-1", "Voice Model" }
+                                    Input {
+                                        placeholder: "bark",
+                                        value: "{voice_model_id}",
+                                        oninput: move |val| voice_model_id.set(val)
+                                    }
                                 }
                             }
                         }
