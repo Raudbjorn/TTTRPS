@@ -1,9 +1,14 @@
 //! LLM Provider Router
 //!
 //! Intelligent routing between LLM providers with health checking,
-//! automatic fallback, and circuit breaker pattern.
+//! automatic fallback, circuit breaker pattern, and integrated cost tracking.
 
 use crate::core::llm::{LLMClient, LLMConfig, LLMError, ChatRequest, ChatResponse, EmbeddingResponse};
+use crate::core::pricing::{get_model_pricing, get_provider_default_pricing, CostTier, get_cost_tier};
+use crate::core::budget::{BudgetEnforcer, BudgetAction, SpendingRecord};
+use crate::core::cost_predictor::CostPredictor;
+use chrono::Utc;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
@@ -13,7 +18,8 @@ use tokio::time::timeout;
 // Circuit Breaker
 // ============================================================================
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum CircuitState {
     Closed,      // Normal operation
     Open,        // Failing, reject requests
@@ -98,13 +104,18 @@ impl CircuitBreaker {
 // Provider Stats
 // ============================================================================
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ProviderStats {
     pub total_requests: u64,
     pub successful_requests: u64,
     pub failed_requests: u64,
     pub total_latency_ms: u64,
+    #[serde(skip)]
     pub last_used: Option<Instant>,
+    /// Total tokens used (input + output)
+    pub total_tokens: u64,
+    /// Total cost in USD
+    pub total_cost: f64,
 }
 
 impl ProviderStats {
@@ -123,29 +134,64 @@ impl ProviderStats {
             self.successful_requests as f64 / self.total_requests as f64
         }
     }
+
+    pub fn avg_cost(&self) -> f64 {
+        if self.successful_requests == 0 {
+            0.0
+        } else {
+            self.total_cost / self.successful_requests as f64
+        }
+    }
+
+    pub fn avg_tokens(&self) -> u64 {
+        if self.successful_requests == 0 {
+            0
+        } else {
+            self.total_tokens / self.successful_requests
+        }
+    }
 }
 
 // ============================================================================
 // Router Configuration
 // ============================================================================
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RouterConfig {
-    /// Request timeout
-    pub request_timeout: Duration,
+    /// Request timeout in seconds
+    pub request_timeout_secs: u64,
     /// Whether to enable automatic fallback
     pub enable_fallback: bool,
-    /// Health check interval
-    pub health_check_interval: Duration,
+    /// Health check interval in seconds
+    pub health_check_interval_secs: u64,
+    /// Whether to enforce budget limits
+    pub enforce_budget: bool,
+    /// Whether to optimize for cost (may use cheaper providers when possible)
+    pub cost_optimization: bool,
+    /// Maximum cost tier to use
+    pub max_cost_tier: Option<CostTier>,
 }
 
 impl Default for RouterConfig {
     fn default() -> Self {
         Self {
-            request_timeout: Duration::from_secs(120),
+            request_timeout_secs: 120,
             enable_fallback: true,
-            health_check_interval: Duration::from_secs(60),
+            health_check_interval_secs: 60,
+            enforce_budget: true,
+            cost_optimization: false,
+            max_cost_tier: None,
         }
+    }
+}
+
+impl RouterConfig {
+    pub fn request_timeout(&self) -> Duration {
+        Duration::from_secs(self.request_timeout_secs)
+    }
+
+    pub fn health_check_interval(&self) -> Duration {
+        Duration::from_secs(self.health_check_interval_secs)
     }
 }
 
@@ -162,6 +208,10 @@ pub struct LLMRouter {
     stats: Arc<RwLock<HashMap<String, ProviderStats>>>,
     /// Router configuration
     config: RouterConfig,
+    /// Budget enforcer for spending limits
+    budget: Arc<BudgetEnforcer>,
+    /// Cost predictor for usage forecasting
+    cost_predictor: Arc<CostPredictor>,
 }
 
 impl LLMRouter {
@@ -171,7 +221,29 @@ impl LLMRouter {
             circuit_breakers: Arc::new(RwLock::new(HashMap::new())),
             stats: Arc::new(RwLock::new(HashMap::new())),
             config,
+            budget: Arc::new(BudgetEnforcer::new()),
+            cost_predictor: Arc::new(CostPredictor::new()),
         }
+    }
+
+    pub fn with_budget(mut self, budget: Arc<BudgetEnforcer>) -> Self {
+        self.budget = budget;
+        self
+    }
+
+    pub fn with_cost_predictor(mut self, predictor: Arc<CostPredictor>) -> Self {
+        self.cost_predictor = predictor;
+        self
+    }
+
+    /// Get the budget enforcer
+    pub fn budget(&self) -> &BudgetEnforcer {
+        &self.budget
+    }
+
+    /// Get the cost predictor
+    pub fn cost_predictor(&self) -> &CostPredictor {
+        &self.cost_predictor
     }
 
     /// Add a provider to the router
@@ -229,21 +301,44 @@ impl LLMRouter {
         false
     }
 
-    /// Record a successful request
-    fn record_success(&self, name: &str, latency_ms: u64) {
+    /// Record a successful request with cost tracking
+    fn record_success(&self, name: &str, model: &str, latency_ms: u64, input_tokens: u32, output_tokens: u32) {
+        // Calculate cost
+        let pricing = get_model_pricing(name, model)
+            .unwrap_or_else(|| get_provider_default_pricing(name));
+        let cost = pricing.calculate_cost(input_tokens, output_tokens);
+
+        // Update circuit breaker
         if let Ok(mut breakers) = self.circuit_breakers.write() {
             if let Some(cb) = breakers.get_mut(name) {
                 cb.record_success();
             }
         }
+
+        // Update stats with token and cost info
         if let Ok(mut stats) = self.stats.write() {
             if let Some(s) = stats.get_mut(name) {
                 s.total_requests += 1;
                 s.successful_requests += 1;
                 s.total_latency_ms += latency_ms;
                 s.last_used = Some(Instant::now());
+                s.total_tokens += (input_tokens + output_tokens) as u64;
+                s.total_cost += cost;
             }
         }
+
+        // Record in budget enforcer
+        self.budget.record_spending(SpendingRecord {
+            timestamp: Utc::now(),
+            amount: cost,
+            provider: name.to_string(),
+            model: model.to_string(),
+            input_tokens,
+            output_tokens,
+        });
+
+        // Record in cost predictor
+        self.cost_predictor.record(cost, input_tokens + output_tokens, 1);
     }
 
     /// Record a failed request
@@ -272,17 +367,79 @@ impl LLMRouter {
         None
     }
 
-    /// Send a chat request with automatic fallback
+    /// Get model name from config
+    fn get_model_from_config(config: &LLMConfig) -> &str {
+        match config {
+            LLMConfig::Ollama { model, .. } => model,
+            LLMConfig::Claude { model, .. } => model,
+            LLMConfig::Gemini { model, .. } => model,
+            LLMConfig::OpenAI { model, .. } => model,
+            LLMConfig::OpenRouter { model, .. } => model,
+            LLMConfig::Mistral { model, .. } => model,
+            LLMConfig::Groq { model, .. } => model,
+            LLMConfig::Together { model, .. } => model,
+            LLMConfig::Cohere { model, .. } => model,
+            LLMConfig::DeepSeek { model, .. } => model,
+        }
+    }
+
+    /// Estimate cost for a request before sending
+    pub fn estimate_request_cost(&self, provider: &str, model: &str, input_chars: usize, estimated_output_tokens: u32) -> f64 {
+        let pricing = get_model_pricing(provider, model)
+            .unwrap_or_else(|| get_provider_default_pricing(provider));
+        pricing.estimate_from_chars(input_chars, estimated_output_tokens)
+    }
+
+    /// Check if a request should be allowed based on budget
+    pub fn check_budget(&self, provider: &str, estimated_cost: f64) -> BudgetAction {
+        if !self.config.enforce_budget {
+            return BudgetAction::Allow;
+        }
+        self.budget.check_request(estimated_cost, provider)
+    }
+
+    /// Send a chat request with automatic fallback and cost tracking
     pub async fn chat(&self, request: ChatRequest) -> Result<ChatResponse, LLMError> {
         let mut last_error: Option<LLMError> = None;
         let mut tried_providers = Vec::new();
 
+        // Calculate input size for cost estimation
+        let input_chars: usize = request.messages.iter().map(|m| m.content.len()).sum::<usize>()
+            + request.system_prompt.as_ref().map(|s| s.len()).unwrap_or(0);
+
         // Try providers in order
         for (name, config) in &self.providers {
+            let model = Self::get_model_from_config(config);
+
             // Skip if circuit is open
             if !self.is_provider_available(name) {
                 log::debug!("Skipping provider {} (circuit open)", name);
                 continue;
+            }
+
+            // Check cost tier limit
+            if let Some(max_tier) = &self.config.max_cost_tier {
+                let tier = get_cost_tier(name, model);
+                if tier > *max_tier {
+                    log::debug!("Skipping provider {} (cost tier {:?} > max {:?})", name, tier, max_tier);
+                    continue;
+                }
+            }
+
+            // Check budget before making request
+            if self.config.enforce_budget {
+                let estimated_cost = self.estimate_request_cost(name, model, input_chars, 1000);
+                match self.budget.check_request(estimated_cost, name) {
+                    BudgetAction::Reject => {
+                        log::warn!("Budget limit reached, skipping provider {}", name);
+                        continue;
+                    }
+                    BudgetAction::Degrade => {
+                        // Try to find a cheaper alternative, but continue if this is already cheap
+                        log::info!("Budget warning: degrading from {} may be needed", name);
+                    }
+                    _ => {}
+                }
             }
 
             tried_providers.push(name.clone());
@@ -291,15 +448,25 @@ impl LLMRouter {
 
             // Execute with timeout
             let result = timeout(
-                self.config.request_timeout,
+                self.config.request_timeout(),
                 client.chat(request.clone())
             ).await;
 
             match result {
                 Ok(Ok(response)) => {
                     let latency = start.elapsed().as_millis() as u64;
-                    self.record_success(name, latency);
-                    log::info!("Chat succeeded with provider {} ({}ms)", name, latency);
+
+                    // Extract token usage from response
+                    let (input_tokens, output_tokens) = response.usage
+                        .as_ref()
+                        .map(|u| (u.input_tokens, u.output_tokens))
+                        .unwrap_or_else(|| {
+                            // Estimate if not provided
+                            ((input_chars / 4) as u32, (response.content.len() / 4) as u32)
+                        });
+
+                    self.record_success(name, model, latency, input_tokens, output_tokens);
+                    log::info!("Chat succeeded with provider {} ({}ms, {} tokens)", name, latency, input_tokens + output_tokens);
                     return Ok(response);
                 }
                 Ok(Err(e)) => {
@@ -328,7 +495,7 @@ impl LLMRouter {
 
         Err(last_error.unwrap_or_else(|| {
             if tried_providers.is_empty() {
-                LLMError::NotConfigured("No providers available (all circuits open)".to_string())
+                LLMError::NotConfigured("No providers available (all circuits open or budget exceeded)".to_string())
             } else {
                 LLMError::ApiError {
                     status: 503,
@@ -347,18 +514,21 @@ impl LLMRouter {
                 continue;
             }
 
+            let model = Self::get_model_from_config(config);
             let client = LLMClient::new(config.clone());
             let start = Instant::now();
 
             let result = timeout(
-                self.config.request_timeout,
+                self.config.request_timeout(),
                 client.embed(text)
             ).await;
 
             match result {
                 Ok(Ok(response)) => {
                     let latency = start.elapsed().as_millis() as u64;
-                    self.record_success(name, latency);
+                    // Embeddings are typically cheaper - estimate tokens from text length
+                    let tokens = (text.len() / 4) as u32;
+                    self.record_success(name, model, latency, tokens, 0);
                     return Ok(response);
                 }
                 Ok(Err(e)) => {
@@ -401,13 +571,33 @@ impl LLMRouter {
             let healthy = client.health_check().await.unwrap_or(false);
             results.insert(name.clone(), healthy);
 
-            // Update circuit breaker based on health
+            // Update circuit breaker based on health (no cost for health checks)
             if healthy {
-                self.record_success(name, 0);
+                if let Ok(mut breakers) = self.circuit_breakers.write() {
+                    if let Some(cb) = breakers.get_mut(name) {
+                        cb.record_success();
+                    }
+                }
             }
         }
 
         results
+    }
+
+    /// Get provider health status
+    pub fn get_provider_health(&self) -> HashMap<String, CircuitState> {
+        let mut health = HashMap::new();
+        if let Ok(breakers) = self.circuit_breakers.read() {
+            for (name, cb) in breakers.iter() {
+                health.insert(name.clone(), cb.state());
+            }
+        }
+        health
+    }
+
+    /// Get the router configuration
+    pub fn config(&self) -> &RouterConfig {
+        &self.config
     }
 }
 
@@ -424,6 +614,8 @@ impl LLMRouter {
 pub struct LLMRouterBuilder {
     providers: Vec<(String, LLMConfig)>,
     config: RouterConfig,
+    budget: Option<Arc<BudgetEnforcer>>,
+    cost_predictor: Option<Arc<CostPredictor>>,
 }
 
 impl LLMRouterBuilder {
@@ -431,6 +623,8 @@ impl LLMRouterBuilder {
         Self {
             providers: Vec::new(),
             config: RouterConfig::default(),
+            budget: None,
+            cost_predictor: None,
         }
     }
 
@@ -440,7 +634,7 @@ impl LLMRouterBuilder {
     }
 
     pub fn with_timeout(mut self, timeout: Duration) -> Self {
-        self.config.request_timeout = timeout;
+        self.config.request_timeout_secs = timeout.as_secs();
         self
     }
 
@@ -449,11 +643,47 @@ impl LLMRouterBuilder {
         self
     }
 
+    pub fn with_budget_enforcement(mut self, enabled: bool) -> Self {
+        self.config.enforce_budget = enabled;
+        self
+    }
+
+    pub fn with_cost_optimization(mut self, enabled: bool) -> Self {
+        self.config.cost_optimization = enabled;
+        self
+    }
+
+    pub fn with_max_cost_tier(mut self, tier: CostTier) -> Self {
+        self.config.max_cost_tier = Some(tier);
+        self
+    }
+
+    pub fn with_budget(mut self, budget: Arc<BudgetEnforcer>) -> Self {
+        self.budget = Some(budget);
+        self
+    }
+
+    pub fn with_cost_predictor(mut self, predictor: Arc<CostPredictor>) -> Self {
+        self.cost_predictor = Some(predictor);
+        self
+    }
+
     pub fn build(self) -> LLMRouter {
         let mut router = LLMRouter::new(self.config);
+
+        // Apply shared budget/predictor if provided
+        if let Some(budget) = self.budget {
+            router = router.with_budget(budget);
+        }
+        if let Some(predictor) = self.cost_predictor {
+            router = router.with_cost_predictor(predictor);
+        }
+
+        // Add providers
         for (name, config) in self.providers {
             router.add_provider(name, config);
         }
+
         router
     }
 }

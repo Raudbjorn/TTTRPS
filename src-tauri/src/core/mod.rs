@@ -2,6 +2,7 @@ pub mod models;
 pub mod voice;
 pub mod llm;
 pub mod llm_router;
+pub mod pricing;
 pub mod campaign_manager;
 pub mod credentials;
 pub mod personality;

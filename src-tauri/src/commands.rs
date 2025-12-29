@@ -42,6 +42,7 @@ use crate::core::personality::PersonalityStore;
 pub struct AppState {
     pub llm_client: RwLock<Option<LLMClient>>,
     pub llm_config: RwLock<Option<LLMConfig>>,
+    pub llm_router: RwLock<crate::core::llm_router::LLMRouter>,
     pub campaign_manager: CampaignManager,
     pub session_manager: SessionManager,
     pub npc_store: NPCStore,
@@ -1553,4 +1554,141 @@ pub async fn speak(text: String, state: State<'_, AppState>) -> Result<(), Strin
         log::info!("Speak request received (synthesis skipped/failed)");
         Ok(())
     }
+}
+
+// ============================================================================
+// LLM Router Commands
+// ============================================================================
+
+/// Get health status of all configured LLM providers
+#[tauri::command]
+pub fn get_router_health(
+    state: tauri::State<'_, AppState>,
+) -> Result<std::collections::HashMap<String, String>, String> {
+    let router = state.llm_router.read().map_err(|e| e.to_string())?;
+    let health = router.get_provider_health();
+
+    // Convert CircuitState to string for JSON serialization
+    Ok(health.into_iter()
+        .map(|(k, v)| (k, format!("{:?}", v).to_lowercase()))
+        .collect())
+}
+
+/// Get usage statistics for all providers
+#[tauri::command]
+pub fn get_provider_stats(
+    state: tauri::State<'_, AppState>,
+) -> Result<std::collections::HashMap<String, crate::core::llm_router::ProviderStats>, String> {
+    let router = state.llm_router.read().map_err(|e| e.to_string())?;
+    Ok(router.get_all_stats())
+}
+
+/// Get budget status across all periods
+#[tauri::command]
+pub fn get_budget_status(
+    state: tauri::State<'_, AppState>,
+) -> Result<std::collections::HashMap<String, crate::core::budget::BudgetStatus>, String> {
+    let router = state.llm_router.read().map_err(|e| e.to_string())?;
+    let statuses = router.budget().get_all_statuses();
+
+    // Convert BudgetPeriod keys to strings
+    Ok(statuses.into_iter()
+        .map(|(k, v)| (format!("{:?}", k).to_lowercase(), v))
+        .collect())
+}
+
+/// Get spending summary
+#[tauri::command]
+pub fn get_spending_summary(
+    state: tauri::State<'_, AppState>,
+) -> Result<crate::core::budget::SpendingSummary, String> {
+    let router = state.llm_router.read().map_err(|e| e.to_string())?;
+    Ok(router.budget().get_spending_summary())
+}
+
+/// Estimate cost for a chat request
+#[tauri::command]
+pub fn estimate_chat_cost(
+    provider: String,
+    model: String,
+    input_text: String,
+    estimated_output_tokens: u32,
+    state: tauri::State<'_, AppState>,
+) -> Result<f64, String> {
+    let router = state.llm_router.read().map_err(|e| e.to_string())?;
+    Ok(router.estimate_request_cost(&provider, &model, input_text.len(), estimated_output_tokens))
+}
+
+/// Get cost forecast
+#[tauri::command]
+pub fn get_cost_forecast(
+    horizon: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<crate::core::cost_predictor::CostForecast, String> {
+    let router = state.llm_router.read().map_err(|e| e.to_string())?;
+
+    let horizon = match horizon.to_lowercase().as_str() {
+        "daily" => crate::core::cost_predictor::ForecastHorizon::Daily,
+        "weekly" => crate::core::cost_predictor::ForecastHorizon::Weekly,
+        "monthly" => crate::core::cost_predictor::ForecastHorizon::Monthly,
+        _ => return Err("Invalid horizon. Use 'daily', 'weekly', or 'monthly'.".to_string()),
+    };
+
+    Ok(router.cost_predictor().forecast(horizon))
+}
+
+/// Set a budget limit
+#[tauri::command]
+pub fn set_budget_limit(
+    amount: f64,
+    period: String,
+    state: tauri::State<'_, AppState>,
+) -> Result<(), String> {
+    let router = state.llm_router.read().map_err(|e| e.to_string())?;
+
+    let period = match period.to_lowercase().as_str() {
+        "hourly" => crate::core::budget::BudgetPeriod::Hourly,
+        "daily" => crate::core::budget::BudgetPeriod::Daily,
+        "weekly" => crate::core::budget::BudgetPeriod::Weekly,
+        "monthly" => crate::core::budget::BudgetPeriod::Monthly,
+        "total" => crate::core::budget::BudgetPeriod::Total,
+        _ => return Err("Invalid period".to_string()),
+    };
+
+    router.budget().set_limit(crate::core::budget::BudgetLimit {
+        amount,
+        period,
+        soft_threshold: 0.8,
+        hard_threshold: 0.95,
+    });
+
+    Ok(())
+}
+
+/// Get pricing information for a model
+#[tauri::command]
+pub fn get_model_pricing(
+    provider: String,
+    model: String,
+) -> Result<Option<crate::core::pricing::ModelPricing>, String> {
+    Ok(crate::core::pricing::get_model_pricing(&provider, &model))
+}
+
+/// Get cost tier for a model
+#[tauri::command]
+pub fn get_model_cost_tier(
+    provider: String,
+    model: String,
+) -> String {
+    let tier = crate::core::pricing::get_cost_tier(&provider, &model);
+    format!("{:?}", tier).to_lowercase()
+}
+
+/// Run health checks on all providers
+#[tauri::command]
+pub async fn run_provider_health_checks(
+    state: tauri::State<'_, AppState>,
+) -> Result<std::collections::HashMap<String, bool>, String> {
+    let router = state.llm_router.read().map_err(|e| e.to_string())?;
+    Ok(router.health_check_all().await)
 }

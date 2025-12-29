@@ -59,9 +59,15 @@ fn main() {
                 }
             });
 
+            // Initialize LLM Router with default config
+            let llm_router = ttrpg_assistant::core::llm_router::LLMRouter::new(
+                ttrpg_assistant::core::llm_router::RouterConfig::default()
+            );
+
             app.manage(commands::AppState {
                 llm_client: std::sync::RwLock::new(None),
                 llm_config: std::sync::RwLock::new(None),
+                llm_router: std::sync::RwLock::new(llm_router),
                 campaign_manager: cm,
                 session_manager: sm,
                 npc_store: ns,
@@ -179,6 +185,18 @@ fn main() {
             // Utility Commands
             commands::get_app_version,
             commands::get_system_info,
+
+            // LLM Router Commands
+            commands::get_router_health,
+            commands::get_provider_stats,
+            commands::get_budget_status,
+            commands::get_spending_summary,
+            commands::estimate_chat_cost,
+            commands::get_cost_forecast,
+            commands::set_budget_limit,
+            commands::get_model_pricing,
+            commands::get_model_cost_tier,
+            commands::run_provider_health_checks,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
