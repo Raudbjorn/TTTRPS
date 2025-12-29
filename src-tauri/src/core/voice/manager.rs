@@ -1,12 +1,12 @@
 use std::path::PathBuf;
 use tokio::fs;
-use reqwest::Client;
 use std::collections::HashMap;
 use crate::core::voice::types::{Result, SynthesisRequest, SynthesisResult, VoiceConfig, VoiceProviderType, VoiceError, Voice};
 use crate::core::voice::providers::{VoiceProvider};
 use crate::core::voice::providers::elevenlabs::ElevenLabsProvider;
 use crate::core::voice::providers::fish_audio::FishAudioProvider;
 use crate::core::voice::providers::ollama::OllamaProvider;
+use crate::core::voice::providers::openai::OpenAIVoiceProvider;
 
 use rodio::{Decoder, OutputStream, Sink};
 use std::io::Cursor;
@@ -32,6 +32,10 @@ impl VoiceManager {
 
         if let Some(cfg) = &config.ollama {
              providers.insert("ollama".to_string(), Box::new(OllamaProvider::new(cfg.clone())));
+        }
+
+        if let Some(cfg) = &config.openai {
+             providers.insert("openai".to_string(), Box::new(OpenAIVoiceProvider::new(cfg.clone())));
         }
 
         let cache_dir = config.cache_dir.clone().unwrap_or_else(|| PathBuf::from("./voice_cache"));

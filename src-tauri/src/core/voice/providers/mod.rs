@@ -4,6 +4,7 @@ use super::types::{Result, SynthesisRequest, Voice, UsageInfo};
 pub mod elevenlabs;
 pub mod fish_audio;
 pub mod ollama;
+pub mod openai;
 
 #[async_trait]
 pub trait VoiceProvider: Send + Sync {
