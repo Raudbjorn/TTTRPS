@@ -5,7 +5,6 @@ use crate::bindings::{
     start_combat, end_combat, get_combat, add_combatant, remove_combatant,
     next_turn, damage_combatant, heal_combatant,
     Campaign, GameSession, CombatState, SessionSummary,
-    get_session
 };
 use crate::components::campaign_details::session_list::SessionList;
 use crate::components::campaign_details::npc_list::NPCList;
@@ -51,29 +50,18 @@ pub fn Session(campaign_id: String) -> Element {
         selected_session_id.set(Some(id));
     };
 
-    // Callback when a new session is started via the Active View (if empty)
-    let on_session_started = move |s: GameSession| {
-        active_session.set(Some(s.clone()));
-        selected_session_id.set(Some(s.id.clone()));
-        // Refresh list
-        let cid = campaign_id.clone();
-        spawn(async move {
-            if let Ok(list) = list_sessions(cid).await {
-                sessions.set(list);
-            }
-        });
-    };
+    // Store campaign_id in a signal so closures can capture it (Signal is Copy)
+    let campaign_id_sig = use_signal(|| campaign_id.clone());
 
     let on_session_ended = move |_| {
          active_session.set(None);
-         selected_session_id.set(None); // Or switch to "Summary" view of just ended
-         // Refresh list
-        let cid = campaign_id.clone();
-        spawn(async move {
-            if let Ok(list) = list_sessions(cid).await {
-                sessions.set(list);
-            }
-        });
+         selected_session_id.set(None);
+         let cid = campaign_id_sig.read().clone();
+         spawn(async move {
+             if let Ok(list) = list_sessions(cid).await {
+                 sessions.set(list);
+             }
+         });
     };
 
     // Theme Logic - Dynamic Class Selection based on Campaign System
@@ -191,11 +179,17 @@ pub fn Session(campaign_id: String) -> Element {
                                     button {
                                         class: "px-6 py-3 bg-purple-600 hover:bg-purple-500 text-white rounded-lg shadow-lg font-bold transition-all transform hover:scale-105",
                                         onclick: move |_| {
-                                           let cid = campaign_id.clone();
+                                           let cid = campaign_id_sig.read().clone();
                                            let s_num = campaign.read().as_ref().map(|c| c.session_count + 1).unwrap_or(1);
                                            spawn(async move {
-                                               if let Ok(s) = start_session(cid, s_num).await {
-                                                   on_session_started(s);
+                                               if let Ok(s) = start_session(cid.clone(), s_num).await {
+                                                   // Inline on_session_started behavior
+                                                   active_session.set(Some(s.clone()));
+                                                   selected_session_id.set(Some(s.id.clone()));
+                                                   // Refresh list
+                                                   if let Ok(list) = list_sessions(cid).await {
+                                                       sessions.set(list);
+                                                   }
                                                }
                                            });
                                         },
@@ -211,7 +205,7 @@ pub fn Session(campaign_id: String) -> Element {
             }
 
             // Right Sidebar: NPCs
-            NPCList { campaign_id: campaign_id.clone() }
+            NPCList { campaign_id: campaign_id_sig.read().clone() }
         }
     }
 }
@@ -220,17 +214,19 @@ pub fn Session(campaign_id: String) -> Element {
 #[component]
 fn ActiveSessionWorkspace(session: GameSession, on_session_ended: EventHandler<()>) -> Element {
     let mut combat = use_signal(|| Option::<CombatState>::None);
-    let mut status_message = use_signal(|| String::new());
+    let _status_message = use_signal(|| String::new());
 
     // Combatant Form
     let mut new_combatant_name = use_signal(|| String::new());
     let mut new_combatant_init = use_signal(|| "10".to_string());
     let mut new_combatant_type = use_signal(|| "monster".to_string());
 
-    let session_id = session.id.clone();
+    // Store session_id in a signal so closures can capture it (Signal is Copy)
+    let session_id_sig = use_signal(|| session.id.clone());
+    let session_number = session.session_number;
 
     use_effect(move || {
-        let sid = session.id.clone();
+        let sid = session_id_sig.read().clone();
         spawn(async move {
              if let Ok(Some(c)) = get_combat(sid).await {
                  combat.set(Some(c));
@@ -238,14 +234,12 @@ fn ActiveSessionWorkspace(session: GameSession, on_session_ended: EventHandler<(
         });
     });
 
-    // Handlers (Similar to original session.rs but using signals local to this component)
-    let session_id_c = session_id.clone();
+    // Handlers
     let _handle_end_session = move |_| {
-        let sid = session_id_c.clone();
-        let cb = on_session_ended;
+        let sid = session_id_sig.read().clone();
         spawn(async move {
             if end_session(sid).await.is_ok() {
-                cb.call(());
+                on_session_ended.call(());
             }
         });
     };
@@ -260,7 +254,7 @@ fn ActiveSessionWorkspace(session: GameSession, on_session_ended: EventHandler<(
             div { class: "flex justify-between items-center bg-zinc-800/50 p-4 rounded-lg border border-zinc-700",
                 div {
                     div { class: "text-xs text-zinc-400 uppercase tracking-widest", "Current Session" }
-                    div { class: "text-2xl font-bold text-white", "Session #{session.session_number}" }
+                    div { class: "text-2xl font-bold text-white", "Session #{session_number}" }
                 }
                 button {
                     class: "px-4 py-2 bg-red-600/20 text-red-400 border border-red-600/50 rounded hover:bg-red-600 hover:text-white transition-colors",
@@ -277,7 +271,7 @@ fn ActiveSessionWorkspace(session: GameSession, on_session_ended: EventHandler<(
                          button {
                             class: "px-3 py-1 bg-purple-600 text-white text-sm rounded hover:bg-purple-500",
                             onclick: move |_| {
-                                let sid = session_id.clone();
+                                let sid = session_id_sig.read().clone();
                                 spawn(async move {
                                     if let Ok(c) = start_combat(sid).await {
                                         combat.set(Some(c));
@@ -292,7 +286,7 @@ fn ActiveSessionWorkspace(session: GameSession, on_session_ended: EventHandler<(
                             button {
                                 class: "px-3 py-1 bg-blue-600/20 text-blue-400 border border-blue-600/50 rounded text-sm hover:bg-blue-600 hover:text-white",
                                 onclick: move |_| {
-                                     let sid = session_id.clone();
+                                     let sid = session_id_sig.read().clone();
                                      spawn(async move {
                                          if next_turn(sid.clone()).await.is_ok() {
                                               if let Ok(Some(c)) = get_combat(sid).await { combat.set(Some(c)); }
@@ -304,7 +298,7 @@ fn ActiveSessionWorkspace(session: GameSession, on_session_ended: EventHandler<(
                              button {
                                 class: "px-3 py-1 bg-zinc-700 text-zinc-300 rounded text-sm hover:bg-zinc-600",
                                 onclick: move |_| {
-                                     let sid = session_id.clone();
+                                     let sid = session_id_sig.read().clone();
                                      spawn(async move {
                                          if end_combat(sid).await.is_ok() {
                                               combat.set(None);
@@ -345,7 +339,7 @@ fn ActiveSessionWorkspace(session: GameSession, on_session_ended: EventHandler<(
                                             class: "w-8 h-8 rounded bg-red-900/50 text-red-400 hover:bg-red-600 hover:text-white",
                                             aria_label: "Deal 1 damage to {combatant_name}",
                                             onclick: move |_| {
-                                                let sid = session_id.clone();
+                                                let sid = session_id_sig.read().clone();
                                                 let cid = cid_dmg.clone();
                                                 spawn(async move {
                                                     if damage_combatant(sid.clone(), cid, 1).await.is_ok() {
@@ -359,7 +353,7 @@ fn ActiveSessionWorkspace(session: GameSession, on_session_ended: EventHandler<(
                                             class: "w-8 h-8 rounded bg-green-900/50 text-green-400 hover:bg-green-600 hover:text-white",
                                             aria_label: "Heal 1 HP for {combatant_name}",
                                             onclick: move |_| {
-                                                let sid = session_id.clone();
+                                                let sid = session_id_sig.read().clone();
                                                 let cid = cid_heal.clone();
                                                 spawn(async move {
                                                     if heal_combatant(sid.clone(), cid, 1).await.is_ok() {
@@ -373,7 +367,7 @@ fn ActiveSessionWorkspace(session: GameSession, on_session_ended: EventHandler<(
                                             class: "w-8 h-8 rounded bg-zinc-700/50 text-zinc-400 hover:bg-zinc-600 hover:text-white ml-2",
                                             aria_label: "Remove {combatant_name} from combat",
                                             onclick: move |_| {
-                                                let sid = session_id.clone();
+                                                let sid = session_id_sig.read().clone();
                                                 let cid = cid_remove.clone();
                                                 spawn(async move {
                                                     if remove_combatant(sid.clone(), cid).await.is_ok() {
@@ -416,23 +410,14 @@ fn ActiveSessionWorkspace(session: GameSession, on_session_ended: EventHandler<(
                             button {
                                 class: "px-4 py-2 bg-zinc-700 hover:bg-zinc-600 text-white rounded text-sm font-medium",
                                 onclick: move |_| {
-                                    let sid = session_id.clone();
+                                    let sid = session_id_sig.read().clone();
                                     let name = new_combatant_name.read().clone();
                                     let init = new_combatant_init.read().parse().unwrap_or(10);
                                     let ctype = new_combatant_type.read().clone();
-                                    let session_id_c_inner = sid.clone();
 
                                     spawn(async move {
-                                         if add_combatant(sid, name, init, ctype).await.is_ok() {
-                                             // Re-fetch combat state to update UI
-                                             if let Ok(Some(c)) = get_combat(session_id_c_inner).await {
-                                                 // We need a way to update combat signal.
-                                                 // But combat signal is not available here easily if we don't clone the setter...
-                                                 // Actually, 'combat' signal is available in scope if we move it or a setter.
-
-                                                 // Wait, accessing 'combat' signal inside this spawn which is inside an onclick...
-                                                 // 'combat' is a Signal. Signal is Copy. So we can just move it?
-                                                 // Yes, signals are Copy. so 'combat' captured by move closure is fine.
+                                         if add_combatant(sid.clone(), name, init, ctype).await.is_ok() {
+                                             if let Ok(Some(c)) = get_combat(sid).await {
                                                  combat.set(Some(c));
                                              }
                                          }

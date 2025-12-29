@@ -1,5 +1,5 @@
 use dioxus::prelude::*;
-use crate::bindings::{GameSession, SessionSummary};
+use crate::bindings::SessionSummary;
 
 #[derive(Props, Clone, PartialEq)]
 pub struct SessionListProps {
@@ -53,8 +53,9 @@ pub fn SessionList(props: SessionListProps) -> Element {
             div { class: "flex-1 overflow-y-auto p-2 space-y-6",
 
                 // Current
-                if let Some(curr) = current_session {
+                if let Some(curr) = current_session {{
                     let curr_id = curr.id.clone();
+                    let sess_num = curr.session_number;
                     rsx! {
                         div {
                             div { class: "px-2 mb-2 flex items-center gap-2",
@@ -64,12 +65,12 @@ pub fn SessionList(props: SessionListProps) -> Element {
                             button {
                                 class: "bg-zinc-800/50 border border-purple-500/30 rounded p-3 cursor-pointer hover:bg-zinc-800 transition-colors w-full text-left",
                                 onclick: move |_| props.on_select_session.call(curr_id.clone()),
-                                div { class: "text-sm font-bold text-white", "Session {curr.session_number}" }
+                                div { class: "text-sm font-bold text-white", "Session {sess_num}" }
                                 div { class: "text-xs text-zinc-400 mt-1", "Active Now" }
                             }
                         }
                     }
-                }
+                }}
 
                 // Planned
                 div {
@@ -85,17 +86,19 @@ pub fn SessionList(props: SessionListProps) -> Element {
                 // Past
                  div {
                     div { class: "px-2 mb-2 text-zinc-500 text-xs font-semibold", "HISTORY" }
-                    for s in past_sessions {
+                    for s in past_sessions {{
                          let s_id = s.id.clone();
+                         let sess_num = s.session_number;
+                         let duration = s.duration_mins;
                          rsx! {
                              button {
                                 class: "group flex items-center justify-between px-2 py-2 rounded text-zinc-400 hover:text-white hover:bg-zinc-800/50 cursor-pointer w-full text-left",
                                 onclick: move |_| props.on_select_session.call(s_id.clone()),
-                                div { class: "text-sm", "Session {s.session_number}" }
-                                div { class: "text-xs text-zinc-600", "{s.duration_mins}m" }
+                                div { class: "text-sm", "Session {sess_num}" }
+                                div { class: "text-xs text-zinc-600", "{duration}m" }
                             }
                         }
-                    }
+                    }}
                 }
             }
         }

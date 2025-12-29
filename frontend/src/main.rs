@@ -3,8 +3,6 @@
 use dioxus::prelude::*;
 
 pub mod bindings;
-
-pub mod bindings;
 pub mod services;
 pub mod components;
 

@@ -15,6 +15,7 @@ struct MockNPC {
 
 #[component]
 pub fn NPCList(props: NPCListProps) -> Element {
+    let _campaign_id = &props.campaign_id; // Will be used when backend integration is complete
     // Mock Data for now
     let npcs = use_signal(|| vec![
         MockNPC { id: "1".into(), name: "Garrosh".into(), role: "Blacksmith".into(), avatar_url: "G".into() },

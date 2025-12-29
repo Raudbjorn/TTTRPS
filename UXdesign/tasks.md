@@ -24,7 +24,7 @@
 ### NPC Conversation Persistence
 > Supports: REQ-003 (NPC Conversations)
 
-- [ ] **[BE] B1**: Create `NpcConversation` model and database table (P0)
+- [x] **[BE] B1**: Create `NpcConversation` model and database table (P0)
   ```rust
   pub struct NpcConversation {
       pub id: String,
@@ -38,7 +38,7 @@
   - Migration: `npc_conversations` table with foreign keys
   - Files: `src-tauri/src/database/models.rs`, `migrations/`
 
-- [ ] **[BE] B2**: Implement NPC conversation Tauri commands (P0)
+- [x] **[BE] B2**: Implement NPC conversation Tauri commands (P0)
   - `list_npc_conversations(campaign_id)` → Vec<NpcConversation>
   - `get_npc_conversation(npc_id, offset?, limit?)` → NpcConversation
   - `add_npc_message(npc_id, content, role)` → ConversationMessage
@@ -57,13 +57,13 @@
 ### Session Management
 > Supports: REQ-002 (Session Timeline)
 
-- [ ] **[BE] B4**: Add `Planned` session status and creation flow (P0)
+- [x] **[BE] B4**: Add `Planned` session status and creation flow (P0)
   - Extend `SessionStatus` enum: `{ Planned, Active, Paused, Ended }`
   - `create_planned_session(campaign_id, title, notes)` command
   - `start_planned_session(session_id)` transitions Planned → Active
   - Files: `src-tauri/src/core/session_manager.rs`
 
-- [ ] **[BE] B5**: Update `list_sessions` to include full status info (P0)
+- [x] **[BE] B5**: Update `list_sessions` to include full status info (P0)
   - Return `SessionSummary` with status, duration, summary preview
   - Sort: Current first, then Planned by order, then Past by date desc
   - Files: `src-tauri/src/commands.rs`
