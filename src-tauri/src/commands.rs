@@ -202,11 +202,21 @@ pub fn configure_llm(
     let client = LLMClient::new(config.clone());
     let provider_name = client.provider_name().to_string();
 
+    // Get the previous provider name before overwriting config
+    let prev_provider = state.llm_config.read().unwrap()
+        .as_ref()
+        .map(|c| LLMClient::new(c.clone()).provider_name().to_string());
+
     *state.llm_config.write().unwrap() = Some(config.clone());
 
-    // Update Router (prioritize this provider)
+    // Update Router: remove old provider if different, then add new one
     {
         let mut router = state.llm_router.write().unwrap();
+        if let Some(ref prev) = prev_provider {
+            if prev != &provider_name {
+                router.remove_provider(prev);
+            }
+        }
         router.remove_provider(&provider_name);
         router.add_provider(&provider_name, config);
     }
