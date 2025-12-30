@@ -83,7 +83,7 @@ impl VoiceProviderType {
             Self::Ollama => Some("http://localhost:11434"),
             Self::Chatterbox => Some("http://localhost:8000"),
             Self::GptSoVits => Some("http://localhost:9880"),
-            Self::XttsV2 => Some("http://localhost:5002"),     // Coqui TTS default
+            Self::XttsV2 => Some("http://localhost:5002"),     // coqui-ai/TTS default (not 8000 to avoid Chatterbox conflict)
             Self::FishSpeech => Some("http://localhost:7860"), // Fish Speech default
             Self::Dia => Some("http://localhost:8003"),
             _ => None,

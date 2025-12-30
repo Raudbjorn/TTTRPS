@@ -160,6 +160,7 @@ async fn check_gpt_sovits(client: &Client, base_url: &str) -> ProviderStatus {
 }
 
 /// XTTS-v2 (Coqui TTS server): /api/tts or /docs
+/// Uses check_provider_with_paths which distinguishes connection errors from HTTP errors.
 async fn check_xtts_v2(client: &Client, base_url: &str) -> ProviderStatus {
     check_provider_with_paths(
         client,

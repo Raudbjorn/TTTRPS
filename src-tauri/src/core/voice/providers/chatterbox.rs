@@ -49,9 +49,27 @@ impl VoiceProvider for ChatterboxProvider {
         // Add reference audio if provided
         if let Some(ref audio_path) = self.config.reference_audio {
             let audio_bytes = tokio::fs::read(audio_path).await?;
+
+            // Detect mime type and filename from path
+            let filename = std::path::Path::new(audio_path)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("reference.wav")
+                .to_string();
+            let mime_type = match std::path::Path::new(audio_path)
+                .extension()
+                .and_then(|e| e.to_str())
+            {
+                Some("mp3") => "audio/mpeg",
+                Some("ogg") => "audio/ogg",
+                Some("flac") => "audio/flac",
+                Some("m4a") => "audio/mp4",
+                _ => "audio/wav",
+            };
+
             let part = multipart::Part::bytes(audio_bytes)
-                .file_name("reference.wav")
-                .mime_str("audio/wav")
+                .file_name(filename)
+                .mime_str(mime_type)
                 .map_err(|e| VoiceError::ApiError(e.to_string()))?;
             form = form.part("audio", part);
         }
