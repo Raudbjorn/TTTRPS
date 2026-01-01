@@ -58,7 +58,7 @@ pub fn NpcConversation(props: NpcConversationProps) -> Element {
         let npc_id = npc_id_sig.read().clone();
 
         spawn(async move {
-            match add_npc_message(npc_id.clone(), text.clone(), "user".to_string()).await {
+            match add_npc_message(npc_id.clone(), text.clone(), "user".to_string(), None).await {
                 Ok(msg) => {
                     // Add user message to list
                     messages.with_mut(|m| m.push(msg));

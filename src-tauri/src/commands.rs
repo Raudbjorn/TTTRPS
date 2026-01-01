@@ -1603,6 +1603,7 @@ pub async fn add_npc_message(
     npc_id: String,
     content: String,
     role: String,
+    parent_id: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<ConversationMessage, String> {
     // 1. Get Conversation - strict requirement, must exist
@@ -1617,7 +1618,7 @@ pub async fn add_npc_message(
         id: uuid::Uuid::new_v4().to_string(),
         role,
         content,
-        parent_message_id: None,
+        parent_message_id: parent_id,
         created_at: chrono::Utc::now().to_rfc3339(),
     };
 

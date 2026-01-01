@@ -971,14 +971,15 @@ pub async fn get_npc_conversation(npc_id: String) -> Result<NpcConversation, Str
     invoke("get_npc_conversation", &Args { npc_id }).await
 }
 
-pub async fn add_npc_message(npc_id: String, content: String, role: String) -> Result<ConversationMessage, String> {
+pub async fn add_npc_message(npc_id: String, content: String, role: String, parent_id: Option<String>) -> Result<ConversationMessage, String> {
     #[derive(Serialize)]
     struct Args {
         npc_id: String,
         content: String,
         role: String,
+        parent_id: Option<String>,
     }
-    invoke("add_npc_message", &Args { npc_id, content, role }).await
+    invoke("add_npc_message", &Args { npc_id, content, role, parent_id }).await
 }
 
 pub async fn mark_npc_read(npc_id: String) -> Result<(), String> {
