@@ -1,6 +1,6 @@
 use dioxus::prelude::*;
 use crate::bindings::{
-    get_npc_conversation, add_npc_message, mark_npc_read,
+    get_npc_conversation, add_npc_message, mark_npc_read, reply_as_npc,
     NpcConversation as NpcConversationData, ConversationMessage,
 };
 use crate::components::design_system::{TypingIndicator, Markdown};
@@ -17,6 +17,7 @@ pub fn NpcConversation(props: NpcConversationProps) -> Element {
     let mut messages = use_signal(|| Vec::<ConversationMessage>::new());
     let mut is_loading = use_signal(|| true);
     let mut is_sending = use_signal(|| false);
+    let mut is_typing = use_signal(|| false); // Separate signal for NPC typing state
     let mut input_text = use_signal(|| String::new());
     let mut error_msg = use_signal(|| Option::<String>::None);
 
@@ -58,14 +59,24 @@ pub fn NpcConversation(props: NpcConversationProps) -> Element {
         let npc_id = npc_id_sig.read().clone();
 
         spawn(async move {
+            // 1. Send User Message
             match add_npc_message(npc_id.clone(), text.clone(), "user".to_string(), None).await {
                 Ok(msg) => {
                     // Add user message to list
                     messages.with_mut(|m| m.push(msg));
 
-                    // TODO: In future, trigger NPC response via LLM here
-                    // For now, the backend would need to handle NPC responses
-                    // or we simulate a placeholder response
+                    // 2. Trigger NPC Reply
+                    is_typing.set(true);
+                    match reply_as_npc(npc_id.clone()).await {
+                         Ok(ai_msg) => {
+                             messages.with_mut(|m| m.push(ai_msg));
+                         }
+                         Err(e) => {
+                             // Log error but don't crash UI
+                             println!("NPC failed to reply: {}", e);
+                         }
+                    }
+                    is_typing.set(false);
                 }
                 Err(e) => {
                     error_msg.set(Some(format!("Failed to send: {}", e)));
@@ -162,8 +173,8 @@ pub fn NpcConversation(props: NpcConversationProps) -> Element {
                     }}
                 }
 
-                // Typing indicator when sending
-                if is_sending.read().clone() {
+                // Typing indicator when replying
+                if is_typing.read().clone() {
                     div { class: "flex justify-start",
                         div { class: "bg-zinc-800 border border-zinc-700 rounded-lg p-3 flex items-center gap-2",
                             TypingIndicator {}
@@ -181,7 +192,7 @@ pub fn NpcConversation(props: NpcConversationProps) -> Element {
                         placeholder: "Message {npc_name}...",
                         rows: "1",
                         value: "{input_text}",
-                        disabled: is_sending.read().clone(),
+                        disabled: is_sending.read().clone(), // Disable while sending user msg
                         oninput: move |e| input_text.set(e.value()),
                         onkeydown: handle_keydown,
                     }

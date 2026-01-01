@@ -464,7 +464,7 @@ BE B13 ─────> FE F18, F19 (Transcription)
 ### M2: Conversations & Voice (P0-P1) 🔄 IN PROGRESS
 - [x] NPC conversation persistence (B1, B2)
 - [x] Media bar layout (F15)
-- [ ] NPC conversation view (F10)
+- [x] NPC conversation view (F10)
 - [ ] Play buttons on messages (F25)
 - [ ] Voice queue integration (B12, F17)
 
