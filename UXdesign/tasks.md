@@ -226,7 +226,7 @@
   - Presence/activity indicator
   - Files: `frontend/src/components/campaign_details/npc_list.rs`
 
-- [ ] **[FE] F10**: Create NPC conversation view (P0)
+- [x] **[FE] F10**: Create NPC conversation view (P0)
   - Threaded message display
   - Input for new messages
   - Typing indicator during LLM response
