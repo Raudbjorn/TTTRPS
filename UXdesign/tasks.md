@@ -314,7 +314,7 @@
   - CSS custom properties per design.md
   - Files: `frontend/public/themes.css`
 
-- [ ] **[FE] F22**: Implement CSS property interpolation for blended themes (P1)
+- [x] **[FE] F22**: Implement CSS property interpolation for blended themes (P1)
   - JavaScript/WASM interpolation of oklch colors
   - Apply computed values as inline styles
   - **See TODO in session.rs:71-75**
