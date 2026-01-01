@@ -408,6 +408,66 @@ impl Database {
     }
 
     // =========================================================================
+    // NPC Operations
+    // =========================================================================
+
+    pub async fn save_npc(&self, npc: &NpcRecord) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"
+            INSERT OR REPLACE INTO npcs
+            (id, campaign_id, name, role, personality_id, personality_json, stats_json, notes, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            "#
+        )
+        .bind(&npc.id)
+        .bind(&npc.campaign_id)
+        .bind(&npc.name)
+        .bind(&npc.role)
+        .bind(&npc.personality_id)
+        .bind(&npc.personality_json)
+        .bind(&npc.stats_json)
+        .bind(&npc.notes)
+        .bind(&npc.created_at)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn get_npc(&self, id: &str) -> Result<Option<NpcRecord>, sqlx::Error> {
+        sqlx::query_as::<_, NpcRecord>(
+            "SELECT * FROM npcs WHERE id = ?"
+        )
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await
+    }
+
+    pub async fn list_npcs(&self, campaign_id: Option<&str>) -> Result<Vec<NpcRecord>, sqlx::Error> {
+        if let Some(cid) = campaign_id {
+            sqlx::query_as::<_, NpcRecord>(
+                "SELECT * FROM npcs WHERE campaign_id = ? ORDER BY name"
+            )
+            .bind(cid)
+            .fetch_all(&self.pool)
+            .await
+        } else {
+            sqlx::query_as::<_, NpcRecord>(
+                "SELECT * FROM npcs ORDER BY name"
+            )
+            .fetch_all(&self.pool)
+            .await
+        }
+    }
+
+    pub async fn delete_npc(&self, id: &str) -> Result<(), sqlx::Error> {
+        sqlx::query("DELETE FROM npcs WHERE id = ?")
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    // =========================================================================
     // NPC Conversation Operations
     // =========================================================================
 

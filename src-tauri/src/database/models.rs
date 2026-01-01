@@ -118,6 +118,7 @@ pub struct NpcRecord {
     pub campaign_id: Option<String>,
     pub name: String,
     pub role: String,
+    pub personality_id: Option<String>,
     pub personality_json: String,
     pub stats_json: Option<String>,
     pub notes: Option<String>,
