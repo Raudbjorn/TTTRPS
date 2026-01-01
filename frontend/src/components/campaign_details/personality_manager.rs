@@ -56,10 +56,11 @@ pub fn PersonalityManager() -> Element {
             // Grid Layout (Spotify Style)
             div { class: "grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6",
                 for p in personalities.read().clone() {
-                    let p_id_edit = p.id.clone();
-                    let p_id_play = p.id.clone();
-                    let p_name = p.name.clone();
-                    rsx! {
+                    {
+                        let p_id_edit = p.id.clone();
+                        let p_id_play = p.id.clone();
+                        let p_name = p.name.clone();
+                        rsx! {
                         div {
                             class: "group bg-zinc-800/40 p-4 rounded-lg hover:bg-zinc-800 transition-all relative",
 
@@ -104,6 +105,7 @@ pub fn PersonalityManager() -> Element {
                                      }
                                 }
                             }
+                        }
                         }
                     }
                 }

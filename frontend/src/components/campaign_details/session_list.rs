@@ -54,8 +54,9 @@ pub fn SessionList(props: SessionListProps) -> Element {
 
                 // Current
                 if let Some(curr) = current_session {
-                    let curr_id = curr.id.clone();
-                    rsx! {
+                    {
+                        let curr_id = curr.id.clone();
+                        rsx! {
                         div {
                             div { class: "px-2 mb-2 flex items-center gap-2",
                                 div { class: "w-2 h-2 rounded-full bg-green-500 animate-pulse" }
@@ -67,6 +68,7 @@ pub fn SessionList(props: SessionListProps) -> Element {
                                 div { class: "text-sm font-bold text-white", "Session {curr.session_number}" }
                                 div { class: "text-xs text-zinc-400 mt-1", "Active Now" }
                             }
+                        }
                         }
                     }
                 }
@@ -86,13 +88,15 @@ pub fn SessionList(props: SessionListProps) -> Element {
                  div {
                     div { class: "px-2 mb-2 text-zinc-500 text-xs font-semibold", "HISTORY" }
                     for s in past_sessions {
-                         let s_id = s.id.clone();
-                         rsx! {
-                             button {
-                                class: "group flex items-center justify-between px-2 py-2 rounded text-zinc-400 hover:text-white hover:bg-zinc-800/50 cursor-pointer w-full text-left",
-                                onclick: move |_| props.on_select_session.call(s_id.clone()),
-                                div { class: "text-sm", "Session {s.session_number}" }
-                                div { class: "text-xs text-zinc-600", "{s.duration_mins}m" }
+                        {
+                            let s_id = s.id.clone();
+                            rsx! {
+                                button {
+                                    class: "group flex items-center justify-between px-2 py-2 rounded text-zinc-400 hover:text-white hover:bg-zinc-800/50 cursor-pointer w-full text-left",
+                                    onclick: move |_| props.on_select_session.call(s_id.clone()),
+                                    div { class: "text-sm", "Session {s.session_number}" }
+                                    div { class: "text-xs text-zinc-600", "{s.duration_mins}m" }
+                                }
                             }
                         }
                     }
