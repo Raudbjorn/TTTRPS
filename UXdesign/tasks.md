@@ -173,7 +173,7 @@
   - Tooltips on hover
   - Files: `frontend/src/components/layout/icon_rail.rs`
 
-- [ ] **[FE] F3**: Implement resizable panel system (P1)
+- [x] **[FE] F3**: Implement resizable panel system (P1)
   - Drag handles between panels
   - Min/max width constraints
   - Collapse to icon mode
