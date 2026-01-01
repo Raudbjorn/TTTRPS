@@ -220,7 +220,7 @@
 ### NPC Sidebar (Slack DMs)
 > Supports: REQ-003, REQ-011
 
-- [ ] **[FE] F9**: Redesign NPC list as Slack-style DM list (P0)
+- [x] **[FE] F9**: Redesign NPC list as Slack-style DM list (P0)
   - Avatar + name + unread badge
   - Last message preview
   - Presence/activity indicator
