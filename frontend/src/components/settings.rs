@@ -1,6 +1,5 @@
 #![allow(non_snake_case)]
 use dioxus::prelude::*;
-use dioxus_router::prelude::*;
 use crate::bindings::{
     configure_llm, get_llm_config, save_api_key, check_llm_health, LLMSettings, HealthStatus,
     configure_voice, get_voice_config, VoiceConfig, ElevenLabsConfig, OllamaConfig, OpenAIVoiceConfig,
