@@ -11,6 +11,9 @@ use crate::bindings::{
 };
 use crate::components::design_system::{Button, ButtonVariant, Input, Select, Card, CardHeader, CardBody, Badge, BadgeVariant};
 
+pub mod theme_settings;
+use theme_settings::ThemeSettings;
+
 #[derive(Clone, PartialEq)]
 pub enum LLMProvider {
     Ollama,
@@ -854,22 +857,7 @@ pub fn Settings() -> Element {
                     }
                 }
 
-                Card {
-                    CardHeader { h2 { class: "text-lg font-semibold", "Appearance" } }
-                    CardBody {
-                        div {
-                            label { class: "block text-sm font-medium text-theme-secondary mb-1", "Theme" }
-                            Select {
-                                value: "{theme_sig}",
-                                onchange: move |val| theme_sig.set(val),
-                                option { value: "fantasy", "Fantasy (Default)" }
-                                option { value: "scifi", "Sci-Fi" }
-                                option { value: "horror", "Horror" }
-                                option { value: "cyberpunk", "Cyberpunk" }
-                            }
-                        }
-                    }
-                }
+                ThemeSettings {}
 
                 Card {
                     CardHeader {

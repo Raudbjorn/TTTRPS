@@ -273,8 +273,16 @@ fn ActiveSessionWorkspace(session: GameSession, on_session_ended: EventHandler<(
     // ... (For brevity, I will implement the core combat logic handlers here again)
     // NOTE: In a real refactor, I would extract `CombatTracker` to a separate file, but to keep existing functionality without creating too many files right now, I'll inline.
 
+    // Combat Visuals
+    let is_combat = combat.read().is_some();
+    let container_class = if is_combat {
+        "space-y-6 max-w-5xl mx-auto relative before:content-[''] before:fixed before:inset-0 before:bg-red-900/5 before:pointer-events-none before:z-0 animate-pulse-slow"
+    } else {
+        "space-y-6 max-w-5xl mx-auto relative"
+    };
+
     rsx! {
-        div { class: "space-y-6 max-w-5xl mx-auto",
+        div { class: "{container_class}",
 
             // Session Control Bar
             div { class: "flex justify-between items-center bg-zinc-800/50 p-4 rounded-lg border border-zinc-700",

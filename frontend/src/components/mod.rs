@@ -8,3 +8,4 @@ pub mod settings;
 pub mod campaign_details;
 pub mod layout;
 pub mod resizable_panel;
+pub mod command_palette;

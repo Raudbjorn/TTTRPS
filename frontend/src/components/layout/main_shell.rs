@@ -17,12 +17,67 @@ use crate::components::resizable_panel::{DragHandle, ResizeSide};
 pub fn MainShell(props: MainShellProps) -> Element {
     let mut layout = use_context::<LayoutState>();
     let mut dragging = use_signal(|| Option::<ResizeSide>::None);
+    let mut window_width = use_signal(|| 1920.0);
+
+    use wasm_bindgen::prelude::*;
+    use wasm_bindgen::JsCast;
+
+    use_effect(move || {
+        // We use a clone of layout for the closure
+        let mut layout_svc = layout;
+
+        let mut handle_resize = Closure::wrap(Box::new(move || {
+             if let Some(window) = web_sys::window() {
+                 if let Ok(w) = window.inner_width() {
+                     let width = w.as_f64().unwrap_or(1920.0);
+                     window_width.set(width);
+
+                     // Responsive Logic (Simple Auto-Collapse)
+                     // <900: All collapsed (Drawer mode pending)
+                     // 900-1200: Sidebar collapsed, Info hidden
+                     // 1200-1400: Sidebar visible, Info hidden
+                     // >=1400: Both visible
+
+                     // Only apply if we haven't manually overridden?
+                     // For now, we enforce "Smart Defaults" purely based on width to satisfy requirement.
+
+                     if width < 1200.0 {
+                         layout_svc.infopanel_visible.set(false);
+                     } else {
+                         layout_svc.infopanel_visible.set(true);
+                     }
+
+                     if width < 900.0 {
+                         layout_svc.sidebar_visible.set(false);
+                     } else {
+                         layout_svc.sidebar_visible.set(true);
+                     }
+                 }
+             }
+        }) as Box<dyn FnMut()>);
+
+        if let Some(window) = web_sys::window() {
+             let _ = window.add_event_listener_with_callback("resize", handle_resize.as_ref().unchecked_ref());
+             // Trigger once
+             let _ = handle_resize.as_ref().unchecked_ref::<js_sys::Function>().call0(&JsValue::NULL);
+        }
+        handle_resize.forget();
+    });
 
     // Dynamic Grid Columns calculation
     let sidebar_w = *layout.sidebar_width.read();
     let info_w = *layout.infopanel_width.read();
+    let width = *window_width.read();
+    let is_mobile = width < 900.0;
 
-    let sidebar_col = if *layout.sidebar_visible.read() { format!("{}px", sidebar_w) } else { "0px".to_string() };
+    let sidebar_col = if is_mobile {
+         "0px".to_string()
+    } else if *layout.sidebar_visible.read() {
+        format!("{}px", sidebar_w)
+    } else {
+        "0px".to_string()
+    };
+
     let info_col = if *layout.infopanel_visible.read() { format!("{}px", info_w) } else { "0px".to_string() };
 
     let grid_template_cols = format!("64px {} 1fr {}", sidebar_col, info_col);
@@ -99,6 +154,23 @@ pub fn MainShell(props: MainShellProps) -> Element {
         grid_template_cols, cursor_style
     );
 
+    // Sidebar Class Logic
+    let sidebar_classes = if is_mobile {
+        if *layout.sidebar_visible.read() {
+            "fixed left-[64px] top-0 bottom-[56px] w-[300px] z-50 shadow-2xl border-r border-[var(--border-subtle)] bg-[var(--bg-surface)] overflow-visible transition-transform duration-300"
+        } else {
+            "hidden"
+        }
+    } else {
+        "grid-area: sidebar; border-r border-[var(--border-subtle)] bg-[var(--bg-surface)] overflow-visible transition-none relative"
+    };
+
+    // For inline style when normal
+    let sidebar_style_attr = if is_mobile { "" } else { "grid-area: sidebar;" };
+
+    // Backdrop for mobile
+    let show_backdrop = is_mobile && *layout.sidebar_visible.read();
+
     rsx! {
         div {
             class: "h-screen w-screen overflow-hidden bg-[var(--bg-deep)] text-[var(--text-primary)] font-ui transition-all duration-300 select-none",
@@ -109,17 +181,23 @@ pub fn MainShell(props: MainShellProps) -> Element {
             onmouseleave: handle_up,
 
             // Area: Rail
-            div { style: "grid-area: rail;",
-                IconRail {}
+            div { style: "grid-area: rail;", IconRail {} }
+
+            // Mobile Backdrop
+            if show_backdrop {
+                div {
+                    class: "fixed inset-0 bg-black/50 z-40 backdrop-blur-sm ml-[64px]",
+                    onclick: move |_| layout.sidebar_visible.set(false)
+                }
             }
 
-            // Area: Sidebar
+            // Area: Sidebar (Drawer or Grid)
             div {
-                style: "grid-area: sidebar;",
-                class: "border-r border-[var(--border-subtle)] bg-[var(--bg-surface)] overflow-visible transition-none relative",
+                class: "{sidebar_classes}",
+                style: "{sidebar_style_attr}",
                 {props.sidebar}
-                // Drag Handle
-                if *layout.sidebar_visible.read() {
+                // Drag Handle (Only if not mobile)
+                if !is_mobile && *layout.sidebar_visible.read() {
                     DragHandle {
                         side: ResizeSide::Left,
                         on_drag_start: move |e: MouseEvent| {

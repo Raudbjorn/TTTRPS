@@ -55,6 +55,9 @@ fn App() -> Element {
     });
 
     rsx! {
+        // Global Components
+        components::command_palette::CommandPalette {}
+
         // We wrap the entire app in the MainShell
         MainShell {
             sidebar: rsx! {
