@@ -164,6 +164,8 @@ fn main() {
             commands::get_npc_conversation,
             commands::add_npc_message,
             commands::mark_npc_read,
+            commands::list_npc_summaries,
+            commands::reply_as_npc,
 
             // Document Ingestion & Search (Meilisearch)
             commands::ingest_document,
