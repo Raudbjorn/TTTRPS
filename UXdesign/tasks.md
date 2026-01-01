@@ -59,7 +59,7 @@
     `offset`/`limit` parameters on `get_npc_conversation`. Frontend should implement
     infinite scroll or "Load More" pattern.
 
-- [ ] **[BE] B3**: Add thread/reply support to conversation messages (P1)
+- [x] **[BE] B3**: Add thread/reply support to conversation messages (P1)
   - `parent_message_id` field for threading
   - `list_thread(message_id)` command
   - Files: `src-tauri/src/core/models.rs`
