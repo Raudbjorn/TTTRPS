@@ -55,7 +55,7 @@ pub fn PersonalityManager() -> Element {
 
             // Grid Layout (Spotify Style)
             div { class: "grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6",
-                for p in personalities.read().clone() {{
+                for p in personalities.read().clone() {
                     let p_id_edit = p.id.clone();
                     let p_id_play = p.id.clone();
                     let p_name = p.name.clone();
@@ -111,7 +111,7 @@ pub fn PersonalityManager() -> Element {
                             }
                         }
                     }
-                }}
+                }
             }
             }
 

@@ -53,7 +53,7 @@ pub fn SessionList(props: SessionListProps) -> Element {
             div { class: "flex-1 overflow-y-auto p-2 space-y-6",
 
                 // Current
-                if let Some(curr) = current_session {{
+                if let Some(curr) = current_session {
                     let curr_id = curr.id.clone();
                     let sess_num = curr.session_number;
                     rsx! {
@@ -70,7 +70,7 @@ pub fn SessionList(props: SessionListProps) -> Element {
                             }
                         }
                     }
-                }}
+                }
 
                 // Planned
                 div {
@@ -86,7 +86,7 @@ pub fn SessionList(props: SessionListProps) -> Element {
                 // Past
                  div {
                     div { class: "px-2 mb-2 text-zinc-500 text-xs font-semibold", "HISTORY" }
-                    for s in past_sessions {{
+                    for s in past_sessions {
                          let s_id = s.id.clone();
                          let sess_num = s.session_number;
                          let duration = s.duration_mins;
@@ -98,7 +98,7 @@ pub fn SessionList(props: SessionListProps) -> Element {
                                 div { class: "text-xs text-zinc-600", "{duration}m" }
                             }
                         }
-                    }}
+                    }
                 }
             }
         }
