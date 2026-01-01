@@ -119,7 +119,7 @@
   - CRUD commands: `save_personality`, `delete_personality`, `list_personalities`
   - Files: `src-tauri/src/core/personality.rs`, `commands.rs`
 
-- [ ] **[BE] B11**: Link personalities to NPCs (P1)
+- [x] **[BE] B11**: Link personalities to NPCs (P1)
   - `personality_id` field on NPC model
   - `assign_personality(npc_id, personality_id)` command
   - Files: `src-tauri/src/core/npc_gen.rs`
