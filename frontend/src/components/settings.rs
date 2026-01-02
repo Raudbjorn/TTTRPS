@@ -690,6 +690,7 @@ pub fn Settings() -> impl IntoView {
     let on_theme_change = move |val: String| {
         if val == "custom" {
             is_custom_theme.set(true);
+            theme_value.set("custom".to_string());
         } else {
             theme_value.set(val.clone());
             theme_state.set_preset(&val);
@@ -1122,45 +1123,28 @@ pub fn Settings() -> impl IntoView {
                         <div class="space-y-4 pt-4 border-t border-[var(--border-subtle)]">
                             <h3 class="text-sm font-medium">"Theme Mixer"</h3>
 
-                            <Slider
-                                value=weight_fantasy
-                                on_input=Callback::new(move |v| {
-                                    weight_fantasy.set(v);
-                                    update_weights();
-                                })
-                                label="Fantasy"
-                            />
-                            <Slider
-                                value=weight_cosmic
-                                on_input=Callback::new(move |v| {
-                                    weight_cosmic.set(v);
-                                    update_weights();
-                                })
-                                label="Cosmic"
-                            />
-                            <Slider
-                                value=weight_terminal
-                                 on_input=Callback::new(move |v| {
-                                    weight_terminal.set(v);
-                                    update_weights();
-                                })
-                                label="Terminal"
-                            />
-                            <Slider
-                                value=weight_noir
-                                 on_input=Callback::new(move |v| {
-                                    weight_noir.set(v);
-                                    update_weights();
-                                })
-                                label="Noir"
-                            />
-                            <Slider
-                                value=weight_neon
-                                 on_input=Callback::new(move |v| {
-                                    weight_neon.set(v);
-                                    update_weights();
-                                })
-                                label="Neon"
+                            <For
+                                each=move || vec![
+                                    ("Fantasy", weight_fantasy),
+                                    ("Cosmic", weight_cosmic),
+                                    ("Terminal", weight_terminal),
+                                    ("Noir", weight_noir),
+                                    ("Neon", weight_neon),
+                                ]
+                                key=|(label, _)| *label
+                                children=move |(label, weight_signal)| {
+                                    let update_weights = update_weights.clone();
+                                    view! {
+                                        <Slider
+                                            value=weight_signal
+                                            on_input=Callback::new(move |v| {
+                                                weight_signal.set(v);
+                                                update_weights();
+                                            })
+                                            label=label.to_string()
+                                        />
+                                    }
+                                }
                             />
                         </div>
                     </CardBody>
