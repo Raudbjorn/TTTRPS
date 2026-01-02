@@ -59,7 +59,6 @@ fn App() -> Element {
         let current_theme = theme_sig.read();
         let _ = document::eval(&format!("document.body.setAttribute('data-theme', '{}')", current_theme));
     });
-
     rsx! {
         // Global Components
         components::command_palette::CommandPalette {}

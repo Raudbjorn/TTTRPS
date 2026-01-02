@@ -446,6 +446,7 @@ impl SessionManager {
             status: session.status.clone(),
             note_count: session.notes.len(),
             had_combat: session.combat.is_some(),
+            order_index: session.order_index,
         };
 
         Ok(summary)

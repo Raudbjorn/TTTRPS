@@ -4,6 +4,7 @@
 //! automatic fallback, and circuit breaker pattern.
 
 use crate::core::llm::{LLMClient, LLMConfig, LLMError, ChatRequest, ChatResponse, EmbeddingResponse};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
@@ -98,12 +99,13 @@ impl CircuitBreaker {
 // Provider Stats
 // ============================================================================
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ProviderStats {
     pub total_requests: u64,
     pub successful_requests: u64,
     pub failed_requests: u64,
     pub total_latency_ms: u64,
+    #[serde(skip)]
     pub last_used: Option<Instant>,
 }
 
@@ -153,6 +155,7 @@ impl Default for RouterConfig {
 // LLM Router
 // ============================================================================
 
+#[derive(Clone)]
 pub struct LLMRouter {
     /// Available providers in priority order
     providers: Vec<(String, LLMConfig)>,
