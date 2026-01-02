@@ -17,8 +17,8 @@ use crate::bindings::{
     get_audio_cache_stats, get_audio_cache_size, clear_audio_cache, prune_audio_cache,
     VoiceCacheStats, AudioCacheSizeInfo, format_bytes,
 };
-use crate::components::design_system::{Badge, BadgeVariant, Button, ButtonVariant, Card, CardBody, CardHeader, Input, Select};
-use crate::services::theme_service::ThemeState;
+use crate::components::design_system::{Badge, BadgeVariant, Button, ButtonVariant, Card, CardBody, CardHeader, Input, Select, Slider};
+use crate::services::theme_service::{ThemeState, ThemeWeights};
 
 // ============================================================================
 // LLM Provider Enum
@@ -178,6 +178,39 @@ pub fn Settings() -> impl IntoView {
     let theme_value = RwSignal::new(
         theme_state.current_preset.get().unwrap_or_else(|| "fantasy".to_string())
     );
+    let is_custom_theme = RwSignal::new(theme_state.current_preset.get().is_none());
+
+    // Individual weight signals (synced with global state initial value)
+    let weights = theme_state.weights.get();
+    let weight_fantasy = RwSignal::new(weights.fantasy);
+    let weight_cosmic = RwSignal::new(weights.cosmic);
+    let weight_terminal = RwSignal::new(weights.terminal);
+    let weight_noir = RwSignal::new(weights.noir);
+    let weight_neon = RwSignal::new(weights.neon);
+
+    // Sync weight signals when global weights change (e.g. from preset selection)
+    Effect::new(move |_| {
+        let w = theme_state.weights.get();
+        weight_fantasy.set(w.fantasy);
+        weight_cosmic.set(w.cosmic);
+        weight_terminal.set(w.terminal);
+        weight_noir.set(w.noir);
+        weight_neon.set(w.neon);
+    });
+
+    // Helper to update custom weights
+    let update_weights = move || {
+        let w = ThemeWeights {
+            fantasy: weight_fantasy.get(),
+            cosmic: weight_cosmic.get(),
+            terminal: weight_terminal.get(),
+            noir: weight_noir.get(),
+            neon: weight_neon.get(),
+        };
+        theme_state.set_weights(w);
+        is_custom_theme.set(true);
+        theme_value.set("custom".to_string());
+    };
 
     // Provider select signal for the Select component
     let provider_select_value = RwSignal::new("Ollama".to_string());
@@ -658,8 +691,14 @@ pub fn Settings() -> impl IntoView {
 
     // Handle theme change
     let on_theme_change = move |val: String| {
-        theme_value.set(val.clone());
-        theme_state.set_preset(&val);
+        if val == "custom" {
+            is_custom_theme.set(true);
+            theme_value.set("custom".to_string());
+        } else {
+            theme_value.set(val.clone());
+            theme_state.set_preset(&val);
+            is_custom_theme.set(false);
+        }
     };
 
     // Handle reindex
@@ -1083,6 +1122,7 @@ pub fn Settings() -> impl IntoView {
                                 <option value="terminal">"Terminal"</option>
                                 <option value="noir">"Noir"</option>
                                 <option value="neon">"Neon Cyberpunk"</option>
+                                <option value="custom">"Custom Mix"</option>
                             </Select>
                             <p class="text-xs text-theme-secondary mt-1">
                                 "Quick select a theme preset. For advanced blending, use the Theme Editor below."
