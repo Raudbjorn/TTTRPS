@@ -1,7 +1,7 @@
 //! Campaigns Component - Leptos Migration
 //!
 //! Displays a list of campaigns with create/delete functionality.
-//! Migrated from Dioxus campaigns.rs
+//! Campaign management components
 
 use leptos::ev;
 use leptos::prelude::*;

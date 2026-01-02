@@ -22,7 +22,7 @@
 | Prefix | Type | Description |
 |--------|------|-------------|
 | `[BE]` | Backend | Rust/Tauri changes (src-tauri/) |
-| `[FE]` | Frontend | Dioxus/CSS changes (frontend/) |
+| `[FE]` | Frontend | Leptos/CSS changes (frontend/) |
 | `[REQ-XXX]` | Requirement | Links to requirements.md |
 
 **Priority**: P0 (Critical) → P1 (High) → P2 (Medium) → P3 (Nice-to-have)
@@ -155,7 +155,7 @@
 
 ---
 
-## Phase 2: Frontend Implementation (Dioxus/Rust)
+## Phase 2: Frontend Implementation (Leptos/Rust)
 
 ### Layout Architecture
 > Supports: REQ-010 (Session Workspace Layout)
@@ -465,7 +465,7 @@ BE B13 ─────> FE F18, F19 (Transcription)
 - [x] NPC conversation persistence (B1, B2)
 - [x] Media bar layout (F15)
 - [x] NPC conversation view (F10)
-- [ ] Play buttons on messages (F25)
+- [x] Play buttons on messages (F25)
 - [ ] Voice queue integration (B12, F17)
 
 ### M3: Dynamic Themes (P1) 🔄 IN PROGRESS

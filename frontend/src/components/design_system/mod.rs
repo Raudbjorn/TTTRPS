@@ -1,5 +1,5 @@
 // Design System Components for Leptos
-// Migrated from Dioxus design_system.rs
+// Design system components
 
 mod button;
 mod input;

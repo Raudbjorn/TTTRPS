@@ -1,6 +1,6 @@
 //! Session page component for managing TTRPG game sessions
 //!
-//! Migrated from Dioxus session.rs to Leptos 0.7
+//! Session management components
 
 mod session_list;
 mod npc_list;

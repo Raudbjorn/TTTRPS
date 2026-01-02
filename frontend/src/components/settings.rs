@@ -1,5 +1,5 @@
 //! Settings page component for Leptos
-//! Migrated from Dioxus settings.rs
+//! Settings components
 
 use leptos::prelude::*;
 use leptos::ev;

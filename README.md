@@ -10,7 +10,7 @@ A desktop application for Game Masters running tabletop RPG sessions, powered by
 - **Combat Tracker**: Initiative tracking, HP management, conditions
 - **Character Generation**: Multi-system support (D&D 5e, Pathfinder, Call of Cthulhu, etc.)
 - **NPC Generator**: Procedurally generated NPCs with personality traits
-- **Voice Synthesis**: ElevenLabs and Ollama TTS integration
+- **Voice Synthesis**: ElevenLabs, OpenAI TTS, and local providers
 - **Document Ingestion**: PDF and EPUB parsing with intelligent chunking
 - **Secure Storage**: API keys stored in system keyring
 
@@ -18,7 +18,7 @@ A desktop application for Game Masters running tabletop RPG sessions, powered by
 
 ```
 TTTRPS/
-├── frontend/          # Dioxus WASM frontend
+├── frontend/          # Leptos WASM frontend
 │   └── src/
 │       ├── components/   # UI components
 │       └── bindings.rs   # Tauri IPC wrappers
@@ -26,8 +26,7 @@ TTTRPS/
 │   └── src/
 │       ├── core/         # Core business logic
 │       │   ├── llm/      # LLM providers
-│       │   ├── vector_store.rs
-│       │   ├── keyword_search.rs
+│       │   ├── search_client.rs
 │       │   └── ...
 │       ├── database/     # SQLite with migrations
 │       ├── ingestion/    # Document parsers
@@ -62,7 +61,7 @@ cd TTTRPS
 
 2. Install CLI tools:
 ```bash
-cargo install dioxus-cli
+cargo install trunk
 cargo install tauri-cli
 ```
 
@@ -101,9 +100,11 @@ Configure your preferred LLM provider in the Settings panel:
 **ElevenLabs**
 - Get API key from: https://elevenlabs.io/
 
-**Ollama TTS**
-- Uses local Ollama installation
-- No additional setup required
+**OpenAI TTS**
+- Uses your OpenAI API key
+
+**Local Providers**
+- Chatterbox, GPT-SoVITS, XTTS-v2, Fish Speech, Piper
 
 ## Usage
 
@@ -135,7 +136,7 @@ Configure your preferred LLM provider in the Settings panel:
 ./build.sh build            # Build debug version
 ./build.sh build --release  # Build optimized release
 ./build.sh test             # Run all tests
-./build.sh check            # Run cargo check + clippy
+./build.sh check            # Run cargo check
 ./build.sh clean            # Clean build artifacts
 ./build.sh help             # Show help
 ```
@@ -143,7 +144,7 @@ Configure your preferred LLM provider in the Settings panel:
 ## Data Storage
 
 - **Database**: `~/.local/share/ttrpg-assistant/ttrpg_assistant.db`
-- **Vector Store**: `~/.local/share/ttrpg-assistant/lancedb/`
+- **Meilisearch**: `~/.local/share/ttrpg-assistant/meilisearch/`
 - **Backups**: `~/.local/share/ttrpg-assistant/backups/`
 - **Cache**: `~/.cache/ttrpg-assistant/`
 
@@ -153,15 +154,15 @@ Configure your preferred LLM provider in the Settings panel:
 |----------|--------|
 | Enter | Send message |
 | Shift+Enter | New line in message |
-| Ctrl+K | Quick search |
+| Ctrl+K | Command palette |
 
 ## Troubleshooting
 
 ### "LLM not configured"
 Configure an API key in Settings for your preferred provider.
 
-### "Vector store not initialized"
-The app creates the vector store on first document ingestion.
+### "Meilisearch not initialized"
+The app starts Meilisearch automatically. Check the logs if it fails.
 
 ### AppImage doesn't run
 ```bash
@@ -190,6 +191,5 @@ MIT License - see LICENSE file for details.
 ## Acknowledgments
 
 - [Tauri](https://tauri.app/) - Desktop framework
-- [Dioxus](https://dioxuslabs.com/) - React-like UI framework
-- [LanceDB](https://lancedb.com/) - Vector database
-- [Tantivy](https://github.com/quickwit-oss/tantivy) - Search engine
+- [Leptos](https://leptos.dev/) - Reactive web framework
+- [Meilisearch](https://meilisearch.com/) - Search engine
