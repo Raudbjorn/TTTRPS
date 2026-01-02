@@ -498,6 +498,8 @@ pub struct Campaign {
     pub settings: CampaignSettings,
 }
 
+pub type ThemeWeights = std::collections::HashMap<String, f32>;
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct CampaignStats {
     pub session_count: usize,
