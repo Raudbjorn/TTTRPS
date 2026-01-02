@@ -5,10 +5,12 @@
 use tauri::State;
 use crate::core::voice::{
     VoiceManager, VoiceConfig, VoiceProviderType, ElevenLabsConfig,
-    OllamaConfig, SynthesisRequest, OutputFormat
+    OllamaConfig, SynthesisRequest, OutputFormat,
+    types::{QueuedVoice, VoiceStatus}
 };
 use crate::core::models::Campaign;
 use std::sync::RwLock;
+use tokio::sync::RwLock as AsyncRwLock;
 use std::path::Path;
 use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
@@ -19,8 +21,9 @@ use crate::database::{Database, NpcConversation, ConversationMessage};
 // Core modules
 use crate::core::llm::{LLMConfig, LLMClient, ChatMessage, ChatRequest, MessageRole};
 use crate::core::campaign_manager::{
-    CampaignManager, SessionNote, SnapshotSummary
+    CampaignManager, SessionNote, SnapshotSummary, ThemeWeights
 };
+use crate::core::theme;
 use crate::core::session_manager::{
     SessionManager, GameSession, SessionSummary, CombatState, Combatant,
     CombatantType, create_common_condition
@@ -47,7 +50,7 @@ pub struct AppState {
     pub session_manager: SessionManager,
     pub npc_store: NPCStore,
     pub credentials: CredentialManager,
-    pub voice_manager: RwLock<VoiceManager>,
+    pub voice_manager: Arc<AsyncRwLock<VoiceManager>>,
     pub sidecar_manager: Arc<SidecarManager>,
     pub search_client: Arc<SearchClient>,
     pub personality_store: Arc<PersonalityStore>,
@@ -62,7 +65,7 @@ impl AppState {
         SessionManager,
         NPCStore,
         CredentialManager,
-        RwLock<VoiceManager>,
+        Arc<AsyncRwLock<VoiceManager>>,
         Arc<SidecarManager>,
         Arc<SearchClient>,
         Arc<PersonalityStore>,
@@ -79,10 +82,10 @@ impl AppState {
             SessionManager::new(),
             NPCStore::new(),
             CredentialManager::with_service("ttrpg-assistant"),
-            RwLock::new(VoiceManager::new(VoiceConfig {
+            Arc::new(AsyncRwLock::new(VoiceManager::new(VoiceConfig {
                 cache_dir: Some(PathBuf::from("./voice_cache")),
                 ..Default::default()
-            })),
+            }))),
             Arc::new(SidecarManager::with_config(sidecar_config)),
             Arc::new(search_client),
             Arc::new(PersonalityStore::new()),
@@ -656,7 +659,7 @@ pub async fn search(
 // ============================================================================
 
 #[tauri::command]
-pub fn configure_voice(
+pub async fn configure_voice(
     config: VoiceConfig,
     state: State<'_, AppState>,
 ) -> Result<String, String> {
@@ -682,30 +685,22 @@ pub fn configure_voice(
     let new_manager = VoiceManager::new(effective_config);
 
     // Update state
-    match state.voice_manager.write() {
-        Ok(mut manager) => {
-            *manager = new_manager;
-            Ok("Voice configuration updated successfully".to_string())
-        }
-        Err(e) => Err(format!("Failed to acquire lock: {}", e))
-    }
+    let mut manager = state.voice_manager.write().await;
+    *manager = new_manager;
+    Ok("Voice configuration updated successfully".to_string())
 }
 
 #[tauri::command]
-pub fn get_voice_config(state: State<'_, AppState>) -> Result<VoiceConfig, String> {
-    match state.voice_manager.read() {
-        Ok(manager) => {
-            let mut config = manager.get_config().clone();
-            // Mask secrets
-            if let Some(ref mut elevenlabs) = config.elevenlabs {
-                if !elevenlabs.api_key.is_empty() {
-                    elevenlabs.api_key = "********".to_string();
-                }
-            }
-            Ok(config)
+pub async fn get_voice_config(state: State<'_, AppState>) -> Result<VoiceConfig, String> {
+    let manager = state.voice_manager.read().await;
+    let mut config = manager.get_config().clone();
+    // Mask secrets
+    if let Some(ref mut elevenlabs) = config.elevenlabs {
+        if !elevenlabs.api_key.is_empty() {
+            elevenlabs.api_key = "********".to_string();
         }
-        Err(e) => Err(format!("Failed to acquire lock: {}", e))
     }
+    Ok(config)
 }
 
 // ============================================================================
@@ -816,6 +811,37 @@ pub fn update_campaign(
 pub fn delete_campaign(id: String, state: State<'_, AppState>) -> Result<(), String> {
     state.campaign_manager.delete_campaign(&id)
         .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn get_campaign_theme(
+    campaign_id: String,
+    state: State<'_, AppState>,
+) -> Result<ThemeWeights, String> {
+    state.campaign_manager
+        .get_campaign(&campaign_id)
+        .map(|c| c.settings.theme_weights)
+        .ok_or_else(|| "Campaign not found".to_string())
+}
+
+#[tauri::command]
+pub async fn set_campaign_theme(
+    campaign_id: String,
+    weights: ThemeWeights,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let mut campaign = state.campaign_manager
+        .get_campaign(&campaign_id)
+        .ok_or_else(|| "Campaign not found".to_string())?;
+
+    campaign.settings.theme_weights = weights;
+    state.campaign_manager.update_campaign(campaign, false)
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn get_theme_preset(system: String) -> Result<ThemeWeights, String> {
+    Ok(theme::get_theme_preset(&system))
 }
 
 #[tauri::command]
@@ -1102,7 +1128,7 @@ pub async fn generate_npc(
     let role_str = serde_json::to_string(&npc.role).unwrap_or_default().trim_matches('"').to_string();
     let data_json = serde_json::to_string(&npc).map_err(|e| e.to_string())?;
 
-    let record = crate::database::models::NpcRecord {
+    let record = crate::database::NpcRecord {
         id: npc.id.clone(),
         campaign_id: campaign_id.clone(),
         name: npc.name.clone(),
@@ -1113,7 +1139,6 @@ pub async fn generate_npc(
         stats_json,
         notes: Some(npc.notes.clone()),
         created_at: chrono::Utc::now().to_rfc3339(),
-        updated_at: chrono::Utc::now().to_rfc3339(),
     };
 
     state.database.save_npc(&record).await.map_err(|e| e.to_string())?;
@@ -1181,7 +1206,7 @@ pub async fn update_npc(npc: NPC, state: State<'_, AppState>) -> Result<(), Stri
         None
     };
 
-    let record = crate::database::models::NpcRecord {
+    let record = crate::database::NpcRecord {
         id: npc.id.clone(),
         campaign_id,
         name: npc.name.clone(),
@@ -1192,7 +1217,6 @@ pub async fn update_npc(npc: NPC, state: State<'_, AppState>) -> Result<(), Stri
         stats_json,
         notes: Some(npc.notes.clone()),
         created_at,
-        updated_at: chrono::Utc::now().to_rfc3339(),
     };
 
     state.database.save_npc(&record).await.map_err(|e| e.to_string())?;
@@ -1578,7 +1602,7 @@ pub async fn list_elevenlabs_voices(api_key: String) -> Result<Vec<Voice>, Strin
 pub async fn list_available_voices(state: State<'_, AppState>) -> Result<Vec<Voice>, String> {
     // Clone the config to avoid holding the lock across await
     let config = {
-        let manager = state.voice_manager.read().map_err(|e| e.to_string())?;
+        let manager = state.voice_manager.read().await;
         manager.get_config().clone()
     };
 
@@ -1867,26 +1891,136 @@ pub async fn reply_as_npc(
 // Theme Commands
 // ============================================================================
 
+
+
+// ============================================================================
+// Voice Queue Commands
+// ============================================================================
+
+
+
 #[tauri::command]
-pub fn get_campaign_theme(
-    campaign_id: String,
+pub async fn queue_voice(
+    text: String,
+    voice_id: Option<String>,
     state: State<'_, AppState>,
-) -> Result<crate::core::models::ThemeWeights, String> {
-    state.campaign_manager.get_campaign(&campaign_id)
-        .map(|c| c.settings.theme_weights)
-        .ok_or_else(|| format!("Campaign not found: {}", campaign_id))
+) -> Result<QueuedVoice, String> {
+    // 1. Determine Voice ID
+    let vid = voice_id.unwrap_or_else(|| "default".to_string());
+
+    // 2. Add to Queue
+    let item = {
+        let mut manager = state.voice_manager.write().await;
+        manager.add_to_queue(text, vid)
+    };
+
+    // 3. Trigger Processing (Background)
+    match process_voice_queue(state).await {
+        Ok(_) => {},
+        Err(e) => eprintln!("Failed to trigger voice queue processing: {}", e),
+    }
+
+    Ok(item)
 }
 
 #[tauri::command]
-pub fn set_campaign_theme(
-    campaign_id: String,
-    weights: crate::core::models::ThemeWeights,
-    state: State<'_, AppState>,
-) -> Result<(), String> {
-    if let Some(mut campaign) = state.campaign_manager.get_campaign(&campaign_id) {
-        campaign.settings.theme_weights = weights;
-        state.campaign_manager.update_campaign(campaign, false).map_err(|e| e.to_string())
-    } else {
-        Err(format!("Campaign not found: {}", campaign_id))
-    }
+pub async fn get_voice_queue(state: State<'_, AppState>) -> Result<Vec<QueuedVoice>, String> {
+    let manager = state.voice_manager.read().await;
+    Ok(manager.get_queue())
+}
+
+#[tauri::command]
+pub async fn cancel_voice(queue_id: String, state: State<'_, AppState>) -> Result<(), String> {
+    let mut manager = state.voice_manager.write().await;
+    manager.remove_from_queue(&queue_id);
+    Ok(())
+}
+
+/// Internal helper to process the queue
+async fn process_voice_queue(state: State<'_, AppState>) -> Result<(), String> {
+    let vm_clone = state.voice_manager.clone();
+
+    // Spawn a detached task
+    tauri::async_runtime::spawn(async move {
+        // We loop until queue is empty or processing fails
+        loop {
+            // 1. Get next pending (Read Lock)
+            let next_item = {
+                let manager = vm_clone.read().await;
+                if manager.is_playing {
+                    None
+                } else {
+                    manager.get_next_pending()
+                }
+            };
+
+            if let Some(item) = next_item {
+                // 2. Mark Processing
+                {
+                    let mut manager = vm_clone.write().await;
+                    manager.update_status(&item.id, VoiceStatus::Processing);
+                }
+
+                // 3. Synthesize
+                let req = SynthesisRequest {
+                    text: item.text.clone(),
+                    voice_id: item.voice_id.clone(),
+                    settings: None,
+                    output_format: OutputFormat::Mp3, // Default
+                };
+
+                // Perform synthesis without holding lock
+                let result = {
+                    let manager = vm_clone.read().await;
+                    manager.synthesize(req).await
+                };
+
+                match result {
+                    Ok(res) => {
+                        // 4. Synthesized. Now Play.
+                        // Read file
+                        if let Ok(audio_data) = tokio::fs::read(&res.audio_path).await {
+                             // Mark Playing
+                            {
+                                let mut manager = vm_clone.write().await;
+                                manager.update_status(&item.id, VoiceStatus::Playing);
+                                manager.is_playing = true;
+                            }
+
+                            // Play (Blocking for now, inside spawn)
+                            let play_result = {
+                                let manager = vm_clone.read().await;
+                                manager.play_audio(audio_data)
+                            };
+
+                            // Mark Completed
+                            {
+                                let mut manager = vm_clone.write().await;
+                                manager.is_playing = false;
+                                manager.update_status(&item.id, if play_result.is_ok() {
+                                    VoiceStatus::Completed
+                                } else {
+                                    VoiceStatus::Failed("Playback failed".into())
+                                });
+                            }
+                        } else {
+                             // File read failed
+                            let mut manager = vm_clone.write().await;
+                            manager.update_status(&item.id, VoiceStatus::Failed("Could not read audio file".into()));
+                        }
+                    }
+                    Err(e) => {
+                        // Synthesis Failed
+                        let mut manager = vm_clone.write().await;
+                        manager.update_status(&item.id, VoiceStatus::Failed(e.to_string()));
+                    }
+                }
+            } else {
+                // No more items
+                break;
+            }
+        }
+    });
+
+    Ok(())
 }

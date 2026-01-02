@@ -41,7 +41,7 @@ pub fn ChatMessage(props: ChatMessageProps) -> Element {
                  div {
                     class: "absolute -left-12 top-1 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col gap-1",
                     // Play Button
-                    if let Some(handler) = &props.on_play {
+                    if let Some(handler) = props.on_play.clone() {
                         button {
                             class: "p-2 bg-zinc-800 rounded-full hover:bg-zinc-700 text-zinc-400 hover:text-white transition-colors shadow-sm",
                             title: "Read Aloud",
@@ -70,6 +70,24 @@ pub fn ChatMessage(props: ChatMessageProps) -> Element {
                             "stroke-width": "2",
                             path { d: "M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" }
                         }
+                    }
+                    // Pin Button (Placeholder)
+                    button {
+                         class: "p-2 bg-zinc-800 rounded-full hover:bg-zinc-700 text-zinc-400 hover:text-white transition-colors shadow-sm",
+                         title: "Pin Message",
+                         onclick: |_| {}, // TODO: Implement pin
+                         svg { class: "w-4 h-4", view_box: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": "2",
+                             path { d: "M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" }
+                         }
+                    }
+                    // React Button (Placeholder)
+                     button {
+                         class: "p-2 bg-zinc-800 rounded-full hover:bg-zinc-700 text-zinc-400 hover:text-white transition-colors shadow-sm",
+                         title: "Add Reaction",
+                         onclick: |_| {}, // TODO: Implement reaction picker
+                         svg { class: "w-4 h-4", view_box: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": "2",
+                             path { d: "M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" }
+                         }
                     }
                 }
             }

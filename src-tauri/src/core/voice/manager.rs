@@ -2,11 +2,10 @@ use std::path::PathBuf;
 use tokio::fs;
 use std::collections::HashMap;
 use crate::core::voice::types::{Result, SynthesisRequest, SynthesisResult, VoiceConfig, VoiceProviderType, VoiceError, Voice};
-use crate::core::voice::providers::{VoiceProvider};
-use crate::core::voice::providers::elevenlabs::ElevenLabsProvider;
-use crate::core::voice::providers::fish_audio::FishAudioProvider;
-use crate::core::voice::providers::ollama::OllamaProvider;
-use crate::core::voice::providers::openai::OpenAIVoiceProvider;
+use crate::core::voice::providers::{
+    VoiceProvider, elevenlabs::ElevenLabsProvider, fish_audio::FishAudioProvider,
+    ollama::OllamaProvider, openai::OpenAIVoiceProvider, piper::PiperProvider
+};
 
 use rodio::{Decoder, OutputStream, Sink};
 use std::io::Cursor;
@@ -15,6 +14,8 @@ pub struct VoiceManager {
     config: VoiceConfig,
     providers: HashMap<String, Box<dyn VoiceProvider>>,
     cache_dir: PathBuf,
+    pub queue: Vec<crate::core::voice::types::QueuedVoice>,
+    pub is_playing: bool,
 }
 
 impl VoiceManager {
@@ -38,17 +39,55 @@ impl VoiceManager {
              providers.insert("openai".to_string(), Box::new(OpenAIVoiceProvider::new(cfg.clone())));
         }
 
+        // Initialize Piper
+        let piper_config = config.piper.clone().unwrap_or(crate::core::voice::types::PiperConfig { models_dir: None });
+        providers.insert("piper".to_string(), Box::new(PiperProvider::new(piper_config)));
+
         let cache_dir = config.cache_dir.clone().unwrap_or_else(|| PathBuf::from("./voice_cache"));
 
         Self {
             config,
             providers,
             cache_dir,
+            queue: Vec::new(),
+            is_playing: false,
         }
     }
 
     pub fn get_config(&self) -> &VoiceConfig {
         &self.config
+    }
+
+    pub fn add_to_queue(&mut self, text: String, voice_id: String) -> crate::core::voice::types::QueuedVoice {
+        let item = crate::core::voice::types::QueuedVoice {
+            id: uuid::Uuid::new_v4().to_string(),
+            text,
+            voice_id,
+            status: crate::core::voice::types::VoiceStatus::Pending,
+            created_at: chrono::Utc::now().to_rfc3339(),
+        };
+        self.queue.push(item.clone());
+        item
+    }
+
+    pub fn get_queue(&self) -> Vec<crate::core::voice::types::QueuedVoice> {
+        self.queue.clone()
+    }
+
+    pub fn remove_from_queue(&mut self, id: &str) {
+        self.queue.retain(|item| item.id != id);
+    }
+
+    pub fn update_status(&mut self, id: &str, status: crate::core::voice::types::VoiceStatus) {
+        if let Some(item) = self.queue.iter_mut().find(|i| i.id == id) {
+            item.status = status;
+        }
+    }
+
+    pub fn get_next_pending(&self) -> Option<crate::core::voice::types::QueuedVoice> {
+        self.queue.iter()
+            .find(|item| matches!(item.status, crate::core::voice::types::VoiceStatus::Pending))
+            .cloned()
     }
 
     pub async fn synthesize(&self, request: SynthesisRequest) -> Result<SynthesisResult> {
@@ -71,6 +110,7 @@ impl VoiceManager {
             VoiceProviderType::FishAudio => "fish_audio",
             VoiceProviderType::Ollama => "ollama",
             VoiceProviderType::OpenAI => "openai",
+            VoiceProviderType::Piper => "piper",
             VoiceProviderType::System => return Err(VoiceError::NotConfigured("System TTS not supported yet".to_string())),
             VoiceProviderType::Disabled => return Err(VoiceError::NotConfigured("Voice synthesis disabled".to_string())),
         };

@@ -495,6 +495,15 @@ pub struct Campaign {
     pub updated_at: String,
     pub session_count: u32,
     pub player_count: usize,
+    #[serde(default)]
+    pub settings: CampaignSettings,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct CampaignSettings {
+    pub theme: String,
+    #[serde(default)]
+    pub theme_weights: ThemeWeights,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -503,6 +512,27 @@ pub struct SnapshotSummary {
     pub description: String,
     pub created_at: String,
     pub snapshot_type: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ThemeWeights {
+    pub fantasy: f32,
+    pub cosmic: f32,
+    pub terminal: f32,
+    pub noir: f32,
+    pub neon: f32,
+}
+
+impl Default for ThemeWeights {
+    fn default() -> Self {
+        Self {
+            fantasy: 1.0,
+            cosmic: 0.0,
+            terminal: 0.0,
+            noir: 0.0,
+            neon: 0.0,
+        }
+    }
 }
 
 // ============================================================================
@@ -536,6 +566,31 @@ pub async fn delete_campaign(id: String) -> Result<(), String> {
         id: String,
     }
     invoke("delete_campaign", &Args { id }).await
+}
+
+pub async fn get_campaign_theme(campaign_id: String) -> Result<ThemeWeights, String> {
+    #[derive(Serialize)]
+    struct Args {
+        campaign_id: String,
+    }
+    invoke("get_campaign_theme", &Args { campaign_id }).await
+}
+
+pub async fn set_campaign_theme(campaign_id: String, weights: ThemeWeights) -> Result<(), String> {
+    #[derive(Serialize)]
+    struct Args {
+        campaign_id: String,
+        weights: ThemeWeights,
+    }
+    invoke("set_campaign_theme", &Args { campaign_id, weights }).await
+}
+
+pub async fn get_theme_preset(system: String) -> Result<ThemeWeights, String> {
+    #[derive(Serialize)]
+    struct Args {
+        system: String,
+    }
+    invoke("get_theme_preset", &Args { system }).await
 }
 
 pub async fn list_snapshots(campaign_id: String) -> Result<Vec<SnapshotSummary>, String> {
@@ -1002,7 +1057,7 @@ pub struct NPC {
     pub appearance: AppearanceDescription,
     pub personality: NPCPersonality,
     pub voice: VoiceDescription,
-    pub stats: Option<Character>, 
+    pub stats: Option<Character>,
     pub relationships: Vec<NPCRelationship>,
     pub secrets: Vec<String>,
     pub hooks: Vec<PlotHook>,
@@ -1077,7 +1132,7 @@ pub struct NPCGenerationOptions {
     pub include_secrets: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct NpcSummary {
     pub id: String,
     pub name: String,
@@ -1148,4 +1203,47 @@ pub async fn reply_as_npc(npc_id: String) -> Result<ConversationMessage, String>
         npc_id: String,
     }
     invoke("reply_as_npc", &Args { npc_id }).await
+}
+
+// ============================================================================
+// Voice Queue Types and Commands
+// ============================================================================
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum VoiceStatus {
+    Pending,
+    Processing,
+    Playing,
+    Completed,
+    Failed(String),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QueuedVoice {
+    pub id: String,
+    pub text: String,
+    pub voice_id: String,
+    pub status: VoiceStatus,
+    pub created_at: String,
+}
+
+pub async fn queue_voice(text: String, voice_id: Option<String>) -> Result<QueuedVoice, String> {
+    #[derive(Serialize)]
+    struct Args {
+        text: String,
+        voice_id: Option<String>,
+    }
+    invoke("queue_voice", &Args { text, voice_id }).await
+}
+
+pub async fn get_voice_queue() -> Result<Vec<QueuedVoice>, String> {
+    invoke_no_args("get_voice_queue").await
+}
+
+pub async fn cancel_voice(queue_id: String) -> Result<(), String> {
+    #[derive(Serialize)]
+    struct Args {
+        queue_id: String,
+    }
+    invoke("cancel_voice", &Args { queue_id }).await
 }

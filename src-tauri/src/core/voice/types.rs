@@ -48,6 +48,12 @@ pub struct VoiceConfig {
     pub fish_audio: Option<FishAudioConfig>,
     pub ollama: Option<OllamaConfig>,
     pub openai: Option<OpenAIVoiceConfig>,
+    pub piper: Option<PiperConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PiperConfig {
+    pub models_dir: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Hash)]
@@ -56,6 +62,7 @@ pub enum VoiceProviderType {
     FishAudio,
     Ollama,
     OpenAI,
+    Piper,
     System,
     Disabled,
 }
@@ -95,6 +102,7 @@ impl Default for VoiceConfig {
             fish_audio: None,
             ollama: None,
             openai: None,
+            piper: None,
         }
     }
 }
@@ -182,4 +190,22 @@ pub struct UsageInfo {
     pub characters_used: u64,
     pub characters_limit: u64,
     pub next_reset: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum VoiceStatus {
+    Pending,
+    Processing,
+    Playing,
+    Completed,
+    Failed(String),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QueuedVoice {
+    pub id: String,
+    pub text: String,
+    pub voice_id: String,
+    pub status: VoiceStatus,
+    pub created_at: String,
 }

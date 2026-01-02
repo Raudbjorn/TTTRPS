@@ -101,7 +101,6 @@ pub fn Session(campaign_id: String) -> Element {
             }
         });
     };
-    };
 
     // Theme Logic - Dynamic Class Selection based on Campaign System
     // Supports: fantasy, cosmic, terminal, noir, neon (per design.md)
@@ -111,40 +110,12 @@ pub fn Session(campaign_id: String) -> Element {
     // weighted theme blending via CSS custom property interpolation, e.g.:
     //   Delta Green = cosmic(0.4) + noir(0.6)
     // See ThemeWeights struct in design.md for full implementation plan.
+    // Theme Logic - Dynamic Class Selection based on Campaign System
+    // Supports: fantasy, cosmic, terminal, noir, neon (per design.md)
     let theme_class = use_memo(move || {
         match campaign.read().as_ref() {
-            Some(c) => {
-                let system = c.system.to_lowercase();
-                match system.as_str() {
-                    // Noir themes: 90s office paranoia
-                    s if s.contains("delta green") => "theme-noir",
-                    s if s.contains("night's black agents") || s.contains("nba") => "theme-noir",
-
-                    // Cosmic horror themes
-                    s if s.contains("cthulhu") || s.contains("coc") => "theme-cosmic",
-                    s if s.contains("kult") || s.contains("vaesen") => "theme-cosmic",
-
-                    // Terminal/Sci-Fi themes
-                    s if s.contains("mothership") => "theme-terminal",
-                    s if s.contains("alien") && s.contains("rpg") => "theme-terminal",
-                    s if s.contains("traveller") => "theme-terminal",
-                    s if s.contains("stars without number") || s.contains("swn") => "theme-terminal",
-
-                    // Neon/Cyberpunk themes
-                    s if s.contains("cyberpunk") => "theme-neon",
-                    s if s.contains("shadowrun") => "theme-neon",
-                    s if s.contains("the sprawl") => "theme-neon",
-
-                    // Fantasy (default)
-                    s if s.contains("d&d") || s.contains("dnd") || s.contains("5e") => "theme-fantasy",
-                    s if s.contains("pathfinder") => "theme-fantasy",
-                    s if s.contains("warhammer fantasy") => "theme-fantasy",
-
-                    // Default to fantasy for unknown systems
-                    _ => "theme-fantasy"
-                }
-            },
-            None => "theme-fantasy"
+            Some(c) => crate::theme::get_dominant_theme(&c.settings.theme_weights),
+            None => "theme-fantasy".to_string(),
         }
     }).read().clone();
 
@@ -231,12 +202,13 @@ pub fn Session(campaign_id: String) -> Element {
                                                let cid = campaign_id_sig.read().clone();
                                                let s_num = campaign.read().as_ref().map(|c| c.session_count + 1).unwrap_or(1);
                                                spawn(async move {
-                                                   if let Ok(s) = start_session(cid.clone(), s_num).await {
+                                                   let cid_str = cid.to_string();
+                                                   if let Ok(s) = start_session(cid_str.clone(), s_num).await {
                                                        // Inline on_session_started behavior
                                                        active_session.set(Some(s.clone()));
                                                        selected_session_id.set(Some(s.id.clone()));
                                                        // Refresh list
-                                                       if let Ok(list) = list_sessions(cid).await {
+                                                       if let Ok(list) = list_sessions(cid_str).await {
                                                            sessions.set(list);
                                                        }
                                                    }
@@ -301,8 +273,16 @@ fn ActiveSessionWorkspace(session: GameSession, on_session_ended: EventHandler<(
     // ... (For brevity, I will implement the core combat logic handlers here again)
     // NOTE: In a real refactor, I would extract `CombatTracker` to a separate file, but to keep existing functionality without creating too many files right now, I'll inline.
 
+    // Combat Visuals
+    let is_combat = combat.read().is_some();
+    let container_class = if is_combat {
+        "space-y-6 max-w-5xl mx-auto relative before:content-[''] before:fixed before:inset-0 before:bg-red-900/5 before:pointer-events-none before:z-0 animate-pulse-slow"
+    } else {
+        "space-y-6 max-w-5xl mx-auto relative"
+    };
+
     rsx! {
-        div { class: "space-y-6 max-w-5xl mx-auto",
+        div { class: "{container_class}",
 
             // Session Control Bar
             div { class: "flex justify-between items-center bg-zinc-800/50 p-4 rounded-lg border border-zinc-700",
