@@ -1,9 +1,21 @@
 use leptos::prelude::*;
+use leptos_router::hooks::use_navigate;
+use leptos_router::NavigateOptions;
 use crate::services::layout_service::{LayoutState, ViewType};
 
 #[component]
 pub fn IconRail() -> impl IntoView {
     let layout = expect_context::<LayoutState>();
+    let navigate = use_navigate();
+
+    // Helper to create navigation callback
+    let make_nav = move |path: &'static str, view: ViewType| {
+        let nav = navigate.clone();
+        Callback::new(move |_: ()| {
+            layout.active_view.set(view);
+            nav(path, NavigateOptions::default());
+        })
+    };
 
     // Derived signal for active view
     let active = Signal::derive(move || layout.active_view.get());
@@ -22,25 +34,25 @@ pub fn IconRail() -> impl IntoView {
                 active=Signal::derive(move || active.get() == ViewType::Campaigns)
                 icon="📚"
                 label="Campaigns"
-                on_click=Callback::new(move |_| layout.active_view.set(ViewType::Campaigns))
+                on_click=make_nav("/campaigns", ViewType::Campaigns)
             />
             <RailIcon
                 active=Signal::derive(move || active.get() == ViewType::Chat)
                 icon="💬"
                 label="Chat"
-                on_click=Callback::new(move |_| layout.active_view.set(ViewType::Chat))
+                on_click=make_nav("/", ViewType::Chat)
             />
             <RailIcon
                 active=Signal::derive(move || active.get() == ViewType::Library)
                 icon="🧠"
                 label="Library"
-                on_click=Callback::new(move |_| layout.active_view.set(ViewType::Library))
+                on_click=make_nav("/library", ViewType::Library)
             />
             <RailIcon
                 active=Signal::derive(move || active.get() == ViewType::Graph)
                 icon="🔮"
                 label="Graph"
-                on_click=Callback::new(move |_| layout.active_view.set(ViewType::Graph))
+                on_click=make_nav("/", ViewType::Graph)
             />
 
             <div class="flex-1"></div> // Spacer
@@ -49,7 +61,7 @@ pub fn IconRail() -> impl IntoView {
                 active=Signal::derive(move || active.get() == ViewType::Settings)
                 icon="⚙️"
                 label="Settings"
-                on_click=Callback::new(move |_| layout.active_view.set(ViewType::Settings))
+                on_click=make_nav("/settings", ViewType::Settings)
             />
         </div>
     }

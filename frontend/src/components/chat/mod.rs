@@ -176,7 +176,7 @@ pub fn Chat() -> impl IntoView {
                         }
                     }>{move || llm_status.get()}</span>
                 </div>
-                <div class="flex items-center gap-4">
+                <nav class="flex items-center gap-4">
                     // Usage indicator (only show if tokens used with a paid model)
                     {move || {
                         let usage = session_usage.get();
@@ -207,19 +207,19 @@ pub fn Chat() -> impl IntoView {
                             None
                         }
                     }}
-                    <A href="/campaigns" attr:class="text-theme-secondary hover:text-theme-primary">
+                    <A href="/campaigns" attr:class="text-theme-secondary hover:text-theme-primary px-2">
                         "Campaigns"
                     </A>
-                    <A href="/character" attr:class="text-theme-secondary hover:text-theme-primary">
+                    <A href="/character" attr:class="text-theme-secondary hover:text-theme-primary px-2">
                         "Characters"
                     </A>
-                    <A href="/library" attr:class="text-theme-secondary hover:text-theme-primary">
+                    <A href="/library" attr:class="text-theme-secondary hover:text-theme-primary px-2">
                         "Library"
                     </A>
-                    <A href="/settings" attr:class="text-theme-secondary hover:text-theme-primary">
+                    <A href="/settings" attr:class="text-theme-secondary hover:text-theme-primary px-2">
                         "Settings"
                     </A>
-                </div>
+                </nav>
             </div>
 
             // Usage Panel (collapsible)
