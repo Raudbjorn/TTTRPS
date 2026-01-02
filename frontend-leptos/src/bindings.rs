@@ -1149,3 +1149,41 @@ pub async fn reply_as_npc(npc_id: String) -> Result<ConversationMessage, String>
     }
     invoke("reply_as_npc", &Args { npc_id }).await
 }
+
+// ============================================================================
+// Voice Queue Types
+// ============================================================================
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum VoiceStatus {
+    Queued,
+    Playing,
+    Completed,
+    Failed,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct QueuedVoice {
+    pub id: String,
+    pub text: String,
+    pub voice_id: Option<String>,
+    pub status: VoiceStatus,
+    pub created_at: String,
+}
+
+// ============================================================================
+// Voice Queue Commands
+// ============================================================================
+
+pub async fn get_voice_queue() -> Result<Vec<QueuedVoice>, String> {
+    invoke_no_args("get_voice_queue").await
+}
+
+pub async fn queue_voice(text: String, voice_id: Option<String>) -> Result<QueuedVoice, String> {
+    #[derive(Serialize)]
+    struct Args {
+        text: String,
+        voice_id: Option<String>,
+    }
+    invoke("queue_voice", &Args { text, voice_id }).await
+}

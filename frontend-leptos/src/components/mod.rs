@@ -8,3 +8,4 @@ pub mod library;
 pub mod settings;
 pub mod character;
 pub mod resizable_panel;
+pub mod command_palette;

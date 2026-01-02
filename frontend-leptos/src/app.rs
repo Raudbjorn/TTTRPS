@@ -3,6 +3,7 @@ use leptos_router::components::*;
 use leptos_router::path;
 
 use crate::components::layout::main_shell::MainShell;
+use crate::components::command_palette::CommandPalette;
 use crate::components::chat::Chat;
 use crate::components::settings::Settings;
 use crate::components::library::Library;
@@ -49,6 +50,9 @@ pub fn App() -> impl IntoView {
 
     view! {
         <Router>
+            // Global Command Palette (Ctrl+K)
+            <CommandPalette />
+
             <MainShell
                 sidebar=|| view! {
                     <div class="p-4 text-sm text-[var(--text-muted)]">"Sidebar Context"</div>

@@ -1,4 +1,5 @@
 use leptos::prelude::*;
+use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use crate::services::layout_service::LayoutState;
 use crate::components::layout::icon_rail::IconRail;
@@ -14,13 +15,62 @@ pub fn MainShell(
     let layout = expect_context::<LayoutState>();
     let dragging = RwSignal::new(Option::<ResizeSide>::None);
     let last_x = RwSignal::new(0.0_f64);
+    let window_width = RwSignal::new(1920.0_f64);
+
+    // Responsive resize listener
+    Effect::new(move |_| {
+        let layout_svc = layout;
+
+        let handle_resize = Closure::wrap(Box::new(move || {
+            if let Some(window) = web_sys::window() {
+                if let Ok(w) = window.inner_width() {
+                    let width = w.as_f64().unwrap_or(1920.0);
+                    window_width.set(width);
+
+                    // Responsive Logic (Smart Auto-Collapse)
+                    // <900: All collapsed (Drawer mode)
+                    // 900-1200: Sidebar visible, Info hidden
+                    // >=1200: Both visible
+
+                    if width < 1200.0 {
+                        layout_svc.infopanel_visible.set(false);
+                    } else {
+                        layout_svc.infopanel_visible.set(true);
+                    }
+
+                    if width < 900.0 {
+                        layout_svc.sidebar_visible.set(false);
+                    } else {
+                        layout_svc.sidebar_visible.set(true);
+                    }
+                }
+            }
+        }) as Box<dyn FnMut()>);
+
+        if let Some(window) = web_sys::window() {
+            let _ = window.add_event_listener_with_callback(
+                "resize",
+                handle_resize.as_ref().unchecked_ref(),
+            );
+            // Trigger once on mount
+            let _ = handle_resize
+                .as_ref()
+                .unchecked_ref::<js_sys::Function>()
+                .call0(&JsValue::NULL);
+        }
+        handle_resize.forget();
+    });
+
+    let is_mobile = Signal::derive(move || window_width.get() < 900.0);
 
     // Computed grid template columns
     let grid_template_cols = Signal::derive(move || {
         let sidebar_w = layout.sidebar_width.get();
         let info_w = layout.infopanel_width.get();
 
-        let sidebar_col = if layout.sidebar_visible.get() {
+        let sidebar_col = if is_mobile.get() {
+            "0px".to_string()
+        } else if layout.sidebar_visible.get() {
             format!("{}px", sidebar_w)
         } else {
             "0px".to_string()
@@ -95,6 +145,22 @@ pub fn MainShell(
     let sidebar_visible = layout.sidebar_visible;
     let infopanel_visible = layout.infopanel_visible;
 
+    // Derived signals for mobile drawer
+    let show_backdrop = Signal::derive(move || is_mobile.get() && sidebar_visible.get());
+
+    // Sidebar class based on mobile/desktop
+    let sidebar_class = Signal::derive(move || {
+        if is_mobile.get() {
+            if sidebar_visible.get() {
+                "fixed left-[64px] top-0 bottom-[56px] w-[300px] z-50 shadow-2xl border-r border-[var(--border-subtle)] bg-[var(--bg-surface)] overflow-visible transition-transform duration-300"
+            } else {
+                "hidden"
+            }
+        } else {
+            "border-r border-[var(--border-subtle)] bg-[var(--bg-surface)] overflow-visible transition-none relative"
+        }
+    });
+
     view! {
         <div
             class="h-screen w-screen overflow-hidden bg-[var(--bg-deep)] text-[var(--text-primary)] font-ui transition-all duration-300 select-none"
@@ -112,13 +178,22 @@ pub fn MainShell(
                 <IconRail />
             </div>
 
-            // Area: Sidebar
+            // Mobile Backdrop
+            <Show when=move || show_backdrop.get()>
+                <div
+                    class="fixed inset-0 bg-black/50 z-40 backdrop-blur-sm ml-[64px]"
+                    on:click=move |_| layout.sidebar_visible.set(false)
+                />
+            </Show>
+
+            // Area: Sidebar (Drawer or Grid)
             <div
-                style:grid-area="sidebar"
-                class="border-r border-[var(--border-subtle)] bg-[var(--bg-surface)] overflow-visible transition-none relative"
+                style:grid-area=move || if is_mobile.get() { "" } else { "sidebar" }
+                class=move || sidebar_class.get()
             >
                 {sidebar()}
-                <Show when=move || sidebar_visible.get()>
+                // Drag Handle (Only if not mobile)
+                <Show when=move || !is_mobile.get() && sidebar_visible.get()>
                     <DragHandle
                         side=ResizeSide::Left
                         on_drag_start=on_sidebar_drag_start
