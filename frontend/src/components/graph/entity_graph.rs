@@ -21,7 +21,7 @@
 //!   - Click to focus, double-click to open details
 
 use leptos::prelude::*;
-use leptos::prelude::*;
+
 
 #[component]
 fn GraphFilterToggle(

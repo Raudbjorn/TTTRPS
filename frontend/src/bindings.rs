@@ -1382,17 +1382,25 @@ pub async fn remove_condition(session_id: String, combatant_id: String, conditio
 // ============================================================================
 
 /// Duration types for conditions
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
 pub enum ConditionDurationType {
     Turns,
     Rounds,
     Minutes,
     Hours,
+    #[serde(alias = "EndOfNextTurn")]
     EndOfNextTurn,
+    #[serde(alias = "StartOfNextTurn")]
     StartOfNextTurn,
+    #[serde(alias = "EndOfSourceTurn")]
     EndOfSourceTurn,
+    #[serde(alias = "UntilSave")]
     UntilSave,
+    #[default]
+    #[serde(alias = "UntilRemoved")]
     UntilRemoved,
+    #[serde(alias = "Permanent")]
     Permanent,
 }
 
@@ -1457,7 +1465,7 @@ pub struct AdvancedCondition {
     #[serde(default)]
     pub effects: Vec<ConditionEffect>,
     #[serde(default)]
-    pub duration_type: String,
+    pub duration_type: ConditionDurationType,
     pub remaining: Option<u32>,
     pub source_id: Option<String>,
     pub source_name: Option<String>,
@@ -1470,20 +1478,16 @@ pub struct AdvancedCondition {
 impl AdvancedCondition {
     pub fn duration_display(&self) -> String {
         match self.remaining {
-            Some(n) if n > 0 => format!("{} {}", n, self.duration_type),
-            None => match self.duration_type.as_str() {
-                "until_removed" | "UntilRemoved" => "Until Removed".to_string(),
-                "permanent" | "Permanent" => "Permanent".to_string(),
-                "end_of_next_turn" | "EndOfNextTurn" => "End of Next Turn".to_string(),
-                "start_of_next_turn" | "StartOfNextTurn" => "Start of Next Turn".to_string(),
-                "until_save" | "UntilSave" => {
+            Some(n) if n > 0 => format!("{} {}", n, self.duration_type.display_name()),
+            None => match self.duration_type {
+                ConditionDurationType::UntilSave => {
                     if let (Some(save_type), Some(dc)) = (&self.save_type, self.save_dc) {
                         format!("Until {} save (DC {})", save_type, dc)
                     } else {
                         "Until Save".to_string()
                     }
                 }
-                _ => self.duration_type.clone(),
+                _ => self.duration_type.display_name().to_string(),
             },
             _ => "Expired".to_string(),
         }

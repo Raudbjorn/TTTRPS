@@ -32,7 +32,7 @@ pub fn ChatMessage(
     } else if is_error {
         "bg-red-900/40 p-3 rounded-lg max-w-3xl border border-red-800"
     } else if is_streaming {
-        "bg-[var(--bg-surface)] p-3 rounded-lg max-w-3xl group relative border border-blue-500/50 animate-pulse-subtle"
+        "bg-[var(--bg-surface)] p-3 rounded-lg max-w-3xl group relative border border-blue-500/50 animate-pulse"
     } else {
         "bg-[var(--bg-surface)] p-3 rounded-lg max-w-3xl group relative border border-[var(--border-subtle)]"
     };

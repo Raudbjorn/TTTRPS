@@ -189,7 +189,7 @@ run_dev() {
     for port in 3030 1420; do
         if lsof -i :$port > /dev/null 2>&1; then
             print_warning "Port $port is in use. Attempting to cleanup..."
-            fuser -k $port/tcp > /dev/null 2>&1 || true
+            lsof -t -i:$port | xargs kill -9 > /dev/null 2>&1 || true
             sleep 1
         fi
     done

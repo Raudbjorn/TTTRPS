@@ -50,7 +50,14 @@ pub fn App() -> impl IntoView {
             }
         });
     } else {
-        web_sys::console::error_1(&"ThemeState context missing!".into());
+        // Fallback to default theme if context is missing
+        if let Some(window) = web_sys::window() {
+             if let Some(document) = window.document() {
+                  if let Some(body) = document.body() {
+                       let _ = body.set_attribute("data-theme", "fantasy");
+                  }
+             }
+        }
     }
 
     view! {
