@@ -199,6 +199,7 @@ pub fn list_backups(backup_dir: &Path) -> Result<Vec<BackupInfo>, BackupError> {
 }
 
 /// Delete a backup file
+#[allow(dead_code)]
 pub fn delete_backup(backup_path: &Path) -> Result<(), BackupError> {
     if !backup_path.exists() {
         return Err(BackupError::BackupNotFound(backup_path.display().to_string()));
@@ -222,6 +223,7 @@ pub fn delete_backup(backup_path: &Path) -> Result<(), BackupError> {
 }
 
 /// Clean up old backups, keeping only the most recent N
+#[allow(dead_code)]
 pub fn cleanup_old_backups(backup_dir: &Path, keep_count: usize) -> Result<usize, BackupError> {
     let backups = list_backups(backup_dir)?;
 

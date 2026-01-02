@@ -39,6 +39,7 @@ pub type Result<T> = std::result::Result<T, MOBIError>;
 
 /// PalmDOC header (first 78 bytes after PDB header)
 #[derive(Debug)]
+#[allow(dead_code)]
 struct PalmDocHeader {
     compression: u16,
     text_length: u32,
@@ -48,6 +49,7 @@ struct PalmDocHeader {
 
 /// MOBI header (variable length, follows PalmDOC header)
 #[derive(Debug)]
+#[allow(dead_code)]
 struct MobiHeader {
     identifier: [u8; 4], // "MOBI"
     header_length: u32,

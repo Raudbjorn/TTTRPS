@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::path::PathBuf;
 use tokio::sync::Mutex;
-use tauri::{async_runtime, AppHandle, Manager};
+use tauri::{async_runtime, AppHandle};
 use tauri_plugin_shell::ShellExt;
 use tauri_plugin_shell::process::{CommandEvent, CommandChild};
 

@@ -449,6 +449,7 @@ impl LLMClient {
         }
 
         #[derive(Deserialize, Default)]
+        #[allow(dead_code)]
         struct OllamaModelDetails {
             family: Option<String>,
             parameter_size: Option<String>,
@@ -1391,6 +1392,7 @@ pub async fn fetch_litellm_catalog() -> Result<std::collections::HashMap<String,
     }
 
     #[derive(Deserialize)]
+    #[allow(dead_code)]
     struct LiteLLMModel {
         litellm_provider: Option<String>,
         max_input_tokens: Option<u32>,

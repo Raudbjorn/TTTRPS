@@ -83,6 +83,7 @@ impl LLMProvider {
         }
     }
 
+    #[allow(dead_code)]
     fn requires_api_key(&self) -> bool {
         !matches!(self, LLMProvider::Ollama)
     }

@@ -5,7 +5,6 @@
 //! cite relevant documents (rules, lore, etc.) in responses.
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use futures_util::StreamExt;
 use tokio::sync::mpsc;
 

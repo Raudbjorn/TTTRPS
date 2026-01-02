@@ -42,6 +42,7 @@ impl PatternTemplate {
     }
 }
 
+#[allow(dead_code)]
 pub struct AdaptiveLearningSystem {
     patterns: RwLock<HashMap<String, HashMap<String, PatternTemplate>>>, // System -> Type -> Template
 }
@@ -53,7 +54,7 @@ impl AdaptiveLearningSystem {
         }
     }
 
-    pub fn learn_from_document(&self, text: &str, system: &str) {
+    pub fn learn_from_document(&self, _text: &str, _system: &str) {
         // Implementation of learning logic (porting from Python)
         // ...
     }
