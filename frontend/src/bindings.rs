@@ -3,6 +3,7 @@
 //! Wrapper functions for calling Tauri commands from the frontend.
 
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use wasm_bindgen::prelude::*;
 
 // ============================================================================
@@ -539,19 +540,32 @@ pub async fn create_campaign(name: String, system: String) -> Result<Campaign, S
 }
 
 pub async fn get_campaign(id: String) -> Result<Option<Campaign>, String> {
-    #[derive(Serialize)]
-    struct Args {
-        id: String,
-    }
-    invoke("get_campaign", &Args { id }).await
+    invoke("get_campaign", &json!({ "id": id })).await
 }
 
 pub async fn delete_campaign(id: String) -> Result<(), String> {
+    invoke("delete_campaign", &json!({ "id": id })).await
+}
+
+pub async fn get_campaign_theme(campaign_id: String) -> Result<ThemeWeights, String> {
+    invoke("get_campaign_theme", &json!({ "campaign_id": campaign_id })).await
+}
+
+pub async fn set_campaign_theme(campaign_id: String, weights: ThemeWeights) -> Result<(), String> {
     #[derive(Serialize)]
     struct Args {
-        id: String,
+        campaign_id: String,
+        weights: ThemeWeights,
     }
-    invoke("delete_campaign", &Args { id }).await
+    invoke("set_campaign_theme", &Args { campaign_id, weights }).await
+}
+
+pub async fn get_theme_preset(system: String) -> Result<ThemeWeights, String> {
+    #[derive(Serialize)]
+    struct Args {
+        system: String,
+    }
+    invoke("get_theme_preset", &Args { system }).await
 }
 
 pub async fn list_snapshots(campaign_id: String) -> Result<Vec<SnapshotSummary>, String> {
@@ -1050,7 +1064,7 @@ pub struct NPC {
     pub appearance: AppearanceDescription,
     pub personality: NPCPersonality,
     pub voice: VoiceDescription,
-    pub stats: Option<Character>, 
+    pub stats: Option<Character>,
     pub relationships: Vec<NPCRelationship>,
     pub secrets: Vec<String>,
     pub hooks: Vec<PlotHook>,

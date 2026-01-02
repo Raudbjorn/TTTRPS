@@ -321,6 +321,28 @@ pub fn Campaigns() -> impl IntoView {
         });
     });
 
+    // Stats
+    let total_sessions = RwSignal::new(0_u32);
+    let total_players = RwSignal::new(0_usize);
+
+    Effect::new(move |_| {
+        let list = campaigns.get();
+        if list.is_empty() { return; }
+
+        spawn_local(async move {
+            let mut s = 0;
+            let mut p = 0;
+            for c in list {
+                if let Ok(st) = crate::bindings::get_campaign_stats(c.id).await {
+                    s += st.session_count;
+                    p += st.npc_count;
+                }
+            }
+            total_sessions.set(s as u32);
+            total_players.set(p);
+        });
+    });
+
     // Refresh campaigns handler
     let refresh_campaigns = move |_: ev::MouseEvent| {
         is_loading.set(true);
@@ -428,16 +450,16 @@ pub fn Campaigns() -> impl IntoView {
                 // Stats Row
                 {move || {
                     let c = campaigns.get();
-                    let total_campaigns = c.len();
-                    // Note: These stats now require separate API calls via get_campaign_stats
-                    let total_sessions = 0_u32;
-                    let total_players = 0_usize;
+                    let count_c = c.len();
+                    // Stats fetched via effect
+                    let count_s = total_sessions.get();
+                    let count_p = total_players.get();
 
                     view! {
                         <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-                            <StatCard label="Campaigns" value=total_campaigns.to_string() />
-                            <StatCard label="Total Sessions" value=total_sessions.to_string() />
-                            <StatCard label="Active Players" value=total_players.to_string() />
+                            <StatCard label="Campaigns" value=count_c.to_string() />
+                            <StatCard label="Total Sessions" value=count_s.to_string() />
+                            <StatCard label="Active Players" value=count_p.to_string() />
                         </div>
                     }
                 }}

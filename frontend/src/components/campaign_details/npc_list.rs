@@ -141,6 +141,14 @@ fn NpcListItem(
                     callback.run(id_click.clone());
                 }
             }
+            on:dragover=move |ev| {
+                ev.prevent_default();
+            }
+            on:drop=move |ev| {
+                ev.prevent_default();
+                // TODO: F14 - Port Drag/Drop Personality Assignment Logic
+                // requires accessing DragState from context
+            }
         >
             // Selection indicator
             {if is_selected {

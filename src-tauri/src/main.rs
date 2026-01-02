@@ -44,8 +44,15 @@ fn main() {
             let app_handle = app.handle();
             let app_dir = app_handle.path().app_data_dir().unwrap_or(std::path::PathBuf::from("."));
             let database = tauri::async_runtime::block_on(async {
-                 ttrpg_assistant::database::Database::new(&app_dir).await
-                     .expect("Failed to initialize database")
+                match ttrpg_assistant::database::Database::new(&app_dir).await {
+                    Ok(db) => db,
+                    Err(e) => {
+                        let msg = format!("Failed to initialize database: {}", e);
+                        eprintln!("{}", msg);
+                        // TODO: Show native error dialog if possible
+                        panic!("{}", msg);
+                    }
+                }
             });
             log::info!("Database initialized at {:?}", database.path());
 
