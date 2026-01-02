@@ -1,5 +1,5 @@
 use leptos::prelude::*;
-use leptos_router::hooks::use_navigate;
+use leptos_router::hooks::{use_navigate, use_location};
 use leptos_router::NavigateOptions;
 use crate::services::layout_service::{LayoutState, ViewType};
 
@@ -7,22 +7,36 @@ use crate::services::layout_service::{LayoutState, ViewType};
 pub fn IconRail() -> impl IntoView {
     let layout = expect_context::<LayoutState>();
     let navigate = use_navigate();
+    let location = use_location();
+
+    // Helper to check if a path is active
+    let is_active = move |path: &str| -> bool {
+        let current = location.pathname.get();
+        if path == "/" {
+            current == "/" || current.is_empty()
+        } else {
+            current.starts_with(path)
+        }
+    };
+
+    // Clone navigate for use in multiple closures
+    let nav_for_make = navigate.clone();
+    let nav_for_logo = navigate.clone();
 
     // Helper to create navigation callback
     let make_nav = move |path: &'static str, view: ViewType| {
-        let nav = navigate.clone();
+        let nav = nav_for_make.clone();
         Callback::new(move |_: ()| {
             layout.active_view.set(view);
             nav(path, NavigateOptions::default());
         })
     };
 
-
     view! {
         <div class="h-full w-full flex flex-col items-center py-4 gap-4 bg-[var(--bg-deep)] border-r border-[var(--border-subtle)]">
             // Logo / Home
             <div class="mb-4 cursor-pointer" on:click={
-                let nav = navigate.clone();
+                let nav = nav_for_logo.clone();
                 move |_| {
                     layout.active_view.set(ViewType::Chat);
                     nav("/", Default::default());

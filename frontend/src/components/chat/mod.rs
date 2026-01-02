@@ -4,7 +4,7 @@ pub use chat_message::ChatMessage;
 
 use leptos::ev;
 use leptos::prelude::*;
-// use leptos_router::components::A; // Removed
+use leptos_router::components::A;
 use wasm_bindgen_futures::spawn_local;
 
 use crate::bindings::{
