@@ -2,13 +2,9 @@ use std::path::PathBuf;
 use tokio::fs;
 use std::collections::HashMap;
 use crate::core::voice::types::{Result, SynthesisRequest, SynthesisResult, VoiceConfig, VoiceProviderType, VoiceError, Voice};
-use crate::core::voice::providers::{VoiceProvider};
-use crate::core::voice::providers::elevenlabs::ElevenLabsProvider;
-use crate::core::voice::providers::fish_audio::FishAudioProvider;
-use crate::core::voice::providers::ollama::OllamaProvider;
-use crate::core::voice::providers::openai::OpenAIVoiceProvider;
-use crate::core::voice::providers::piper::PiperProvider;
 use crate::core::voice::providers::{
+    VoiceProvider, elevenlabs::ElevenLabsProvider, fish_audio::FishAudioProvider,
+    ollama::OllamaProvider, openai::OpenAIVoiceProvider, piper::PiperProvider,
     ChatterboxProvider, GptSoVitsProvider, XttsV2Provider, FishSpeechProvider, DiaProvider,
 };
 

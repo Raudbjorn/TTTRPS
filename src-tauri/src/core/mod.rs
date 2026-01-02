@@ -1,4 +1,4 @@
-pub mod database;
+
 pub mod models;
 pub mod voice;
 pub mod llm;

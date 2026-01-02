@@ -73,7 +73,7 @@ fn main() {
             });
 
             app.manage(commands::AppState {
-                database,
+
                 llm_client: std::sync::RwLock::new(None),
                 llm_config: std::sync::RwLock::new(None),
                 llm_router,

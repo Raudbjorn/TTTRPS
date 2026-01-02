@@ -101,7 +101,7 @@ impl VoiceProviderType {
     pub fn is_local(&self) -> bool {
         matches!(
             self,
-            Self::Ollama | Self::Chatterbox | Self::GptSoVits | Self::XttsV2 | Self::FishSpeech | Self::Dia
+            Self::Ollama | Self::Chatterbox | Self::GptSoVits | Self::XttsV2 | Self::FishSpeech | Self::Dia | Self::Piper
         )
     }
 
@@ -117,6 +117,7 @@ impl VoiceProviderType {
             Self::XttsV2 => "XTTS-v2 (Coqui)",
             Self::FishSpeech => "Fish Speech",
             Self::Dia => "Dia",
+            Self::Piper => "Piper (Local)",
             Self::System => "System TTS",
             Self::Disabled => "Disabled",
         }
@@ -409,3 +410,4 @@ pub struct VoiceProviderDetection {
     pub providers: Vec<ProviderStatus>,
     pub detected_at: Option<String>,
 }
+

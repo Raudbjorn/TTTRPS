@@ -20,7 +20,7 @@ use std::collections::HashMap;
 use crate::database::{Database, NpcConversation, ConversationMessage};
 
 // Core modules
-use crate::core::database::Database;
+// use crate::core::database::Database;
 use crate::core::llm::{LLMConfig, LLMClient, ChatMessage, ChatRequest, MessageRole};
 use crate::core::llm::router::{LLMRouter, RouterConfig, ProviderStats};
 use crate::core::campaign_manager::{
@@ -47,7 +47,7 @@ use crate::core::personality::PersonalityStore;
 // ============================================================================
 
 pub struct AppState {
-    pub database: Option<Database>,
+    // pub database: Option<Database>,
     pub llm_client: RwLock<Option<LLMClient>>,
     pub llm_config: RwLock<Option<LLMConfig>>,
     pub llm_router: RwLock<LLMRouter>,
@@ -345,7 +345,7 @@ pub async fn chat(
         max_tokens: Some(2048),
     };
 
-    let router = state.llm_router.read().unwrap().clone();
+    let router = (*state.llm_router.read().unwrap()).clone();
     let response = router.chat(request).await.map_err(|e| e.to_string())?;
 
     Ok(ChatResponsePayload {
