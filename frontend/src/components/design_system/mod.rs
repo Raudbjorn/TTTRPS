@@ -18,3 +18,6 @@ pub use select::Select;
 pub use modal::Modal;
 pub use loading::{LoadingSpinner, TypingIndicator};
 pub use markdown::Markdown;
+
+mod slider;
+pub use slider::Slider;

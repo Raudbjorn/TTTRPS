@@ -14,8 +14,8 @@ use crate::bindings::{
     ElevenLabsConfig, HealthStatus, LLMSettings, MeilisearchStatus, ModelInfo, OllamaConfig,
     OllamaModel, OpenAIVoiceConfig, Voice, VoiceConfig,
 };
-use crate::components::design_system::{Badge, BadgeVariant, Button, ButtonVariant, Card, CardBody, CardHeader, Input, Select};
-use crate::services::theme_service::ThemeState;
+use crate::components::design_system::{Badge, BadgeVariant, Button, ButtonVariant, Card, CardBody, CardHeader, Input, Select, Slider};
+use crate::services::theme_service::{ThemeState, ThemeWeights};
 
 // ============================================================================
 // LLM Provider Enum
@@ -175,6 +175,39 @@ pub fn Settings() -> impl IntoView {
     let theme_value = RwSignal::new(
         theme_state.current_preset.get().unwrap_or_else(|| "fantasy".to_string())
     );
+    let is_custom_theme = RwSignal::new(theme_state.current_preset.get().is_none());
+
+    // Individual weight signals (synced with global state initial value)
+    let weights = theme_state.weights.get();
+    let weight_fantasy = RwSignal::new(weights.fantasy);
+    let weight_cosmic = RwSignal::new(weights.cosmic);
+    let weight_terminal = RwSignal::new(weights.terminal);
+    let weight_noir = RwSignal::new(weights.noir);
+    let weight_neon = RwSignal::new(weights.neon);
+
+    // Sync weight signals when global weights change (e.g. from preset selection)
+    Effect::new(move |_| {
+        let w = theme_state.weights.get();
+        weight_fantasy.set(w.fantasy);
+        weight_cosmic.set(w.cosmic);
+        weight_terminal.set(w.terminal);
+        weight_noir.set(w.noir);
+        weight_neon.set(w.neon);
+    });
+
+    // Helper to update custom weights
+    let update_weights = move || {
+        let w = ThemeWeights {
+            fantasy: weight_fantasy.get(),
+            cosmic: weight_cosmic.get(),
+            terminal: weight_terminal.get(),
+            noir: weight_noir.get(),
+            neon: weight_neon.get(),
+        };
+        theme_state.set_weights(w);
+        is_custom_theme.set(true);
+        theme_value.set("custom".to_string());
+    };
 
     // Provider select signal for the Select component
     let provider_select_value = RwSignal::new("Ollama".to_string());
@@ -655,8 +688,14 @@ pub fn Settings() -> impl IntoView {
 
     // Handle theme change
     let on_theme_change = move |val: String| {
-        theme_value.set(val.clone());
-        theme_state.set_preset(&val);
+        if val == "custom" {
+            is_custom_theme.set(true);
+            theme_value.set("custom".to_string());
+        } else {
+            theme_value.set(val.clone());
+            theme_state.set_preset(&val);
+            is_custom_theme.set(false);
+        }
     };
 
     // Handle reindex
@@ -1062,10 +1101,10 @@ pub fn Settings() -> impl IntoView {
                     <CardHeader>
                         <h2 class="text-lg font-semibold">"Appearance"</h2>
                     </CardHeader>
-                    <CardBody>
+                    <CardBody class="space-y-4">
                         <div>
                             <label class="block text-sm font-medium text-theme-secondary mb-1">
-                                "Theme"
+                                "Theme Preset"
                             </label>
                             <Select
                                 value=theme_value.get()
@@ -1076,7 +1115,37 @@ pub fn Settings() -> impl IntoView {
                                 <option value="terminal">"Terminal"</option>
                                 <option value="noir">"Noir"</option>
                                 <option value="neon">"Neon Cyberpunk"</option>
+                                <option value="custom">"Custom Mix"</option>
                             </Select>
+                        </div>
+
+                        // Sliders
+                        <div class="space-y-4 pt-4 border-t border-[var(--border-subtle)]">
+                            <h3 class="text-sm font-medium">"Theme Mixer"</h3>
+
+                            <For
+                                each=move || vec![
+                                    ("Fantasy", weight_fantasy),
+                                    ("Cosmic", weight_cosmic),
+                                    ("Terminal", weight_terminal),
+                                    ("Noir", weight_noir),
+                                    ("Neon", weight_neon),
+                                ]
+                                key=|(label, _)| *label
+                                children=move |(label, weight_signal)| {
+                                    let update_weights = update_weights.clone();
+                                    view! {
+                                        <Slider
+                                            value=weight_signal
+                                            on_input=Callback::new(move |v| {
+                                                weight_signal.set(v);
+                                                update_weights();
+                                            })
+                                            label=label.to_string()
+                                        />
+                                    }
+                                }
+                            />
                         </div>
                     </CardBody>
                 </Card>
