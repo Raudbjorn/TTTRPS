@@ -5,7 +5,8 @@
 use tauri::State;
 use crate::core::voice::{
     VoiceManager, VoiceConfig, VoiceProviderType, ElevenLabsConfig,
-    OllamaConfig, SynthesisRequest, OutputFormat
+    OllamaConfig, SynthesisRequest, OutputFormat, VoiceProviderDetection,
+    detect_providers,
 };
 use crate::core::models::Campaign;
 use std::sync::RwLock;
@@ -732,6 +733,13 @@ pub fn get_voice_config(state: State<'_, AppState>) -> Result<VoiceConfig, Strin
         }
         Err(e) => Err(format!("Failed to acquire lock: {}", e))
     }
+}
+
+/// Detect available voice providers on the system
+/// Returns status for each local TTS service (running/not running)
+#[tauri::command]
+pub async fn detect_voice_providers() -> Result<VoiceProviderDetection, String> {
+    Ok(detect_providers().await)
 }
 
 // ============================================================================
