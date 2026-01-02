@@ -401,9 +401,6 @@ pub fn Settings() -> Element {
         });
     };
 
-    // Consume theme context
-    let mut theme_sig = use_context::<crate::ThemeSignal>();
-
     let save_settings = move |_: MouseEvent| {
         is_saving.set(true);
         save_status.set("Saving...".to_string());
@@ -1030,23 +1027,6 @@ pub fn Settings() -> Element {
                                 loading: *is_detecting_providers.read(),
                                 onclick: move |_| refresh_voice_detection(),
                                 "Refresh Detection"
-                            }
-                        }
-                    }
-                }
-
-                Card {
-                    CardHeader { h2 { class: "text-lg font-semibold", "Appearance" } }
-                    CardBody {
-                        div {
-                            label { class: "block text-sm font-medium text-theme-secondary mb-1", "Theme" }
-                            Select {
-                                value: "{theme_sig}",
-                                onchange: move |val| theme_sig.set(val),
-                                option { value: "fantasy", "Fantasy (Default)" }
-                                option { value: "scifi", "Sci-Fi" }
-                                option { value: "horror", "Horror" }
-                                option { value: "cyberpunk", "Cyberpunk" }
                             }
                         }
                     }
