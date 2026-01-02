@@ -323,9 +323,12 @@ body {
   transition: all var(--transition-base);
 }
 
-.redacted:hover {
+.redacted:hover,
+.redacted:focus {
   background: transparent;
   color: inherit;
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 /* -----------------------------------------------------------------------------

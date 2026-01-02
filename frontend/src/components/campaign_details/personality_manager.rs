@@ -56,36 +56,60 @@ pub fn PersonalityManager() -> Element {
             // Grid Layout (Spotify Style)
             div { class: "grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6",
                 for p in personalities.read().clone() {
-                    let p_id = p.id.clone();
-                    rsx! {
+                    {
+                        let p_id_edit = p.id.clone();
+                        let p_id_play = p.id.clone();
+                        let p_name = p.name.clone();
+                        rsx! {
                         div {
-                        class: "group bg-zinc-800/40 p-4 rounded-lg hover:bg-zinc-800 transition-all cursor-pointer relative",
-                        onclick: move |_| { selected_id.set(Some(p_id.clone())); is_editing.set(true); },
+                            class: "group bg-zinc-800/40 p-4 rounded-lg hover:bg-zinc-800 transition-all relative",
 
-                        // "Album Art"
-                        div { class: "aspect-square w-full {p.avatar_color} rounded shadow-lg mb-4 flex items-center justify-center text-4xl font-bold text-white/20 group-hover:shadow-xl transition-shadow",
-                            "{p.name.chars().next().unwrap_or('?')}"
-                            // Play Button Overlay
-                            div { class: "absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity",
-                                div { class: "w-12 h-12 bg-green-500 rounded-full flex items-center justify-center shadow-lg text-black pl-1",
-                                    "▶"
+                            // "Album Art" with action buttons
+                            div { class: "aspect-square w-full {p.avatar_color} rounded shadow-lg mb-4 flex items-center justify-center text-4xl font-bold text-white/20 group-hover:shadow-xl transition-shadow relative",
+                                "{p.name.chars().next().unwrap_or('?')}"
+                                // Action buttons overlay - separate from card click
+                                div { class: "absolute bottom-2 right-2 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity",
+                                    // Play button
+                                    button {
+                                        class: "w-10 h-10 bg-green-500 rounded-full flex items-center justify-center shadow-lg text-black hover:scale-110 transition-transform",
+                                        aria_label: "Play voice sample for {p_name}",
+                                        onclick: move |evt| {
+                                            evt.stop_propagation();
+                                            // TODO: Trigger voice playback
+                                        },
+                                        "▶"
+                                    }
+                                    // Edit button
+                                    button {
+                                        class: "w-10 h-10 bg-zinc-600 rounded-full flex items-center justify-center shadow-lg text-white hover:scale-110 transition-transform",
+                                        aria_label: "Edit personality",
+                                        onclick: move |_| {
+                                            selected_id.set(Some(p_id_edit.clone()));
+                                            is_editing.set(true);
+                                        },
+                                        "✎"
+                                    }
+                                }
+                            }
+
+                            // Meta - clickable to edit
+                            button {
+                                class: "w-full text-left",
+                                onclick: move |_| { selected_id.set(Some(p_id_play.clone())); is_editing.set(true); },
+                                div { class: "font-bold text-white truncate", "{p.name}" }
+                                div { class: "text-sm text-zinc-500", "{p.voice_provider}" }
+                                if let Some(doc) = &p.source_doc {
+                                     div { class: "text-xs text-zinc-600 mt-1 flex items-center gap-1",
+                                        span { "📄" }
+                                        "{doc}"
+                                     }
                                 }
                             }
                         }
-
-                        // Meta
-                        div { class: "font-bold text-white truncate", "{p.name}" }
-                        div { class: "text-sm text-zinc-500", "{p.voice_provider}" }
-                        if let Some(doc) = &p.source_doc {
-                             div { class: "text-xs text-zinc-600 mt-1 flex items-center gap-1",
-                                span { "📄" }
-                                "{doc}"
-                             }
                         }
                     }
-                    }
                 }
-                }
+            }
             }
 
             // Edit Modal (Overlay)
@@ -139,4 +163,4 @@ pub fn PersonalityManager() -> Element {
             }
         }
     }
-}
+

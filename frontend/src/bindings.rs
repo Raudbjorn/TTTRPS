@@ -568,7 +568,7 @@ pub async fn restore_snapshot(campaign_id: String, snapshot_id: String) -> Resul
 // Session Types
 // ============================================================================
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GameSession {
     pub id: String,
     pub campaign_id: String,
@@ -578,7 +578,7 @@ pub struct GameSession {
     pub ended_at: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SessionSummary {
     pub id: String,
     pub session_number: u32,
