@@ -13,6 +13,9 @@ use crate::bindings::{
 };
 use crate::components::design_system::{Button, ButtonVariant, Input, Select, Card, CardHeader, CardBody, Badge, BadgeVariant};
 
+pub mod theme_settings;
+use theme_settings::ThemeSettings;
+
 #[derive(Clone, PartialEq)]
 pub enum LLMProvider {
     Ollama,
@@ -826,6 +829,7 @@ pub fn Settings() -> Element {
                             }
                         }
                     }
+
                     CardBody {
                         class: "space-y-4",
                         div {
@@ -1031,6 +1035,7 @@ pub fn Settings() -> Element {
                         }
                     }
                 }
+                ThemeSettings {}
 
                 Card {
                     CardHeader {

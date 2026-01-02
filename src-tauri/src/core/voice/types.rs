@@ -48,6 +48,7 @@ pub struct VoiceConfig {
     pub elevenlabs: Option<ElevenLabsConfig>,
     pub fish_audio: Option<FishAudioConfig>,
     pub openai: Option<OpenAIVoiceConfig>,
+    pub piper: Option<PiperConfig>,
     // Self-hosted providers
     pub ollama: Option<OllamaConfig>,
     pub chatterbox: Option<ChatterboxConfig>,
@@ -57,12 +58,18 @@ pub struct VoiceConfig {
     pub dia: Option<DiaConfig>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PiperConfig {
+    pub models_dir: Option<PathBuf>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum VoiceProviderType {
     // Cloud providers
     ElevenLabs,
     FishAudio,
     OpenAI,
+    Piper,
     // Self-hosted providers
     Ollama,
     Chatterbox,
@@ -94,7 +101,7 @@ impl VoiceProviderType {
     pub fn is_local(&self) -> bool {
         matches!(
             self,
-            Self::Ollama | Self::Chatterbox | Self::GptSoVits | Self::XttsV2 | Self::FishSpeech | Self::Dia
+            Self::Ollama | Self::Chatterbox | Self::GptSoVits | Self::XttsV2 | Self::FishSpeech | Self::Dia | Self::Piper
         )
     }
 
@@ -110,6 +117,7 @@ impl VoiceProviderType {
             Self::XttsV2 => "XTTS-v2 (Coqui)",
             Self::FishSpeech => "Fish Speech",
             Self::Dia => "Dia",
+            Self::Piper => "Piper (Local)",
             Self::System => "System TTS",
             Self::Disabled => "Disabled",
         }
@@ -268,6 +276,7 @@ impl Default for VoiceConfig {
             elevenlabs: None,
             fish_audio: None,
             openai: None,
+            piper: None,
             ollama: None,
             chatterbox: None,
             gpt_sovits: None,
@@ -363,6 +372,25 @@ pub struct UsageInfo {
     pub next_reset: Option<String>,
 }
 
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum VoiceStatus {
+    Pending,
+    Processing,
+    Playing,
+    Completed,
+    Failed(String),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QueuedVoice {
+    pub id: String,
+    pub text: String,
+    pub voice_id: String,
+    pub status: VoiceStatus,
+    pub created_at: String,
+}
+
 // ============================================================================
 // Provider Detection Types
 // ============================================================================
@@ -383,3 +411,4 @@ pub struct VoiceProviderDetection {
     pub providers: Vec<ProviderStatus>,
     pub detected_at: Option<String>,
 }
+

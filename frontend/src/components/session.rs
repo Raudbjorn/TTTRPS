@@ -5,11 +5,10 @@ use crate::bindings::{
     start_combat, end_combat, get_combat, add_combatant, remove_combatant,
     next_turn, damage_combatant, heal_combatant,
     Campaign, GameSession, CombatState, SessionSummary,
-    get_session
 };
 use crate::components::campaign_details::session_list::SessionList;
 use crate::components::campaign_details::npc_list::NPCList;
-use crate::theme::get_theme_class;
+use crate::components::campaign_details::npc_conversation::NpcConversation;
 
 #[component]
 pub fn Session(campaign_id: String) -> Element {
@@ -22,8 +21,18 @@ pub fn Session(campaign_id: String) -> Element {
     let mut selected_session_id = use_signal(|| Option::<String>::None);
     let mut is_loading = use_signal(|| true);
 
-    // Initial Load
+    // NPC Selection State
+    let mut selected_npc_id = use_signal(|| Option::<String>::None);
+    let mut selected_npc_name = use_signal(|| Option::<String>::None);
+
+    let mut refresh_trigger = use_signal(|| 0);
+
+    let campaign_id_sig = use_signal(|| campaign_id.clone());
+    let campaign_id_clone = campaign_id.clone();
+
+    // Initial Load & Refresh
     use_effect(move || {
+        let _ = *refresh_trigger.read(); // Dependency tracking
         let cid = campaign_id.read().clone();
         spawn(async move {
             // Parallel fetch could be better but sequential is fine for now
@@ -37,36 +46,48 @@ pub fn Session(campaign_id: String) -> Element {
 
             if let Ok(Some(s)) = get_active_session(cid.clone()).await {
                 active_session.set(Some(s.clone()));
-                // Default select the active session
-                selected_session_id.set(Some(s.id));
-            } else {
-                 // If no active session, maybe select the last one or none
+                // Default select the active session if none selected
+                if selected_session_id.read().is_none() {
+                     selected_session_id.set(Some(s.id));
+                }
             }
-
             is_loading.set(false);
         });
     });
 
-    let handle_session_select = move |id: String| {
-        selected_session_id.set(Some(id));
+    let refresh_data = move |_| {
+        let val = *refresh_trigger.read();
+        refresh_trigger.set(val + 1);
     };
 
-    // Callback when a new session is started via the Active View (if empty)
-    let mut on_session_started = move |s: GameSession| {
-        active_session.set(Some(s.clone()));
-        selected_session_id.set(Some(s.id.clone()));
-        // Refresh list
-        let cid = campaign_id.read().clone();
-        spawn(async move {
-            if let Ok(list) = list_sessions(cid).await {
-                sessions.set(list);
-            }
-        });
+    let handle_session_select = move |id: String| {
+        selected_session_id.set(Some(id));
+        // Clear NPC selection when selecting a session
+        selected_npc_id.set(None);
+        selected_npc_name.set(None);
+    };
+
+    // NPC selection handler - maps mock IDs to names
+    let handle_npc_select = move |id: String| {
+        // Mock NPC name lookup - in production, would fetch from backend
+        let name = match id.as_str() {
+            "npc-1" => "Garrosh",
+            "npc-2" => "Elara",
+            "npc-3" => "Zoltan",
+            _ => "Unknown NPC",
+        };
+        selected_npc_id.set(Some(id));
+        selected_npc_name.set(Some(name.to_string()));
+    };
+
+    let handle_npc_close = move |_| {
+        selected_npc_id.set(None);
+        selected_npc_name.set(None);
     };
 
     let on_session_ended = move |_| {
          active_session.set(None);
-         selected_session_id.set(None); // Or switch to "Summary" view of just ended
+         selected_session_id.set(None);
          // Refresh list
         let cid = campaign_id.read().clone();
         spawn(async move {
@@ -76,24 +97,12 @@ pub fn Session(campaign_id: String) -> Element {
         });
     };
 
-    // Theme Logic - Dynamic Class Selection based on Campaign System
-    // Uses centralized theme utility (see src/theme.rs for supported systems)
-    // Supports: fantasy, cosmic, terminal, noir, neon (per UXdesign/design.md)
-    //
-    // TODO [TASK-027]: Implement theme interpolation for blended settings
-    // Currently uses single theme detection. Design spec calls for weighted
-    // theme blending via CSS custom property interpolation, e.g.:
-    //   Delta Green = cosmic(0.4) + noir(0.6)
-    // See ThemeWeights struct in feature-parity/design.md for implementation plan.
     let theme_class = use_memo(move || {
-        campaign
-            .read()
-            .as_ref()
-            .map(|c| get_theme_class(&c.system))
-            .unwrap_or("theme-fantasy")
-    })
-    .read()
-    .to_string();
+        match campaign.read().as_ref() {
+            Some(c) => crate::theme::get_dominant_theme(&c.settings.theme_weights),
+            None => "theme-fantasy".to_string(),
+        }
+    }).read().clone();
 
     rsx! {
         div {
@@ -103,7 +112,8 @@ pub fn Session(campaign_id: String) -> Element {
             SessionList {
                 sessions: sessions.read().clone(),
                 active_session_id: active_session.read().as_ref().map(|s| s.id.clone()),
-                on_select_session: handle_session_select
+                on_select_session: handle_session_select,
+                on_refresh: refresh_data
             }
 
             // Center: Main Content
@@ -132,52 +142,70 @@ pub fn Session(campaign_id: String) -> Element {
                    }
 
                    // Workspace
-                   div { class: "flex-1 overflow-y-auto p-6 relative",
-                        if let Some(selected_id) = selected_session_id.read().as_ref() {
+                   div { class: "flex-1 overflow-y-auto relative",
+                        // NPC Conversation takes priority when selected
+                        if let (Some(npc_id), Some(npc_name)) = (selected_npc_id.read().clone(), selected_npc_name.read().clone()) {
+                            NpcConversation {
+                                npc_id: npc_id,
+                                npc_name: npc_name,
+                                on_close: handle_npc_close
+                            }
+                        } else if let Some(selected_id) = selected_session_id.read().as_ref() {
                             // Check if it is the active session
-                            if let Some(active) = active_session.read().as_ref() {
-                                if &active.id == selected_id {
-                                    ActiveSessionWorkspace {
-                                        session: active.clone(),
-                                        on_session_ended: on_session_ended
+                            div { class: "p-6",
+                                if let Some(active) = active_session.read().as_ref() {
+                                    if &active.id == selected_id {
+                                        ActiveSessionWorkspace {
+                                            session: active.clone(),
+                                            on_session_ended: on_session_ended
+                                        }
+                                    } else {
+                                        // Past Session View (Placeholder for now, implementation could be fetching logs)
+                                         div { class: "flex flex-col items-center justify-center h-full text-zinc-500",
+                                            h3 { class: "text-xl font-bold text-zinc-400 mb-2", "Historical Archive" }
+                                            p { "Reviewing past logs for session {selected_id}..." }
+                                            // Potential improvement: Fetch session details and show summary
+                                        }
                                     }
                                 } else {
-                                    // Past Session View (Placeholder for now, implementation could be fetching logs)
-                                     div { class: "flex flex-col items-center justify-center h-full text-zinc-500",
+                                    // Selected ID exists but no active session?
+                                    // Means we are viewing history while no session is active.
+                                    div { class: "flex flex-col items-center justify-center h-full text-zinc-500",
                                         h3 { class: "text-xl font-bold text-zinc-400 mb-2", "Historical Archive" }
                                         p { "Reviewing past logs for session {selected_id}..." }
-                                        // Potential improvement: Fetch session details and show summary
                                     }
-                                }
-                            } else {
-                                // Selected ID exists but no active session?
-                                // Means we are viewing history while no session is active.
-                                div { class: "flex flex-col items-center justify-center h-full text-zinc-500",
-                                    h3 { class: "text-xl font-bold text-zinc-400 mb-2", "Historical Archive" }
-                                    p { "Reviewing past logs for session {selected_id}..." }
                                 }
                             }
                         } else {
                             // No session selected
-                            if active_session.read().is_none() {
-                                // Prompt to start new
-                                div { class: "flex flex-col items-center justify-center h-full",
-                                    button {
-                                        class: "px-6 py-3 bg-purple-600 hover:bg-purple-500 text-white rounded-lg shadow-lg font-bold transition-all transform hover:scale-105",
-                                        onclick: move |_| {
-                                           let cid = campaign_id.read().clone();
-                                           let s_num = campaign.read().as_ref().map(|c| c.session_count + 1).unwrap_or(1);
-                                           spawn(async move {
-                                               if let Ok(s) = start_session(cid, s_num).await {
-                                                   on_session_started(s);
-                                               }
-                                           });
-                                        },
-                                        "Start New Session"
+                            div { class: "p-6",
+                                if active_session.read().is_none() {
+                                    // Prompt to start new
+                                    div { class: "flex flex-col items-center justify-center h-full",
+                                        button {
+                                            class: "px-6 py-3 bg-purple-600 hover:bg-purple-500 text-white rounded-lg shadow-lg font-bold transition-all transform hover:scale-105",
+                                            onclick: move |_| {
+                                               let cid = campaign_id_sig.read().clone();
+                                               let s_num = sessions.read().iter().map(|s| s.session_number).max().unwrap_or(0) + 1;
+                                               spawn(async move {
+                                                   let cid_str = cid.to_string();
+                                                   if let Ok(s) = start_session(cid_str.clone(), s_num).await {
+                                                       // Inline on_session_started behavior
+                                                       active_session.set(Some(s.clone()));
+                                                       selected_session_id.set(Some(s.id.clone()));
+                                                       // Refresh list
+                                                       if let Ok(list) = list_sessions(cid_str).await {
+                                                           sessions.set(list);
+                                                       }
+                                                   }
+                                               });
+                                            },
+                                            "Start New Session"
+                                        }
                                     }
+                                } else {
+                                    div { class: "text-center text-zinc-500 mt-20", "Select a session from the sidebar" }
                                 }
-                            } else {
-                                div { class: "text-center text-zinc-500 mt-20", "Select a session from the sidebar" }
                             }
                         }
                    }
@@ -185,7 +213,11 @@ pub fn Session(campaign_id: String) -> Element {
             }
 
             // Right Sidebar: NPCs
-            NPCList { campaign_id: campaign_id.read().clone() }
+            NPCList {
+                campaign_id: campaign_id_sig.read().clone(),
+                selected_npc_id: selected_npc_id.read().clone(),
+                on_select_npc: handle_npc_select
+            }
         }
     }
 }
@@ -194,7 +226,8 @@ pub fn Session(campaign_id: String) -> Element {
 #[component]
 fn ActiveSessionWorkspace(session: GameSession, on_session_ended: EventHandler<()>) -> Element {
     let mut combat = use_signal(|| Option::<CombatState>::None);
-    let mut status_message = use_signal(|| String::new());
+    let _status_message = use_signal(|| String::new());
+    let transcription_log = use_signal(|| Vec::<String>::new()); // F19: Storage for transcribed text
 
     // Combatant Form
     let mut new_combatant_name = use_signal(|| String::new());
@@ -202,9 +235,10 @@ fn ActiveSessionWorkspace(session: GameSession, on_session_ended: EventHandler<(
     let mut new_combatant_type = use_signal(|| "monster".to_string());
 
     let session_id = use_signal(|| session.id.clone());
+    let session_number = session.session_number;
 
     use_effect(move || {
-        let sid = session.id.clone();
+        let sid = session_id.read().clone();
         spawn(async move {
              if let Ok(Some(c)) = get_combat(sid).await {
                  combat.set(Some(c));
@@ -218,7 +252,7 @@ fn ActiveSessionWorkspace(session: GameSession, on_session_ended: EventHandler<(
         let cb = on_session_ended;
         spawn(async move {
             if end_session(sid).await.is_ok() {
-                cb.call(());
+                on_session_ended.call(());
             }
         });
     };
@@ -226,14 +260,22 @@ fn ActiveSessionWorkspace(session: GameSession, on_session_ended: EventHandler<(
     // ... (For brevity, I will implement the core combat logic handlers here again)
     // NOTE: In a real refactor, I would extract `CombatTracker` to a separate file, but to keep existing functionality without creating too many files right now, I'll inline.
 
+    // Combat Visuals
+    let is_combat = combat.read().is_some();
+    let container_class = if is_combat {
+        "space-y-6 max-w-5xl mx-auto relative before:content-[''] before:fixed before:inset-0 before:bg-red-900/5 before:pointer-events-none before:z-0 animate-pulse-slow"
+    } else {
+        "space-y-6 max-w-5xl mx-auto relative"
+    };
+
     rsx! {
-        div { class: "space-y-6 max-w-5xl mx-auto",
+        div { class: "{container_class}",
 
             // Session Control Bar
             div { class: "flex justify-between items-center bg-zinc-800/50 p-4 rounded-lg border border-zinc-700",
                 div {
                     div { class: "text-xs text-zinc-400 uppercase tracking-widest", "Current Session" }
-                    div { class: "text-2xl font-bold text-white", "Session #{session.session_number}" }
+                    div { class: "text-2xl font-bold text-white", "Session #{session_number}" }
                 }
                 button {
                     class: "px-4 py-2 bg-red-600/20 text-red-400 border border-red-600/50 rounded hover:bg-red-600 hover:text-white transition-colors",
@@ -393,19 +435,10 @@ fn ActiveSessionWorkspace(session: GameSession, on_session_ended: EventHandler<(
                                     let name = new_combatant_name.read().clone();
                                     let init = new_combatant_init.read().parse().unwrap_or(10);
                                     let ctype = new_combatant_type.read().clone();
-                                    let session_id_c_inner = sid.clone();
 
                                     spawn(async move {
-                                         if add_combatant(sid, name, init, ctype).await.is_ok() {
-                                             // Re-fetch combat state to update UI
-                                             if let Ok(Some(c)) = get_combat(session_id_c_inner).await {
-                                                 // We need a way to update combat signal.
-                                                 // But combat signal is not available here easily if we don't clone the setter...
-                                                 // Actually, 'combat' signal is available in scope if we move it or a setter.
-
-                                                 // Wait, accessing 'combat' signal inside this spawn which is inside an onclick...
-                                                 // 'combat' is a Signal. Signal is Copy. So we can just move it?
-                                                 // Yes, signals are Copy. so 'combat' captured by move closure is fine.
+                                         if add_combatant(sid.clone(), name, init, ctype).await.is_ok() {
+                                             if let Ok(Some(c)) = get_combat(sid).await {
                                                  combat.set(Some(c));
                                              }
                                          }
@@ -421,6 +454,18 @@ fn ActiveSessionWorkspace(session: GameSession, on_session_ended: EventHandler<(
                     }
                 }
             }
+        }
+
+        // Transcription Log (F19)
+        if !transcription_log.read().is_empty() {
+             div { class: "mt-4 bg-zinc-900 border border-zinc-700 rounded p-4",
+                 h3 { class: "text-xs font-bold text-zinc-500 uppercase mb-2", "Live Transcription" }
+                 div { class: "space-y-1",
+                     for line in transcription_log.read().iter() {
+                         p { class: "text-zinc-300 text-sm", "{line}" }
+                     }
+                 }
+             }
         }
     }
 }

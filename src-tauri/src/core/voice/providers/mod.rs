@@ -6,6 +6,7 @@ pub mod elevenlabs;
 pub mod fish_audio;
 pub mod ollama;
 pub mod openai;
+pub mod piper;
 
 // Self-hosted providers
 pub mod chatterbox;

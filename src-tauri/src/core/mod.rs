@@ -1,4 +1,4 @@
-pub mod database;
+
 pub mod models;
 pub mod voice;
 pub mod llm;
@@ -10,6 +10,7 @@ pub mod session_manager;
 pub mod character_gen;
 pub mod npc_gen;
 pub mod audio;
+pub mod theme;
 
 // Meilisearch-based search (replaces vector_store, keyword_search, hybrid_search, embedding_pipeline)
 pub mod sidecar_manager;
@@ -32,3 +33,4 @@ pub mod session_summary;
 pub mod search_analytics;
 pub mod name_gen;
 pub mod voice_queue;
+pub mod transcription;

@@ -42,18 +42,18 @@ fn main() {
                 commands::AppState::init_defaults();
 
             // Initialize Database
-            let app_handle = app.handle();
-            let app_dir = app_handle.path().app_data_dir().unwrap_or(std::path::PathBuf::from("."));
+            let app_data_dir = app.path().app_data_dir().expect("failed to get app data dir");
             let database = tauri::async_runtime::block_on(async {
-                 ttrpg_assistant::core::database::Database::new(&app_dir).await.ok()
+                match ttrpg_assistant::database::Database::new(&app_data_dir).await {
+                    Ok(db) => db,
+                    Err(e) => {
+                        let msg = format!("Failed to initialize database: {}", e);
+                        eprintln!("{}", msg);
+                        // TODO: Show native error dialog if possible
+                        panic!("{}", msg);
+                    }
+                }
             });
-
-            if let Some(db) = &database {
-                log::info!("Database initialized at {:?}", db.path());
-            } else {
-                log::error!("Failed to initialize database");
-            }
-
             // Start Meilisearch Sidecar
             sidecar_manager.start(handle.clone());
 
@@ -73,7 +73,7 @@ fn main() {
             });
 
             app.manage(commands::AppState {
-                database,
+
                 llm_client: std::sync::RwLock::new(None),
                 llm_config: std::sync::RwLock::new(None),
                 llm_router,
@@ -86,6 +86,7 @@ fn main() {
                 search_client,
                 personality_store,
                 ingestion_pipeline: pipeline,
+                database,
             });
 
             Ok(())
@@ -118,6 +119,9 @@ fn main() {
             commands::get_campaign,
             commands::update_campaign,
             commands::delete_campaign,
+            commands::get_campaign_theme,
+            commands::set_campaign_theme,
+            commands::get_theme_preset,
 
             // Campaign Snapshots
             commands::create_snapshot,
@@ -137,6 +141,8 @@ fn main() {
             commands::get_session,
             commands::get_active_session,
             commands::list_sessions,
+            commands::create_planned_session,
+            commands::start_planned_session,
             commands::end_session,
 
             // Combat Commands
@@ -164,6 +170,14 @@ fn main() {
             commands::delete_npc,
             commands::search_npcs,
 
+            // NPC Conversation Commands
+            commands::list_npc_conversations,
+            commands::get_npc_conversation,
+            commands::add_npc_message,
+            commands::mark_npc_read,
+            commands::list_npc_summaries,
+            commands::reply_as_npc,
+
             // Document Ingestion & Search (Meilisearch)
             commands::ingest_document,
             commands::ingest_document_with_progress,
@@ -182,6 +196,9 @@ fn main() {
             commands::list_openai_tts_models,
             commands::list_elevenlabs_voices,
             commands::list_available_voices,
+            commands::queue_voice,
+            commands::get_voice_queue,
+            commands::cancel_voice,
 
             // Audio Commands
             commands::get_audio_volumes,
@@ -196,6 +213,10 @@ fn main() {
             // Utility Commands
             commands::get_app_version,
             commands::get_system_info,
+            commands::reorder_session,
+            commands::get_campaign_stats,
+            commands::generate_campaign_cover,
+            commands::transcribe_audio,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
