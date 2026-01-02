@@ -1,6 +1,5 @@
-/original-project/
-/frontend/dist/
-/src-tauri/target/
-dev-resources/
-src-tauri/bin/meilisearch-*
-data.ms/
+
+# Generated output files
+check_output.txt
+check_output_*.txt
+fns.txt
