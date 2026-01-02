@@ -186,6 +186,7 @@ run_dev() {
     print_info "Running cargo tauri dev..."
 
     # Check and clean up ports
+    # Check and clean up ports
     for port in 3030 1420; do
         if lsof -i :$port > /dev/null 2>&1; then
             print_warning "Port $port is in use. Attempting to cleanup..."
