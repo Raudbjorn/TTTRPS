@@ -6,7 +6,6 @@
 mod native_features;
 
 use ttrpg_assistant::commands;
-use std::sync::Arc;
 use tauri::Manager;
 use native_features::NativeFeaturesState;
 
@@ -42,9 +41,10 @@ fn main() {
                 commands::AppState::init_defaults();
 
             // Initialize Database
-            let app_data_dir = app.path().app_data_dir().expect("failed to get app data dir");
+            let app_handle = app.handle();
+            let app_dir = app_handle.path().app_data_dir().unwrap_or(std::path::PathBuf::from("."));
             let database = tauri::async_runtime::block_on(async {
-                match ttrpg_assistant::database::Database::new(&app_data_dir).await {
+                match ttrpg_assistant::database::Database::new(&app_dir).await {
                     Ok(db) => db,
                     Err(e) => {
                         let msg = format!("Failed to initialize database: {}", e);
@@ -54,6 +54,8 @@ fn main() {
                     }
                 }
             });
+            log::info!("Database initialized at {:?}", database.path());
+
             // Start Meilisearch Sidecar
             sidecar_manager.start(handle.clone());
 

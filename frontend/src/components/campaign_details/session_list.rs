@@ -1,152 +1,119 @@
-use dioxus::prelude::*;
+use leptos::prelude::*;
 use crate::bindings::SessionSummary;
 
-#[derive(Props, Clone, PartialEq)]
-pub struct SessionListProps {
-    pub sessions: Vec<SessionSummary>,
-    pub active_session_id: Option<String>,
-    pub on_select_session: EventHandler<String>,
-    pub on_refresh: EventHandler<()>,
-}
-
+/// Session list component showing current, planned, and past sessions
 #[component]
-pub fn SessionList(props: SessionListProps) -> Element {
-    use crate::bindings::reorder_session;
+pub fn SessionList(
+    /// List of session summaries
+    sessions: Vec<SessionSummary>,
+    /// Currently active session ID
+    #[prop(optional)]
+    _active_session_id: Option<String>,
+    /// Callback when a session is selected
+    on_select_session: Callback<String>,
+) -> impl IntoView {
+    // Mocking status logic since it's missing from backend
+    // TODO [BE B5]: Replace this mock grouping logic with backend status field
+    // Currently using session_number heuristic - backend should return SessionSummary.status
 
-    // Partition sessions
-    let mut active_session = None;
-    let mut planned_sessions = vec![];
-    let mut past_sessions = vec![];
+    let max_sess_num = sessions.iter().map(|s| s.session_number).max().unwrap_or(0);
 
-    for s in &props.sessions {
-        if s.status == "active" {
-            active_session = Some(s);
-        } else if s.status == "planned" {
-            planned_sessions.push(s);
-        } else {
-             past_sessions.push(s);
-        }
-    }
+    let current_session = sessions
+        .iter()
+        .find(|s| s.session_number == max_sess_num)
+        .cloned();
 
-    // Sort planned by order_index (should be sorted by backend, but ensure constraint)
-    // Actually we iterate over props order. Assuming props sorted.
+    let past_sessions: Vec<_> = sessions
+        .iter()
+        .filter(|s| s.session_number != max_sess_num)
+        .cloned()
+        .collect();
 
-    let handle_swap = move |s1_id: String, s1_order: i32, s2_id: String, s2_order: i32| {
-        spawn(async move {
-            // Swap
-            let _ = reorder_session(s1_id, s2_order).await;
-            let _ = reorder_session(s2_id, s1_order).await;
-            props.on_refresh.call(());
-        });
+    // Mock a planned session - TODO: Remove when backend supports Planned status
+    let planned_session = SessionSummary {
+        id: "planned-1".to_string(),
+        campaign_id: String::new(),
+        session_number: max_sess_num + 1,
+        started_at: String::new(),
+        ended_at: None,
+        duration_minutes: Some(0),
+        status: "planned".to_string(),
+        note_count: 0,
+        had_combat: false,
+        order_index: 0,
     };
 
-    rsx! {
-        div {
-            class: "flex flex-col h-full bg-zinc-900 border-r border-zinc-800 w-64",
-
+    view! {
+        <div class="flex flex-col h-full bg-zinc-900 border-r border-zinc-800 w-64">
             // Header
-            div { class: "p-4 border-b border-zinc-800",
-                h2 { class: "text-zinc-400 text-xs font-bold uppercase tracking-wider", "Sessions" }
-            }
+            <div class="p-4 border-b border-zinc-800">
+                <h2 class="text-zinc-400 text-xs font-bold uppercase tracking-wider">"Sessions"</h2>
+            </div>
 
             // Lists
-            div { class: "flex-1 overflow-y-auto p-2 space-y-6",
+            <div class="flex-1 overflow-y-auto p-2 space-y-6">
+                // Current Session
+                {move || {
+                    current_session.clone().map(|curr| {
+                        let curr_id = curr.id.clone();
+                        let sess_num = curr.session_number;
+                        let on_click = on_select_session.clone();
 
-                // Active
-                {if let Some(curr) = active_session {
-                    let curr_id = curr.id.clone();
-                    let sess_num = curr.session_number;
-                    rsx! {
-                        div {
-                            div { class: "px-2 mb-2 flex items-center gap-2",
-                                div { class: "w-2 h-2 rounded-full bg-green-500 animate-pulse" }
-                                span { class: "text-zinc-500 text-xs font-semibold", "CURRENT" }
-                            }
-                            button {
-                                class: "bg-zinc-800/50 border border-purple-500/30 rounded p-3 cursor-pointer hover:bg-zinc-800 transition-colors w-full text-left",
-                                onclick: move |_| props.on_select_session.call(curr_id.clone()),
-                                div { class: "text-sm font-bold text-white", "Session {sess_num}" }
-                                div { class: "text-xs text-zinc-400 mt-1", "Active Now" }
+                        view! {
+                            <div>
+                                <div class="px-2 mb-2 flex items-center gap-2">
+                                    <div class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
+                                    <span class="text-zinc-500 text-xs font-semibold">"CURRENT"</span>
+                                </div>
+                                <button
+                                    class="bg-zinc-800/50 border border-purple-500/30 rounded p-3 cursor-pointer hover:bg-zinc-800 transition-colors w-full text-left"
+                                    on:click=move |_| on_click.run(curr_id.clone())
+                                >
+                                    <div class="text-sm font-bold text-white">
+                                        {format!("Session {}", sess_num)}
+                                    </div>
+                                    <div class="text-xs text-zinc-400 mt-1">"Active Now"</div>
+                                </button>
+                            </div>
+                        }
+                    })
+                }}
+
+                // Planned Sessions
+                <div>
+                    <div class="px-2 mb-2 text-zinc-500 text-xs font-semibold">"PLANNED"</div>
+                    <div class="group flex items-center gap-3 px-2 py-2 rounded text-zinc-400 hover:text-white hover:bg-zinc-800/50 cursor-pointer border border-transparent hover:border-zinc-700 border-dashed">
+                        <div class="text-sm font-medium">
+                            {format!("Session {}", planned_session.session_number)}
+                        </div>
+                    </div>
+                </div>
+
+                // Past Sessions (History)
+                <div>
+                    <div class="px-2 mb-2 text-zinc-500 text-xs font-semibold">"HISTORY"</div>
+                    <For
+                        each=move || past_sessions.clone()
+                        key=|s| s.id.clone()
+                        children=move |s| {
+                            let s_id = s.id.clone();
+                            let sess_num = s.session_number;
+                            let duration = s.duration_minutes.unwrap_or(0);
+                            let on_click = on_select_session.clone();
+
+                            view! {
+                                <button
+                                    class="group flex items-center justify-between px-2 py-2 rounded text-zinc-400 hover:text-white hover:bg-zinc-800/50 cursor-pointer w-full text-left"
+                                    on:click=move |_| on_click.run(s_id.clone())
+                                >
+                                    <div class="text-sm">{format!("Session {}", sess_num)}</div>
+                                    <div class="text-xs text-zinc-600">{format!("{}m", duration)}</div>
+                                </button>
                             }
                         }
-                    }
-                } else { rsx!({}) }}
-
-                // Planned
-                if !planned_sessions.is_empty() {
-                    div {
-                        div { class: "px-2 mb-2 text-zinc-500 text-xs font-semibold", "PLANNED" }
-                        div { class: "space-y-2",
-                            for (i, s) in planned_sessions.iter().enumerate() {
-                                {
-                                    let s_order = s.order_index;
-                                    let prev = if i > 0 { Some(planned_sessions[i-1]) } else { None };
-                                    let next = if i < planned_sessions.len() - 1 { Some(planned_sessions[i+1]) } else { None };
-
-                                    let prev_info = prev.map(|p| (p.id.clone(), p.order_index));
-                                    let next_info = next.map(|n| (n.id.clone(), n.order_index));
-
-                                    let this_id_up = s.id.clone();
-                                    let this_id_down = s.id.clone();
-
-                                    rsx! {
-                                        div {
-                                            class: "group flex items-center justify-between px-2 py-2 rounded text-zinc-400 hover:text-white hover:bg-zinc-800/50 border border-transparent hover:border-zinc-700 border-dashed",
-                                            div { class: "flex items-center gap-3",
-                                                span { class: "text-sm font-medium", "Session {s.session_number}" }
-                                            }
-                                            // Controls
-                                            div { class: "flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity",
-                                                if let Some((p_id, p_order)) = prev_info {
-                                                    button {
-                                                        class: "p-1 hover:text-purple-400",
-                                                        title: "Move Up",
-                                                        onclick: move |_| handle_swap(this_id_up.clone(), s_order, p_id.clone(), p_order),
-                                                        "↑"
-                                                    }
-                                                }
-                                                if let Some((n_id, n_order)) = next_info {
-                                                     button {
-                                                        class: "p-1 hover:text-purple-400",
-                                                        title: "Move Down",
-                                                        onclick: move |_| handle_swap(this_id_down.clone(), s_order, n_id.clone(), n_order),
-                                                        "↓"
-                                                    }
-                                                }
-                                                button {
-                                                    class: "p-1 hover:text-green-400",
-                                                    title: "Start Session",
-                                                    "▶"
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // Past
-                 div {
-                    div { class: "px-2 mb-2 text-zinc-500 text-xs font-semibold", "HISTORY" }
-                    for s in past_sessions {
-                         {
-                             let s_id = s.id.clone();
-                             let sess_num = s.session_number;
-                             let duration = s.duration_minutes.unwrap_or(0);
-                             rsx! {
-                                 button {
-                                    class: "group flex items-center justify-between px-2 py-2 rounded text-zinc-400 hover:text-white hover:bg-zinc-800/50 cursor-pointer w-full text-left",
-                                    onclick: move |_| props.on_select_session.call(s_id.clone()),
-                                    div { class: "text-sm", "Session {sess_num}" }
-                                    div { class: "text-xs text-zinc-600", "{duration}m" }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
+                    />
+                </div>
+            </div>
+        </div>
     }
 }

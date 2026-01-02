@@ -2,7 +2,7 @@
 //!
 //! Provides alerting functionality for budget thresholds, provider issues, and anomalies.
 
-use chrono::{DateTime, Duration, Timelike, Utc};
+use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::RwLock;

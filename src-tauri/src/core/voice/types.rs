@@ -372,7 +372,6 @@ pub struct UsageInfo {
     pub next_reset: Option<String>,
 }
 
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum VoiceStatus {
     Pending,

@@ -10,7 +10,7 @@ use serde::Deserialize;
 
 use super::VoiceProvider;
 use crate::core::voice::types::{
-    ChatterboxConfig, OutputFormat, Result, SynthesisRequest, UsageInfo, Voice, VoiceError,
+    ChatterboxConfig, Result, SynthesisRequest, UsageInfo, Voice, VoiceError,
 };
 
 pub struct ChatterboxProvider {

@@ -1,20 +1,314 @@
-#![allow(non_snake_case)]
-use dioxus::prelude::*;
-use crate::bindings::{list_campaigns, create_campaign, delete_campaign, Campaign};
-use crate::components::design_system::{Button, ButtonVariant, Input, Select, Badge, BadgeVariant, Modal, LoadingSpinner};
+//! Campaigns Component - Leptos Migration
+//!
+//! Displays a list of campaigns with create/delete functionality.
+//! Campaign management components
 
+use leptos::ev;
+use leptos::prelude::*;
+use leptos::task::spawn_local;
+use leptos_router::hooks::use_navigate;
+
+use crate::bindings::{list_campaigns, create_campaign, delete_campaign, Campaign};
+use crate::components::design_system::{Button, ButtonVariant, LoadingSpinner};
+
+/// Helper function to get system-based styling
+fn get_system_style(system: &str) -> (&'static str, &'static str) {
+    let s = system.to_lowercase();
+    if s.contains("d&d") || s.contains("5e") || s.contains("pathfinder") {
+        (
+            "bg-gradient-to-br from-amber-700 to-amber-900",
+            "text-amber-200",
+        )
+    } else if s.contains("cthulhu") || s.contains("horror") || s.contains("vampire") {
+        (
+            "bg-gradient-to-br from-slate-800 to-black",
+            "text-red-400",
+        )
+    } else if s.contains("cyber") || s.contains("shadow") || s.contains("neon") {
+        (
+            "bg-gradient-to-br from-fuchsia-900 to-purple-900",
+            "text-fuchsia-300",
+        )
+    } else if s.contains("space") || s.contains("alien") || s.contains("scifi") {
+        (
+            "bg-gradient-to-br from-cyan-900 to-blue-900",
+            "text-cyan-200",
+        )
+    } else {
+        (
+            "bg-gradient-to-br from-zinc-700 to-zinc-900",
+            "text-zinc-300",
+        )
+    }
+}
+
+/// Stat card component for displaying summary statistics
 #[component]
-pub fn Campaigns() -> Element {
-    let mut campaigns = use_signal(|| Vec::<Campaign>::new());
-    let mut status_message = use_signal(|| String::new());
-    let mut show_create_modal = use_signal(|| false);
-    let mut new_campaign_name = use_signal(|| String::new());
-    let mut new_campaign_system = use_signal(|| "D&D 5e".to_string());
-    let mut is_loading = use_signal(|| true);
+fn StatCard(
+    /// Label for the stat
+    #[prop(into)]
+    label: String,
+    /// Value to display
+    #[prop(into)]
+    value: String,
+) -> impl IntoView {
+    view! {
+        <div class="bg-zinc-900 border border-zinc-800 p-4 rounded-lg">
+            <div class="text-zinc-500 text-xs font-bold uppercase tracking-wider mb-1">
+                {label}
+            </div>
+            <div class="text-2xl font-bold text-zinc-100">
+                {value}
+            </div>
+        </div>
+    }
+}
+
+/// Badge component for system type display
+#[component]
+fn SystemBadge(
+    #[prop(into)]
+    system: String,
+) -> impl IntoView {
+    view! {
+        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-zinc-800 text-zinc-300 border border-zinc-700">
+            {system}
+        </span>
+    }
+}
+
+/// Campaign card component
+#[component]
+fn CampaignCard(
+    campaign: Campaign,
+    on_delete: Callback<(String, String)>,
+) -> impl IntoView {
+    let navigate = use_navigate();
+    let (bg_class, text_class) = get_system_style(&campaign.system);
+    let initials = campaign.name.chars().next().unwrap_or('?');
+
+    let campaign_id = campaign.id.clone();
+    let campaign_name = campaign.name.clone();
+    let campaign_system = campaign.system.clone();
+    let campaign_desc = campaign.description.clone().unwrap_or_default();
+    // Note: session_count and player_count now require separate API call via get_campaign_stats
+    let session_count = 0_u32;
+    let player_count = 0_usize;
+
+    // Clone for closures
+    let delete_id = campaign.id.clone();
+    let delete_name = campaign.name.clone();
+    let nav_id = campaign_id.clone();
+
+    let handle_click = move |_: ev::MouseEvent| {
+        let nav = navigate.clone();
+        let id = nav_id.clone();
+        nav(&format!("/session/{}", id), Default::default());
+    };
+
+    let handle_delete = move |evt: ev::MouseEvent| {
+        evt.stop_propagation();
+        on_delete.run((delete_id.clone(), delete_name.clone()));
+    };
+
+    view! {
+        <div
+            class="group relative aspect-[3/4] bg-zinc-900 rounded-xl overflow-hidden shadow-2xl border border-zinc-800 hover:border-zinc-600 transition-all hover:-translate-y-1 cursor-pointer"
+            on:click=handle_click
+        >
+            // "Cover Art" Background
+            <div class=format!("absolute inset-0 {} opacity-20 group-hover:opacity-30 transition-opacity", bg_class)></div>
+
+            // Content Container
+            <div class="relative h-full flex flex-col p-6">
+                // Top Badge
+                <div class="flex justify-between items-start">
+                    <SystemBadge system=campaign_system />
+
+                    // Delete button (visible on hover)
+                    <button
+                        class="opacity-0 group-hover:opacity-100 p-2 text-zinc-400 hover:text-red-400 transition-all"
+                        on:click=handle_delete
+                    >
+                        "X"
+                    </button>
+                </div>
+
+                // Center Initials (Placeholder Art)
+                <div class="flex-1 flex items-center justify-center">
+                    <span class=format!("text-8xl font-black {} opacity-20 select-none group-hover:scale-110 transition-transform duration-500", text_class)>
+                        {initials.to_string()}
+                    </span>
+                </div>
+
+                // Bottom Info
+                <div class="space-y-2">
+                    <h3 class="text-xl font-bold text-white leading-tight group-hover:text-purple-300 transition-colors">
+                        {campaign_name}
+                    </h3>
+                    {move || {
+                        if !campaign_desc.is_empty() {
+                            Some(view! {
+                                <p class="text-xs text-zinc-400 line-clamp-2">{campaign_desc.clone()}</p>
+                            })
+                        } else {
+                            None
+                        }
+                    }}
+
+                    // Stats Row
+                    <div class="pt-4 flex items-center gap-4 text-xs font-medium text-zinc-500 border-t border-white/5">
+                        <div class="flex items-center gap-1">
+                            <span>{session_count}</span>
+                            " Sessions"
+                        </div>
+                        <div class="flex items-center gap-1">
+                            <span>{player_count}</span>
+                            " Players"
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            // "Now Playing" Pulse (if has sessions)
+            {move || {
+                if session_count > 0 {
+                    Some(view! {
+                        <div class="absolute bottom-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-purple-500 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
+                    })
+                } else {
+                    None
+                }
+            }}
+        </div>
+    }
+}
+
+/// Create Campaign Modal component
+#[component]
+fn CreateCampaignModal(
+    is_open: RwSignal<bool>,
+    on_create: Callback<(String, String)>,
+) -> impl IntoView {
+    let name = RwSignal::new(String::new());
+    let system = RwSignal::new("D&D 5e".to_string());
+
+    let handle_create = move |_: ev::MouseEvent| {
+        let n = name.get();
+        let s = system.get();
+        if !n.trim().is_empty() {
+            on_create.run((n, s));
+            name.set(String::new());
+            system.set("D&D 5e".to_string());
+        }
+    };
+
+    let handle_close = move |_: ev::MouseEvent| {
+        is_open.set(false);
+    };
+
+    let systems = vec![
+        "D&D 5e",
+        "Pathfinder 2e",
+        "Call of Cthulhu",
+        "Delta Green",
+        "Mothership",
+        "Cyberpunk Red",
+        "Shadowrun",
+        "Vampire: The Masquerade",
+        "Other",
+    ];
+
+    view! {
+        <Show when=move || is_open.get()>
+            // Backdrop
+            <div
+                class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center"
+                on:click=handle_close
+            >
+                // Modal Content
+                <div
+                    class="bg-zinc-900 border border-zinc-800 rounded-xl shadow-2xl w-full max-w-md mx-4"
+                    on:click=move |evt: ev::MouseEvent| evt.stop_propagation()
+                >
+                    // Header
+                    <div class="px-6 py-4 border-b border-zinc-800">
+                        <h2 class="text-xl font-bold text-white">"Begin New Adventure"</h2>
+                    </div>
+
+                    // Body
+                    <div class="p-6 space-y-6">
+                        <div>
+                            <label class="block text-sm font-bold text-zinc-400 mb-2">
+                                "Campaign Name"
+                            </label>
+                            <input
+                                type="text"
+                                class="w-full px-4 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-white placeholder-zinc-500 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-colors"
+                                placeholder="e.g. The Tomb of Horrors"
+                                prop:value=move || name.get()
+                                on:input=move |evt| {
+                                    name.set(event_target_value(&evt));
+                                }
+                            />
+                        </div>
+                        <div>
+                            <label class="block text-sm font-bold text-zinc-400 mb-2">
+                                "Game System"
+                            </label>
+                            <select
+                                class="w-full px-4 py-2 bg-zinc-800 border border-zinc-700 rounded-lg text-white focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none transition-colors"
+                                prop:value=move || system.get()
+                                on:change=move |evt| {
+                                    system.set(event_target_value(&evt));
+                                }
+                            >
+                                {systems.iter().map(|s| {
+                                    let s_owned = s.to_string();
+                                    view! {
+                                        <option value=s_owned.clone()>{s_owned.clone()}</option>
+                                    }
+                                }).collect::<Vec<_>>()}
+                            </select>
+                        </div>
+                    </div>
+
+                    // Footer
+                    <div class="px-6 py-4 border-t border-zinc-800 flex justify-end gap-3">
+                        <Button
+                            variant=ButtonVariant::Secondary
+                            on_click=handle_close
+                        >
+                            "Cancel"
+                        </Button>
+                        <Button
+                            variant=ButtonVariant::Primary
+                            on_click=handle_create
+                        >
+                            "Launch Campaign"
+                        </Button>
+                    </div>
+                </div>
+            </div>
+        </Show>
+    }
+}
+
+/// Main Campaigns page component
+#[component]
+pub fn Campaigns() -> impl IntoView {
+    let navigate = use_navigate();
+
+    // State signals
+    let campaigns = RwSignal::new(Vec::<Campaign>::new());
+    let status_message = RwSignal::new(String::new());
+    let show_create_modal = RwSignal::new(false);
+    let is_loading = RwSignal::new(true);
+    let delete_confirm = RwSignal::new(Option::<(String, String)>::None);
 
     // Load campaigns on mount
-    use_effect(move || {
-        spawn(async move {
+    Effect::new(move |_| {
+        spawn_local(async move {
             match list_campaigns().await {
                 Ok(list) => {
                     campaigns.set(list);
@@ -27,9 +321,32 @@ pub fn Campaigns() -> Element {
         });
     });
 
-    let refresh_campaigns = move |_: MouseEvent| {
+    // Stats
+    let total_sessions = RwSignal::new(0_u32);
+    let total_players = RwSignal::new(0_usize);
+
+    Effect::new(move |_| {
+        let list = campaigns.get();
+        if list.is_empty() { return; }
+
+        spawn_local(async move {
+            let mut s = 0;
+            let mut p = 0;
+            for c in list {
+                if let Ok(st) = crate::bindings::get_campaign_stats(c.id).await {
+                    s += st.session_count;
+                    p += st.npc_count;
+                }
+            }
+            total_sessions.set(s as u32);
+            total_players.set(p);
+        });
+    });
+
+    // Refresh campaigns handler
+    let refresh_campaigns = move |_: ev::MouseEvent| {
         is_loading.set(true);
-        spawn(async move {
+        spawn_local(async move {
             match list_campaigns().await {
                 Ok(list) => {
                     campaigns.set(list);
@@ -43,25 +360,17 @@ pub fn Campaigns() -> Element {
         });
     };
 
-    let open_create_modal = move |_: MouseEvent| {
+    // Open create modal
+    let open_create_modal = move |_: ev::MouseEvent| {
         show_create_modal.set(true);
-        new_campaign_name.set(String::new());
-        new_campaign_system.set("D&D 5e".to_string());
     };
 
-    let handle_create = move |_: MouseEvent| {
-        let name = new_campaign_name.read().clone();
-        let system = new_campaign_system.read().clone();
-
-        if name.trim().is_empty() {
-            status_message.set("Campaign name is required".to_string());
-            return;
-        }
-
-        spawn(async move {
+    // Handle campaign creation
+    let handle_create = Callback::new(move |(name, system): (String, String)| {
+        spawn_local(async move {
             match create_campaign(name, system).await {
                 Ok(campaign) => {
-                    campaigns.write().push(campaign);
+                    campaigns.update(|c| c.push(campaign));
                     show_create_modal.set(false);
                     status_message.set("Campaign created!".to_string());
                 }
@@ -70,316 +379,184 @@ pub fn Campaigns() -> Element {
                 }
             }
         });
-    };
+    });
 
-    let handle_delete = move |id: String, name: String| {
-        move |evt: MouseEvent| {
-            evt.stop_propagation(); // Prevent opening the campaign when clicking delete
-            let id = id.clone();
-            let name = name.clone();
-            spawn(async move {
+    // Handle delete request (show confirmation)
+    let handle_delete_request = Callback::new(move |(id, name): (String, String)| {
+        delete_confirm.set(Some((id, name)));
+    });
+
+    // Handle confirmed delete
+    let handle_confirm_delete = move |_: ev::MouseEvent| {
+        if let Some((id, name)) = delete_confirm.get() {
+            spawn_local(async move {
                 match delete_campaign(id.clone()).await {
                     Ok(_) => {
-                        campaigns.write().retain(|c| c.id != id);
+                        campaigns.update(|c| c.retain(|campaign| campaign.id != id));
                         status_message.set(format!("Deleted campaign: {}", name));
                     }
                     Err(e) => {
                         status_message.set(format!("Error deleting: {}", e));
                     }
                 }
+                delete_confirm.set(None);
             });
         }
     };
 
-    let mut view_mode = use_signal(|| "grid"); // "grid" or "list"
-
-    let loading = *is_loading.read();
-    let status = status_message.read().clone();
-    let modal_open = *show_create_modal.read();
-
-    let total_campaigns = campaigns.read().len();
-    let mut total_sessions = use_signal(|| 0);
-    let mut total_players = use_signal(|| 0);
-
-    let campaigns_sig = campaigns;
-    use_effect(move || {
-        spawn(async move {
-            let list = campaigns_sig.read();
-            if list.is_empty() { return; }
-
-            let mut s = 0;
-            let mut p = 0;
-            for c in list.iter() {
-                if let Ok(st) = crate::bindings::get_campaign_stats(c.id.clone()).await {
-                    s += st.session_count;
-                    p += st.npc_count;
-                }
-            }
-            total_sessions.set(s);
-            total_players.set(p);
-        });
-    });
-
-    // Helper to get system color/initials
-    let get_system_style = |system: &str| -> (&'static str, &'static str) {
-        let s = system.to_lowercase();
-        if s.contains("d&d") || s.contains("5e") || s.contains("pathfinder") {
-            ("bg-gradient-to-br from-amber-700 to-amber-900", "text-amber-200")
-        } else if s.contains("cthulhu") || s.contains("horror") || s.contains("vampire") {
-             ("bg-gradient-to-br from-slate-800 to-black", "text-red-400")
-        } else if s.contains("cyber") || s.contains("shadow") || s.contains("neon") {
-             ("bg-gradient-to-br from-fuchsia-900 to-purple-900", "text-neon-pink")
-        } else if s.contains("space") || s.contains("alien") || s.contains("scifi") {
-             ("bg-gradient-to-br from-cyan-900 to-blue-900", "text-cyan-200")
-        } else {
-             ("bg-gradient-to-br from-zinc-700 to-zinc-900", "text-zinc-300")
-        }
+    let handle_cancel_delete = move |_: ev::MouseEvent| {
+        delete_confirm.set(None);
     };
 
-    rsx! {
-        div {
-            class: "p-8 bg-zinc-950 text-zinc-100 min-h-screen font-sans selection:bg-purple-500/30",
-            div {
-                class: "max-w-7xl mx-auto space-y-8",
+    // Navigate back to hub
+    let nav_to_hub = move |_: ev::MouseEvent| {
+        let nav = navigate.clone();
+        nav("/", Default::default());
+    };
 
+    view! {
+        <div class="p-8 bg-zinc-950 text-zinc-100 min-h-screen font-sans selection:bg-purple-500/30">
+            <div class="max-w-7xl mx-auto space-y-8">
                 // Header & Quick Actions
-                div {
-                    class: "flex flex-col md:flex-row md:items-end justify-between gap-4 pb-6 border-b border-zinc-900",
-                    div {
-                        class: "space-y-1",
-                        Link { to: crate::Route::Chat {}, class: "text-zinc-500 hover:text-white transition-colors text-sm font-medium", "← Back to Hub" }
-                        h1 { class: "text-4xl font-extrabold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-white to-zinc-500", "Campaigns" }
-                        p { class: "text-zinc-400", "Manage your ongoing adventures and chronicles." }
-                    }
-                    div {
-                        class: "flex gap-3",
-                        // View Toggle
-                        div { class: "flex bg-zinc-900 rounded-lg p-1 border border-zinc-800",
-                            button {
-                                class: format!("px-3 py-1 rounded transition-colors {}", if *view_mode.read() == "grid" { "bg-zinc-700 text-white" } else { "text-zinc-500 hover:text-zinc-300" }),
-                                onclick: move |_| view_mode.set("grid"),
-                                "Grid"
-                            }
-                            button {
-                                class: format!("px-3 py-1 rounded transition-colors {}", if *view_mode.read() == "list" { "bg-zinc-700 text-white" } else { "text-zinc-500 hover:text-zinc-300" }),
-                                onclick: move |_| view_mode.set("list"),
-                                "List"
-                            }
-                        }
-                         Button {
-                            variant: ButtonVariant::Secondary,
-                            onclick: refresh_campaigns,
-                            "↻"
-                        }
-                        Button {
-                            variant: ButtonVariant::Primary,
-                            onclick: open_create_modal,
+                <div class="flex flex-col md:flex-row md:items-end justify-between gap-4 pb-6 border-b border-zinc-900">
+                    <div class="space-y-1">
+                        <button
+                            class="text-zinc-500 hover:text-white transition-colors text-sm font-medium"
+                            on:click=nav_to_hub
+                        >
+                            "Back to Hub"
+                        </button>
+                        <h1 class="text-4xl font-extrabold tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-white to-zinc-500">
+                            "Campaigns"
+                        </h1>
+                        <p class="text-zinc-400">"Manage your ongoing adventures and chronicles."</p>
+                    </div>
+                    <div class="flex gap-3">
+                        <Button
+                            variant=ButtonVariant::Secondary
+                            on_click=refresh_campaigns
+                        >
+                            "Refresh"
+                        </Button>
+                        <Button
+                            variant=ButtonVariant::Primary
+                            on_click=open_create_modal
+                        >
                             "+ New Adventure"
-                        }
-                    }
-                }
+                        </Button>
+                    </div>
+                </div>
 
                 // Stats Row
-                 div {
-                    class: "grid grid-cols-2 md:grid-cols-4 gap-4",
-                    StatCard { label: "Campaigns", value: total_campaigns.to_string() }
-                    StatCard { label: "Total Sessions", value: total_sessions.read().to_string() }
-                    StatCard { label: "Active Players", value: total_players.read().to_string() }
-                }
+                {move || {
+                    let c = campaigns.get();
+                    let count_c = c.len();
+                    // Stats fetched via effect
+                    let count_s = total_sessions.get();
+                    let count_p = total_players.get();
+
+                    view! {
+                        <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                            <StatCard label="Campaigns" value=count_c.to_string() />
+                            <StatCard label="Total Sessions" value=count_s.to_string() />
+                            <StatCard label="Active Players" value=count_p.to_string() />
+                        </div>
+                    }
+                }}
 
                 // Status Message
-                if !status.is_empty() {
-                     div { class: "bg-zinc-900 text-zinc-300 px-4 py-2 rounded border border-zinc-800 flex items-center gap-2",
-                        div { class: "w-2 h-2 rounded-full bg-blue-500 animate-pulse" }
-                        "{status}"
+                {move || {
+                    let status = status_message.get();
+                    if !status.is_empty() {
+                        Some(view! {
+                            <div class="bg-zinc-900 text-zinc-300 px-4 py-2 rounded border border-zinc-800 flex items-center gap-2">
+                                <div class="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></div>
+                                {status}
+                            </div>
+                        })
+                    } else {
+                        None
                     }
-                }
+                }}
 
                 // Content Area
-                if loading {
-                    div {
-                        class: "flex justify-center py-20",
-                        LoadingSpinner { size: "lg" }
-                    }
-                } else if campaigns.read().is_empty() {
-                     div {
-                        class: "text-center py-24 bg-zinc-900/50 rounded-xl border border-dashed border-zinc-800 flex flex-col items-center justify-center",
-                        div { class: "text-6xl mb-4 opacity-20", "📜" }
-                        h3 { class: "text-2xl font-bold text-zinc-200 mb-2", "No campaigns found" }
-                        p { class: "text-zinc-500 mb-8 max-w-md", "Your library is empty. Start your first journey into the unknown." }
-                        Button {
-                            onclick: open_create_modal,
-                            "Create Campaign"
-                        }
-                    }
-                } else if *view_mode.read() == "grid" {
-                    // Album Grid View
-                    div {
-                        class: "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6",
-                        for campaign in campaigns.read().iter() {
-                            {
-                                let (bg_class, text_class) = get_system_style(&campaign.system);
-                                let initials = campaign.name.chars().next().unwrap_or('?');
-                                let c_id = campaign.id.clone();
-                                let c_name = campaign.name.clone();
-                                let c_desc = campaign.description.clone().unwrap_or_default();
+                {move || {
+                    let loading = is_loading.get();
+                    let campaign_list = campaigns.get();
 
-
-                                rsx! {
-                                    Link {
-                                        to: crate::Route::Session { campaign_id: campaign.id.clone() },
-                                        class: "group relative aspect-[3/4] bg-zinc-900 rounded-xl overflow-hidden shadow-2xl border border-zinc-800 hover:border-zinc-600 transition-all hover:-translate-y-1",
-
-                                        // "Cover Art" Background
-                                        div { class: "absolute inset-0 {bg_class} opacity-20 group-hover:opacity-30 transition-opacity" }
-
-                                        // Content Container
-                                        div { class: "relative h-full flex flex-col p-6",
-                                            // Top Badge
-                                            div { class: "flex justify-between items-start",
-                                                Badge { variant: BadgeVariant::Outline, "{campaign.system}" }
-
-                                                // Delete button (visible on hover)
-                                                button {
-                                                    class: "opacity-0 group-hover:opacity-100 p-2 text-zinc-400 hover:text-red-400 transition-all",
-                                                    onclick: handle_delete(c_id.clone(), c_name.clone()),
-                                                    "🗑"
-                                                }
-                                            }
-
-                                            // Center Initials (Placeholder Art)
-                                            div { class: "flex-1 flex items-center justify-center",
-                                                 span { class: "text-8xl font-black {text_class} opacity-20 select-none group-hover:scale-110 transition-transform duration-500", "{initials}" }
-                                            }
-
-                                            // Bottom Info
-                                            div { class: "space-y-2",
-                                                h3 { class: "text-xl font-bold text-white leading-tight group-hover:text-purple-300 transition-colors", "{c_name}" }
-                                                if !c_desc.is_empty() {
-                                                    p { class: "text-xs text-zinc-400 line-clamp-2", "{c_desc}" }
-                                                }
-
-                                                // Stats Row (Disabled for now)
-                                                /*
-                                                div { class: "pt-4 flex items-center gap-4 text-xs font-medium text-zinc-500 border-t border-white/5",
-                                                     div { class: "flex items-center gap-1",
-                                                        span { "📜" }
-                                                        "{session_count} Sessions"
-                                                     }
-                                                }
-                                                */
-                                            }
+                    if loading {
+                        view! {
+                            <div class="flex justify-center py-20">
+                                <LoadingSpinner size="lg" />
+                            </div>
+                        }.into_any()
+                    } else if campaign_list.is_empty() {
+                        view! {
+                            <div class="text-center py-24 bg-zinc-900/50 rounded-xl border border-dashed border-zinc-800 flex flex-col items-center justify-center">
+                                <div class="text-6xl mb-4 opacity-20">"..."</div>
+                                <h3 class="text-2xl font-bold text-zinc-200 mb-2">"No campaigns found"</h3>
+                                <p class="text-zinc-500 mb-8 max-w-md">"Your library is empty. Start your first journey into the unknown."</p>
+                                <Button on_click=open_create_modal>
+                                    "Create Campaign"
+                                </Button>
+                            </div>
+                        }.into_any()
+                    } else {
+                        view! {
+                            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                                <For
+                                    each=move || campaigns.get()
+                                    key=|campaign| campaign.id.clone()
+                                    children=move |campaign| {
+                                        view! {
+                                            <CampaignCard
+                                                campaign=campaign
+                                                on_delete=handle_delete_request
+                                            />
                                         }
                                     }
-                                }
-                            }
-                        }
+                                />
+                            </div>
+                        }.into_any()
                     }
-                } else {
-                    // List View
-                    div {
-                        class: "space-y-2",
-                        for campaign in campaigns.read().iter() {
-                            {
-                                let (bg_class, text_class) = get_system_style(&campaign.system);
-                                let initials = campaign.name.chars().next().unwrap_or('?');
-                                let c_id = campaign.id.clone();
-                                let c_name = campaign.name.clone();
-                                let c_desc = campaign.description.clone().unwrap_or_default();
+                }}
+            </div>
 
-                                rsx! {
-                                    Link {
-                                        to: crate::Route::Session { campaign_id: campaign.id.clone() },
-                                        class: "group flex items-center gap-4 p-4 bg-zinc-900 rounded-lg border border-zinc-800 hover:border-zinc-600 transition-all hover:bg-zinc-800/50",
+            // Create Campaign Modal
+            <CreateCampaignModal
+                is_open=show_create_modal
+                on_create=handle_create
+            />
 
-                                        // Small Icon/Cover
-                                        div {
-                                            class: "w-12 h-12 rounded-lg {bg_class} flex items-center justify-center shrink-0",
-                                            span { class: "text-xl font-bold {text_class}", "{initials}" }
-                                        }
-
-                                        // Content
-                                        div { class: "flex-1 min-w-0",
-                                            h3 { class: "text-lg font-bold text-white group-hover:text-purple-300 truncate", "{c_name}" }
-                                            p { class: "text-sm text-zinc-500 truncate", "{c_desc}" }
-                                        }
-
-                                        // System Badge
-                                        div { class: "shrink-0",
-                                            Badge { variant: BadgeVariant::Outline, "{campaign.system}" }
-                                        }
-
-                                        // Delete Action
-                                        button {
-                                            class: "p-2 text-zinc-500 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100",
-                                            onclick: handle_delete(c_id.clone(), c_name.clone()),
-                                            "🗑"
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Create Modal
-            Modal {
-                is_open: modal_open,
-                onclose: move |_| show_create_modal.set(false),
-                title: "Begin New Adventure",
-                children: rsx! {
-                    div {
-                        class: "space-y-6 p-2",
-                        div {
-                            label { class: "block text-sm font-bold text-zinc-400 mb-2", "Campaign Name" }
-                            Input {
-                                placeholder: "e.g. The Tomb of Horrors",
-                                value: "{new_campaign_name}",
-                                oninput: move |e| new_campaign_name.set(e)
-                            }
-                        }
-                        div {
-                            label { class: "block text-sm font-bold text-zinc-400 mb-2", "Game System" }
-                            Select {
-                                value: "{new_campaign_system}",
-                                onchange: move |e| new_campaign_system.set(e),
-                                option { value: "D&D 5e", "D&D 5e" }
-                                option { value: "Pathfinder 2e", "Pathfinder 2e" }
-                                option { value: "Call of Cthulhu", "Call of Cthulhu" }
-                                option { value: "Delta Green", "Delta Green" }
-                                option { value: "Mothership", "Mothership" }
-                                option { value: "Cyberpunk Red", "Cyberpunk Red" }
-                                option { value: "Shadowrun", "Shadowrun" }
-                                option { value: "Vampire: The Masquerade", "Vampire: The Masquerade" }
-                                option { value: "Other", "Other" }
-                            }
-                        }
-                        div {
-                            class: "flex justify-end gap-3 mt-8 pt-4 border-t border-zinc-800",
-                             Button {
-                                variant: ButtonVariant::Secondary,
-                                onclick: move |_| show_create_modal.set(false),
+            // Delete Confirmation Modal
+            <Show when=move || delete_confirm.get().is_some()>
+                <div class="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center">
+                    <div class="bg-zinc-900 border border-zinc-800 rounded-xl shadow-2xl w-full max-w-sm mx-4 p-6">
+                        <h3 class="text-lg font-bold text-white mb-2">"Delete Campaign?"</h3>
+                        <p class="text-zinc-400 mb-6">
+                            "Are you sure you want to delete "
+                            <span class="text-white font-medium">
+                                {move || delete_confirm.get().map(|(_, name)| name).unwrap_or_default()}
+                            </span>
+                            "? This action cannot be undone."
+                        </p>
+                        <div class="flex justify-end gap-3">
+                            <Button
+                                variant=ButtonVariant::Secondary
+                                on_click=handle_cancel_delete
+                            >
                                 "Cancel"
-                            }
-                            Button {
-                                onclick: handle_create,
-                                "Launch Campaign"
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-#[component]
-fn StatCard(label: String, value: String) -> Element {
-    rsx! {
-        div { class: "bg-zinc-900 border border-zinc-800 p-4 rounded-lg",
-            div { class: "text-zinc-500 text-xs font-bold uppercase tracking-wider mb-1", "{label}" }
-            div { class: "text-2xl font-bold text-zinc-100", "{value}" }
-        }
+                            </Button>
+                            <Button
+                                variant=ButtonVariant::Danger
+                                on_click=handle_confirm_delete
+                            >
+                                "Delete"
+                            </Button>
+                        </div>
+                    </div>
+                </div>
+            </Show>
+        </div>
     }
 }

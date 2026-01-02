@@ -235,8 +235,6 @@ impl SearchClient {
         embedder_name: &str,
         config: &EmbedderConfig,
     ) -> Result<()> {
-        let index = self.client.index(index_name);
-
         // Build embedder settings as JSON
         let embedder_json = match config {
             EmbedderConfig::OpenAI { api_key, model, dimensions } => {
@@ -417,7 +415,7 @@ impl SearchClient {
         let url = format!("{}/indexes/{}/search", self.host, index_name);
         let client = reqwest::Client::new();
 
-        let mut body = serde_json::json!({
+        let body = serde_json::json!({
             "q": query,
             "limit": limit,
             "hybrid": {
@@ -441,6 +439,7 @@ impl SearchClient {
         }
 
         #[derive(Deserialize)]
+        #[allow(dead_code)]
         struct HybridResponse {
             hits: Vec<SearchDocument>,
             #[serde(rename = "processingTimeMs")]

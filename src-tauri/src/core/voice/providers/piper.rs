@@ -1,10 +1,11 @@
 use async_trait::async_trait;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::Stdio;
 use tokio::process::Command;
 use tempfile::NamedTempFile;
+#[allow(unused_imports)]
 use std::io::Write;
-use tracing::{debug, info, warn};
+use tracing::warn;
 
 use super::super::types::{Result, SynthesisRequest, Voice, UsageInfo, PiperConfig, VoiceError};
 use super::VoiceProvider;
@@ -108,7 +109,7 @@ impl VoiceProvider for PiperProvider {
            .arg("--output_file").arg(&output_path);
 
         // Settings
-        if let Some(settings) = &request.settings {
+        if let Some(_settings) = &request.settings {
              // Piper doesn't support stability/similarity directly map to its params mostly.
              // But we can map speed?
              // length_scale

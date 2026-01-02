@@ -9,7 +9,7 @@ This is a Tabletop RPG Assistant application utilizing a Rust-based stack for bo
 - **Backend**: Tauri v2.1 (Rust)
   - Database: SQLite (via SQLx)
   - Search: Meilisearch
-- **Frontend**: Dioxus v0.7 (Rust)
+- **Frontend**: Leptos v0.7 (Rust)
   - Styling: Tailwind CSS (with dynamic theming)
   - Build Target: Web (WASM)
 

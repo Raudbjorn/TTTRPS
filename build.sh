@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # TTRPG Assistant - Rust/Tauri Build Script
-# 100% Rust Architecture with Dioxus Frontend
+# 100% Rust Architecture with Leptos Frontend
 
 set -e  # Exit on error
 
@@ -70,7 +70,7 @@ check_rust_env() {
     fi
     print_success "Rust installed: $(cargo --version)"
 
-# Check wasm target
+    # Check wasm target
     if command_exists rustup; then
         if ! rustup target list | grep -q "wasm32-unknown-unknown (installed)"; then
             print_warning "WASM target not installed. Installing..."
@@ -80,17 +80,16 @@ check_rust_env() {
     elif [ -f "/usr/lib/rustlib/wasm32-unknown-unknown/lib/libstd-*.rlib" ] || ls /usr/lib/rustlib/wasm32-unknown-unknown/lib/libstd-*.rlib >/dev/null 2>&1; then
          print_success "WASM target installed (system package)"
     else
-         print_warning "rustup not found and WASM target checks failed. Assuming WASM is installed via system package manager (e.g. rust-wasm)."
+         print_warning "rustup not found and WASM target checks failed. Assuming WASM is installed via system package manager."
     fi
 
-    if ! command_exists dx; then
-        print_warning "Dioxus CLI (dx) not found. Installing..."
-        cargo install dioxus-cli || { print_error "Failed to install dioxus-cli"; exit 1; }
+    if ! command_exists trunk; then
+        print_warning "Trunk not found. Installing..."
+        cargo install trunk || { print_error "Failed to install trunk"; exit 1; }
     fi
-    print_success "Dioxus CLI installed: $(dx --version 2>/dev/null || echo 'unknown')"
+    print_success "Trunk installed: $(trunk --version 2>/dev/null || echo 'unknown')"
 
     # Check for Tauri CLI
-    # Prefer using cargo-tauri if installed, otherwise try to install or use local if possible
     if ! command_exists cargo-tauri; then
         print_warning "Tauri CLI (cargo-tauri) not found. Installing..."
         cargo install tauri-cli || { print_error "Failed to install tauri-cli"; exit 1; }
@@ -98,59 +97,21 @@ check_rust_env() {
     print_success "Tauri CLI installed: $(cargo tauri --version 2>/dev/null || echo 'unknown')"
 }
 
-check_tailwind() {
-    print_section "Checking Tailwind CSS"
-    local TAILWIND_PATH="$PROJECT_ROOT/dev-resources/tailwindcss"
-
-    if [ ! -f "$TAILWIND_PATH" ]; then
-        print_warning "Tailwind CSS standalone binary not found. Downloading..."
-        mkdir -p "$PROJECT_ROOT/dev-resources"
-        curl -sL https://github.com/tailwindlabs/tailwindcss/releases/latest/download/tailwindcss-linux-x64 -o "$TAILWIND_PATH" || { print_error "Failed to download tailwindcss"; exit 1; }
-        chmod +x "$TAILWIND_PATH"
-        print_success "Tailwind CSS downloaded"
-    else
-        print_success "Tailwind CSS binary found"
-    fi
-}
-
-build_css() {
-    print_info "Building Tailwind CSS..."
-    local TAILWIND_PATH="$PROJECT_ROOT/dev-resources/tailwindcss"
-    cd "$FRONTEND_DIR"
-
-    # Create input.css if missing (should exist now but for safety)
-    if [ ! -f "input.css" ]; then
-        echo "@tailwind base; @tailwind components; @tailwind utilities;" > input.css
-    fi
-
-    # Create config if missing
-    if [ ! -f "tailwind.config.js" ]; then
-         echo "module.exports = { content: ['./src/**/*.{rs,html,css}', './dist/**/*.html', './index.html'], theme: { extend: {}, }, plugins: [], }" > tailwind.config.js
-    fi
-
-    "$TAILWIND_PATH" -i input.css -o public/tailwind.css --minify || print_warning "Tailwind build failed"
-    cd "$PROJECT_ROOT"
-}
-
 check_linux_deps() {
     print_section "Checking Linux Dependencies"
 
-    # Check for required libraries
     local missing_deps=()
 
-    # WebKitGTK check (arch naming vs others)
     if ! pkg-config --exists webkit2gtk-4.1 2>/dev/null && ! pkg-config --exists webkit2gtk-4.0 2>/dev/null; then
-        # Arch might use webkit2gtk-4.1
         missing_deps+=("webkit2gtk-4.1")
     fi
 
-    # GTK check
     if ! pkg-config --exists gtk+-3.0 2>/dev/null; then
         missing_deps+=("gtk+-3.0")
     fi
 
     if [ ${#missing_deps[@]} -gt 0 ]; then
-        print_warning "Missing dependencies or pkg-config not finding them: ${missing_deps[*]}"
+        print_warning "Missing dependencies: ${missing_deps[*]}"
         print_warning "On Arch: paru -S webkit2gtk-4.1 gtk3 libappindicator-gtk3"
         print_warning "Proceeding anyway, build might fail."
     else
@@ -158,54 +119,18 @@ check_linux_deps() {
     fi
 }
 
-check_tailwind() {
-    print_section "Checking Tailwind CSS"
-    local TAILWIND_PATH="$PROJECT_ROOT/dev-resources/tailwindcss"
-
-    if [ ! -f "$TAILWIND_PATH" ]; then
-        print_warning "Tailwind CSS standalone binary not found. Downloading..."
-        mkdir -p "$PROJECT_ROOT/dev-resources"
-        curl -sL https://github.com/tailwindlabs/tailwindcss/releases/latest/download/tailwindcss-linux-x64 -o "$TAILWIND_PATH" || { print_error "Failed to download tailwindcss"; exit 1; }
-        chmod +x "$TAILWIND_PATH"
-        print_success "Tailwind CSS downloaded"
-    else
-        print_success "Tailwind CSS binary found"
-    fi
-}
-
-build_css() {
-    print_info "Building Tailwind CSS..."
-    local TAILWIND_PATH="$PROJECT_ROOT/dev-resources/tailwindcss"
-    cd "$FRONTEND_DIR"
-
-    # Create input.css if missing
-    if [ ! -f "input.css" ]; then
-        echo "@tailwind base; @tailwind components; @tailwind utilities;" > input.css
-    fi
-
-    # Create config if missing
-    if [ ! -f "tailwind.config.js" ]; then
-         echo "module.exports = { content: ['./src/**/*.{rs,html,css}', './dist/**/*.html', './index.html'], theme: { extend: {}, }, plugins: [], }" > tailwind.config.js
-    fi
-
-    "$TAILWIND_PATH" -i input.css -o public/tailwind.css --minify || print_warning "Tailwind build failed"
-    cd "$PROJECT_ROOT"
-}
-
 build_frontend() {
-    print_section "Building Frontend (Dioxus WASM)"
+    print_section "Building Frontend (Leptos WASM)"
     cd "$FRONTEND_DIR"
 
-    print_info "Compiling Dioxus frontend..."
+    print_info "Compiling Leptos frontend with Trunk..."
 
-    # Build with dx
     if [ "$RELEASE" = true ]; then
-        dx build --release --platform web
+        trunk build --release
     else
-        dx build --platform web
+        trunk build
     fi
 
-    # Check if dist exists (Standard Dioxus output)
     if [ -d "dist" ]; then
         print_success "Frontend built successfully in frontend/dist"
     else
@@ -238,7 +163,6 @@ build_desktop() {
 
     print_info "Creating application bundle..."
 
-    # Build with Tauri
     if [ "$RELEASE" = true ]; then
         cargo tauri build
     else
@@ -259,7 +183,6 @@ run_dev() {
     print_section "Starting Development Server"
     cd "$BACKEND_DIR"
 
-    # Run Tauri dev mode (includes frontend hot-reload via beforeDevCommand)
     print_info "Running cargo tauri dev..."
     cargo tauri dev
 
@@ -300,14 +223,11 @@ clean_artifacts() {
     print_section "Cleaning Build Artifacts"
 
     cd "$FRONTEND_DIR"
-    # Dioxus clean isn't a standard command, modify target/dist
     rm -rf dist
     cargo clean
 
     cd "$BACKEND_DIR"
     cargo clean
-
-    # rm -rf "$DIST_DIR" # We don't use root dist anymore in this script logic
 
     cd "$PROJECT_ROOT"
     print_success "Cleaned all build artifacts"
@@ -358,29 +278,21 @@ print_header
 case $COMMAND in
     dev)
         if command_exists cargo; then
-             # Lightweight check
              :
         else
              check_rust_env
         fi
         [[ "$OSTYPE" == "linux-gnu"* ]] && check_linux_deps
-        check_tailwind
-        build_css
         run_dev
         ;;
     build)
         check_rust_env
         [[ "$OSTYPE" == "linux-gnu"* ]] && check_linux_deps
-        check_tailwind
-        build_css
-        check_tauri
         build_frontend
         build_desktop
         ;;
     frontend)
         check_rust_env
-        check_tailwind
-        build_css
         build_frontend
         ;;
     backend)

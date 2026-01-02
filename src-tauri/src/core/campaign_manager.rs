@@ -159,6 +159,7 @@ pub struct CampaignStats {
 
 const MAX_SNAPSHOTS_DEFAULT: usize = 50;
 
+#[allow(dead_code)]
 pub struct CampaignManager {
     campaigns: RwLock<HashMap<String, Campaign>>,
     snapshots: RwLock<HashMap<String, Vec<CampaignSnapshot>>>,
@@ -540,7 +541,7 @@ impl CampaignManager {
 
     pub fn import_campaign(&self, export: CampaignExport, new_id: bool) -> Result<String> {
         let mut campaign = export.campaign;
-        let old_id = campaign.id.clone();
+        let _old_id = campaign.id.clone();
 
         if new_id {
             campaign.id = Uuid::new_v4().to_string();
@@ -553,7 +554,7 @@ impl CampaignManager {
             .insert(campaign_id.clone(), campaign);
 
         // Import snapshots with updated campaign_id
-        let mut snapshots: Vec<CampaignSnapshot> = export.snapshots.into_iter()
+        let snapshots: Vec<CampaignSnapshot> = export.snapshots.into_iter()
             .map(|mut s| {
                 if new_id {
                     s.campaign_id = campaign_id.clone();

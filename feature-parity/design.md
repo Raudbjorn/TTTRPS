@@ -2,7 +2,7 @@
 
 > **Note**: This document is a technical implementation summary. For the full UX specification
 > including visual mockups, component designs, and theme definitions, refer to `UXdesign/design.md`.
-> This document focuses on backend architecture and Dioxus/Rust implementation details.
+> This document focuses on backend architecture and Leptos/Rust implementation details.
 
 This document describes the architecture and design decisions for achieving feature parity between the original Python MCP server and the Rust/Tauri desktop application.
 
@@ -26,7 +26,7 @@ This document describes the architecture and design decisions for achieving feat
 ├─────────────────────────────────────────────────────────────────┤
 │  ┌──────────────────┐    ┌──────────────────┐                   │
 │  │   Frontend       │    │   Backend        │                   │
-│  │   (Dioxus/WASM)  │◄──►│   (Rust)         │                   │
+│  │   (Leptos/WASM)  │◄──►│   (Rust)         │                   │
 │  │                  │    │                  │                   │
 │  │  - Components    │    │  - Commands      │                   │
 │  │  - Bindings      │    │  - Core Modules  │                   │
@@ -50,7 +50,7 @@ This document describes the architecture and design decisions for achieving feat
 ├─────────────────────────────────────────────────────────────────────────┤
 │  ┌────────────────────────┐         ┌────────────────────────────┐      │
 │  │      Frontend          │         │         Backend            │      │
-│  │      (Dioxus/WASM)     │◄───────►│         (Rust)             │      │
+│  │      (Leptos/WASM)     │◄───────►│         (Rust)             │      │
 │  │                        │   IPC   │                            │      │
 │  │  ┌──────────────────┐  │         │  ┌──────────────────────┐  │      │
 │  │  │ Chat Component   │  │         │  │  LLM Provider Router │  │      │
@@ -107,7 +107,7 @@ This document describes the architecture and design decisions for achieving feat
 └─────────────────────────────────────────────────────────────────────────┘
 ```
 
-### 1.3 Frontend Architecture (Dioxus/WASM)
+### 1.3 Frontend Architecture (Leptos/WASM)
 
 The application uses a `Layout` based architecture where the root component is the **Main Shell**, managing the 5-panel grid per the UX design spec.
 
@@ -161,7 +161,7 @@ grid-template-columns: 64px auto 1fr auto;
 grid-template-rows: 1fr 56px;
 ```
 
-*Note*: `auto` columns controlled by Dioxus state (0px when collapsed).
+*Note*: `auto` columns controlled by Leptos state (0px when collapsed).
 
 ---
 

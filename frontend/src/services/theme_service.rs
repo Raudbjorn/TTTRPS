@@ -1,7 +1,90 @@
-use dioxus::prelude::*;
-use crate::bindings::ThemeWeights;
+//! Theme Service for Leptos frontend
+//!
+//! Provides dynamic theme blending using OKLCH color space interpolation.
+//! Supports five theme presets (fantasy, cosmic, terminal, noir, neon) that
+//! can be blended using weighted interpolation to create custom themes.
 
-// Represents the interpolation targets
+use leptos::prelude::*;
+use serde::{Deserialize, Serialize};
+
+// ============================================================================
+// Theme Weights
+// ============================================================================
+
+/// Theme blending weights - determines how much each theme contributes
+/// to the final interpolated theme. Values should be 0.0-1.0 and will
+/// be normalized when generating CSS.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct ThemeWeights {
+    pub fantasy: f32,
+    pub cosmic: f32,
+    pub terminal: f32,
+    pub noir: f32,
+    pub neon: f32,
+}
+
+impl Default for ThemeWeights {
+    fn default() -> Self {
+        Self {
+            fantasy: 1.0,
+            cosmic: 0.0,
+            terminal: 0.0,
+            noir: 0.0,
+            neon: 0.0,
+        }
+    }
+}
+
+impl ThemeWeights {
+    /// Create weights for a single preset
+    pub fn preset(name: &str) -> Self {
+        let mut weights = Self::zeroed();
+        match name {
+            "fantasy" => weights.fantasy = 1.0,
+            "cosmic" => weights.cosmic = 1.0,
+            "terminal" => weights.terminal = 1.0,
+            "noir" => weights.noir = 1.0,
+            "neon" => weights.neon = 1.0,
+            _ => weights.fantasy = 1.0, // fallback to fantasy
+        }
+        weights
+    }
+
+    /// Create zeroed weights (useful as a starting point for blending)
+    pub fn zeroed() -> Self {
+        Self {
+            fantasy: 0.0,
+            cosmic: 0.0,
+            terminal: 0.0,
+            noir: 0.0,
+            neon: 0.0,
+        }
+    }
+
+    /// Calculate the sum of all weights
+    pub fn total(&self) -> f32 {
+        self.fantasy + self.cosmic + self.terminal + self.noir + self.neon
+    }
+
+    /// Normalize weights to sum to 1.0
+    pub fn normalize(&mut self) {
+        let total = self.total();
+        if total > 0.0 {
+            self.fantasy /= total;
+            self.cosmic /= total;
+            self.terminal /= total;
+            self.noir /= total;
+            self.neon /= total;
+        }
+    }
+}
+
+// ============================================================================
+// Theme Definition
+// ============================================================================
+
+/// Represents the complete set of theme values for interpolation.
+/// All colors are in OKLCH format: [Lightness, Chroma, Hue, Alpha]
 #[derive(Clone, Debug)]
 pub struct ThemeDefinition {
     // Colors (OKLCH L C H Alpha)
@@ -22,16 +105,16 @@ pub struct ThemeDefinition {
     pub radius_lg: f32,
 
     // Effects
-    pub effect_blur: f32, // px
-    pub effect_grain: f32, // 0-1
+    pub effect_blur: f32,     // px
+    pub effect_grain: f32,    // 0-1
     pub effect_scanline: f32, // 0-1
-    pub effect_glow: f32, // 0-1
+    pub effect_glow: f32,     // 0-1
 }
 
 impl Default for ThemeDefinition {
     fn default() -> Self {
+        // Fantasy theme as default
         ThemeDefinition {
-            // Fantasy Default
             bg_deep: [0.15, 0.02, 280.0, 1.0],
             bg_surface: [0.20, 0.03, 280.0, 0.8],
             bg_elevated: [0.25, 0.04, 280.0, 0.9],
@@ -55,9 +138,15 @@ impl Default for ThemeDefinition {
     }
 }
 
+// ============================================================================
+// Theme Presets
+// ============================================================================
+
+/// Get a theme preset definition by name
 pub fn get_preset(name: &str) -> ThemeDefinition {
     match name {
         "fantasy" => ThemeDefinition::default(),
+
         "cosmic" => ThemeDefinition {
             bg_deep: [0.08, 0.02, 160.0, 1.0],
             bg_surface: [0.12, 0.03, 160.0, 0.85],
@@ -69,9 +158,15 @@ pub fn get_preset(name: &str) -> ThemeDefinition {
             danger: [0.50, 0.15, 320.0, 1.0],
             border_subtle: [0.20, 0.05, 160.0, 0.4],
             border_strong: [0.55, 0.10, 160.0, 0.5],
-            radius_sm: 2.0, radius_md: 4.0, radius_lg: 6.0,
-            effect_blur: 4.0, effect_grain: 0.15, effect_scanline: 0.0, effect_glow: 0.2
+            radius_sm: 2.0,
+            radius_md: 4.0,
+            radius_lg: 6.0,
+            effect_blur: 4.0,
+            effect_grain: 0.15,
+            effect_scanline: 0.0,
+            effect_glow: 0.2,
         },
+
         "terminal" => ThemeDefinition {
             bg_deep: [0.05, 0.0, 0.0, 1.0],
             bg_surface: [0.10, 0.01, 145.0, 1.0],
@@ -83,9 +178,15 @@ pub fn get_preset(name: &str) -> ThemeDefinition {
             danger: [0.65, 0.20, 25.0, 1.0],
             border_subtle: [0.25, 0.05, 145.0, 0.3],
             border_strong: [0.70, 0.12, 145.0, 0.5],
-            radius_sm: 0.0, radius_md: 0.0, radius_lg: 2.0,
-            effect_blur: 0.0, effect_grain: 0.05, effect_scanline: 0.3, effect_glow: 0.6
+            radius_sm: 0.0,
+            radius_md: 0.0,
+            radius_lg: 2.0,
+            effect_blur: 0.0,
+            effect_grain: 0.05,
+            effect_scanline: 0.3,
+            effect_glow: 0.6,
         },
+
         "noir" => ThemeDefinition {
             bg_deep: [0.20, 0.01, 80.0, 1.0],
             bg_surface: [0.28, 0.02, 75.0, 1.0],
@@ -97,9 +198,15 @@ pub fn get_preset(name: &str) -> ThemeDefinition {
             danger: [0.55, 0.15, 25.0, 1.0],
             border_subtle: [0.40, 0.02, 80.0, 0.3],
             border_strong: [0.30, 0.03, 80.0, 0.6],
-            radius_sm: 0.0, radius_md: 2.0, radius_lg: 4.0,
-            effect_blur: 0.0, effect_grain: 0.08, effect_scanline: 0.0, effect_glow: 0.0
+            radius_sm: 0.0,
+            radius_md: 2.0,
+            radius_lg: 4.0,
+            effect_blur: 0.0,
+            effect_grain: 0.08,
+            effect_scanline: 0.0,
+            effect_glow: 0.0,
         },
+
         "neon" => ThemeDefinition {
             bg_deep: [0.08, 0.01, 270.0, 1.0],
             bg_surface: [0.12, 0.02, 280.0, 1.0],
@@ -111,21 +218,44 @@ pub fn get_preset(name: &str) -> ThemeDefinition {
             danger: [0.65, 0.22, 25.0, 1.0],
             border_subtle: [0.25, 0.08, 280.0, 0.3],
             border_strong: [0.70, 0.20, 330.0, 0.5],
-            radius_sm: 0.0, radius_md: 4.0, radius_lg: 8.0,
-            effect_blur: 8.0, effect_grain: 0.03, effect_scanline: 0.1, effect_glow: 0.8
+            radius_sm: 0.0,
+            radius_md: 4.0,
+            radius_lg: 8.0,
+            effect_blur: 8.0,
+            effect_grain: 0.03,
+            effect_scanline: 0.1,
+            effect_glow: 0.8,
         },
+
         _ => ThemeDefinition::default(),
     }
 }
 
+// ============================================================================
+// CSS Generation
+// ============================================================================
+
+/// Generate CSS custom properties from blended theme weights.
+/// This performs weighted interpolation in OKLCH color space.
 pub fn generate_css(weights: &ThemeWeights) -> String {
     let mut mixed = ThemeDefinition {
-        bg_deep: [0.0; 4], bg_surface: [0.0; 4], bg_elevated: [0.0; 4],
-        text_primary: [0.0; 4], text_muted: [0.0; 4],
-        accent: [0.0; 4], accent_hover: [0.0; 4], danger: [0.0; 4],
-        border_subtle: [0.0; 4], border_strong: [0.0; 4],
-        radius_sm: 0.0, radius_md: 0.0, radius_lg: 0.0,
-        effect_blur: 0.0, effect_grain: 0.0, effect_scanline: 0.0, effect_glow: 0.0
+        bg_deep: [0.0; 4],
+        bg_surface: [0.0; 4],
+        bg_elevated: [0.0; 4],
+        text_primary: [0.0; 4],
+        text_muted: [0.0; 4],
+        accent: [0.0; 4],
+        accent_hover: [0.0; 4],
+        danger: [0.0; 4],
+        border_subtle: [0.0; 4],
+        border_strong: [0.0; 4],
+        radius_sm: 0.0,
+        radius_md: 0.0,
+        radius_lg: 0.0,
+        effect_blur: 0.0,
+        effect_grain: 0.0,
+        effect_scanline: 0.0,
+        effect_glow: 0.0,
     };
 
     let definitions = [
@@ -137,11 +267,17 @@ pub fn generate_css(weights: &ThemeWeights) -> String {
     ];
 
     let total_weight: f32 = definitions.iter().map(|(w, _)| w).sum();
-    let norm = if total_weight > 0.0 { 1.0 / total_weight } else { 1.0 };
+    let norm = if total_weight > 0.0 {
+        1.0 / total_weight
+    } else {
+        1.0
+    };
 
     for (w, def) in definitions.iter() {
         let weight = w * norm;
-        if weight <= 0.0 { continue; }
+        if weight <= 0.0 {
+            continue;
+        }
 
         // Colors
         add_color(&mut mixed.bg_deep, &def.bg_deep, weight);
@@ -166,7 +302,8 @@ pub fn generate_css(weights: &ThemeWeights) -> String {
     }
 
     // Construct CSS
-    format!("
+    format!(
+        "
         :root {{
             --bg-deep: {};
             --bg-surface: {};
@@ -189,29 +326,150 @@ pub fn generate_css(weights: &ThemeWeights) -> String {
             --effect-glow: {};
         }}
     ",
-    fmt_oklch(mixed.bg_deep), fmt_oklch(mixed.bg_surface), fmt_oklch(mixed.bg_elevated),
-    fmt_oklch(mixed.text_primary), fmt_oklch(mixed.text_muted),
-    fmt_oklch(mixed.accent), fmt_oklch(mixed.accent_hover), fmt_oklch(mixed.danger),
-    fmt_oklch(mixed.border_subtle), fmt_oklch(mixed.border_strong),
-    mixed.radius_sm, mixed.radius_md, mixed.radius_lg,
-    mixed.effect_blur, mixed.effect_grain, mixed.effect_scanline, mixed.effect_glow
+        fmt_oklch(mixed.bg_deep),
+        fmt_oklch(mixed.bg_surface),
+        fmt_oklch(mixed.bg_elevated),
+        fmt_oklch(mixed.text_primary),
+        fmt_oklch(mixed.text_muted),
+        fmt_oklch(mixed.accent),
+        fmt_oklch(mixed.accent_hover),
+        fmt_oklch(mixed.danger),
+        fmt_oklch(mixed.border_subtle),
+        fmt_oklch(mixed.border_strong),
+        mixed.radius_sm,
+        mixed.radius_md,
+        mixed.radius_lg,
+        mixed.effect_blur,
+        mixed.effect_grain,
+        mixed.effect_scanline,
+        mixed.effect_glow
     )
 }
 
+/// Add weighted color values to accumulator
 fn add_color(acc: &mut [f32; 4], val: &[f32; 4], w: f32) {
-    acc[0] += val[0] * w;
-    acc[1] += val[1] * w;
+    acc[0] += val[0] * w; // Lightness
+    acc[1] += val[1] * w; // Chroma
 
-    // Hue interpolation logic (shortest path? for now just linear)
+    // Hue interpolation (linear for now - could use shortest path in future)
     acc[2] += val[2] * w;
 
-    acc[3] += val[3] * w;
+    acc[3] += val[3] * w; // Alpha
 }
 
+/// Format OKLCH color as CSS string
 fn fmt_oklch(c: [f32; 4]) -> String {
     if c[3] >= 0.99 {
-        format!("oklch({:.2}% {:.3} {:.1})", c[0]*100.0, c[1], c[2])
+        format!("oklch({:.2}% {:.3} {:.1})", c[0] * 100.0, c[1], c[2])
     } else {
-        format!("oklch({:.2}% {:.3} {:.1} / {:.2})", c[0]*100.0, c[1], c[2], c[3])
+        format!(
+            "oklch({:.2}% {:.3} {:.1} / {:.2})",
+            c[0] * 100.0,
+            c[1],
+            c[2],
+            c[3]
+        )
+    }
+}
+
+// ============================================================================
+// Theme State (Leptos Context)
+// ============================================================================
+
+/// Reactive theme state container for use with Leptos context
+#[derive(Clone, Copy)]
+pub struct ThemeState {
+    /// Current theme weights for blending
+    pub weights: RwSignal<ThemeWeights>,
+    /// The name of the current preset (if using a single preset)
+    pub current_preset: RwSignal<Option<String>>,
+}
+
+impl ThemeState {
+    /// Create new theme state with default (fantasy) theme
+    pub fn new() -> Self {
+        Self {
+            weights: RwSignal::new(ThemeWeights::default()),
+            current_preset: RwSignal::new(Some("fantasy".to_string())),
+        }
+    }
+
+    /// Set theme to a single preset
+    pub fn set_preset(&self, name: &str) {
+        self.weights.set(ThemeWeights::preset(name));
+        self.current_preset.set(Some(name.to_string()));
+    }
+
+    /// Set custom theme weights (clears preset name)
+    pub fn set_weights(&self, weights: ThemeWeights) {
+        self.weights.set(weights);
+        self.current_preset.set(None);
+    }
+
+    /// Get the current CSS for the theme
+    pub fn get_css(&self) -> String {
+        generate_css(&self.weights.get())
+    }
+}
+
+impl Default for ThemeState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Provide theme state to the component tree via context
+pub fn provide_theme_state() {
+    provide_context(ThemeState::new());
+}
+
+/// Retrieve the ThemeState from context
+pub fn use_theme_state() -> ThemeState {
+    expect_context::<ThemeState>()
+}
+
+/// Try to retrieve the ThemeState from context
+pub fn try_use_theme_state() -> Option<ThemeState> {
+    use_context::<ThemeState>()
+}
+
+// ============================================================================
+// Preset Names
+// ============================================================================
+
+/// List of all available theme preset names
+pub const PRESET_NAMES: &[&str] = &["fantasy", "cosmic", "terminal", "noir", "neon"];
+
+/// Get the dominant theme class from a HashMap of weights (for campaign settings compatibility)
+pub fn get_dominant_theme(weights: &std::collections::HashMap<String, f32>) -> String {
+    let mut max = 0.0_f32;
+    let mut theme = "theme-fantasy";
+
+    for (name, weight) in weights.iter() {
+        if *weight > max {
+            max = *weight;
+            theme = match name.as_str() {
+                "fantasy" => "theme-fantasy",
+                "cosmic" => "theme-cosmic",
+                "terminal" => "theme-terminal",
+                "noir" => "theme-noir",
+                "neon" => "theme-neon",
+                _ => continue,
+            };
+        }
+    }
+
+    theme.to_string()
+}
+
+/// Get a human-readable description for a theme preset
+pub fn preset_description(name: &str) -> &'static str {
+    match name {
+        "fantasy" => "Warm, magical tones with golden accents - ideal for D&D and Pathfinder",
+        "cosmic" => "Deep teal and cyan hues evoking cosmic horror - perfect for Call of Cthulhu",
+        "terminal" => "Classic green-on-black hacker aesthetic with scanlines",
+        "noir" => "Sepia-toned noir atmosphere - great for Delta Green and spy thrillers",
+        "neon" => "Vibrant cyberpunk palette with pink/purple neon glow",
+        _ => "Unknown theme preset",
     }
 }

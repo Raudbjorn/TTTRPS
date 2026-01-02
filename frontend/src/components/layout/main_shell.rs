@@ -1,222 +1,235 @@
-use dioxus::prelude::*;
+use leptos::prelude::*;
+use wasm_bindgen::prelude::*;
+use wasm_bindgen::JsCast;
 use crate::services::layout_service::LayoutState;
 use crate::components::layout::icon_rail::IconRail;
 use crate::components::layout::media_bar::MediaBar;
-
-#[derive(Props, Clone, PartialEq)]
-pub struct MainShellProps {
-    children: Element,
-    // Slots for sidebar and info panel content
-    sidebar: Element,
-    info_panel: Element,
-}
-
 use crate::components::resizable_panel::{DragHandle, ResizeSide};
 
 #[component]
-pub fn MainShell(props: MainShellProps) -> Element {
-    let mut layout = use_context::<LayoutState>();
-    let mut dragging = use_signal(|| Option::<ResizeSide>::None);
-    let mut window_width = use_signal(|| 1920.0);
+pub fn MainShell(
+    sidebar: fn() -> AnyView,
+    info_panel: fn() -> AnyView,
+    children: Children,
+) -> impl IntoView {
+    let layout = expect_context::<LayoutState>();
+    let dragging = RwSignal::new(Option::<ResizeSide>::None);
+    let last_x = RwSignal::new(0.0_f64);
+    let window_width = RwSignal::new(1920.0_f64);
 
-    use wasm_bindgen::prelude::*;
-    use wasm_bindgen::JsCast;
+    // Responsive resize listener
+    Effect::new(move |_| {
+        let layout_svc = layout;
 
-    use_effect(move || {
-        // We use a clone of layout for the closure
-        let mut layout_svc = layout;
+        let handle_resize = Closure::wrap(Box::new(move || {
+            if let Some(window) = web_sys::window() {
+                if let Ok(w) = window.inner_width() {
+                    let width = w.as_f64().unwrap_or(1920.0);
+                    window_width.set(width);
 
-        let mut handle_resize = Closure::wrap(Box::new(move || {
-             if let Some(window) = web_sys::window() {
-                 if let Ok(w) = window.inner_width() {
-                     let width = w.as_f64().unwrap_or(1920.0);
-                     window_width.set(width);
+                    // Responsive Logic (Smart Auto-Collapse)
+                    // <900: All collapsed (Drawer mode)
+                    // 900-1200: Sidebar visible, Info hidden
+                    // >=1200: Both visible
 
-                     // Responsive Logic (Simple Auto-Collapse)
-                     // <900: All collapsed (Drawer mode pending)
-                     // 900-1200: Sidebar collapsed, Info hidden
-                     // 1200-1400: Sidebar visible, Info hidden
-                     // >=1400: Both visible
+                    if width < 1200.0 {
+                        layout_svc.infopanel_visible.set(false);
+                    } else {
+                        layout_svc.infopanel_visible.set(true);
+                    }
 
-                     // Only apply if we haven't manually overridden?
-                     // For now, we enforce "Smart Defaults" purely based on width to satisfy requirement.
-
-                     if width < 1200.0 {
-                         layout_svc.infopanel_visible.set(false);
-                     } else {
-                         layout_svc.infopanel_visible.set(true);
-                     }
-
-                     if width < 900.0 {
-                         layout_svc.sidebar_visible.set(false);
-                     } else {
-                         layout_svc.sidebar_visible.set(true);
-                     }
-                 }
-             }
+                    if width < 900.0 {
+                        layout_svc.sidebar_visible.set(false);
+                    } else {
+                        layout_svc.sidebar_visible.set(true);
+                    }
+                }
+            }
         }) as Box<dyn FnMut()>);
 
         if let Some(window) = web_sys::window() {
-             let _ = window.add_event_listener_with_callback("resize", handle_resize.as_ref().unchecked_ref());
-             // Trigger once
-             let _ = handle_resize.as_ref().unchecked_ref::<js_sys::Function>().call0(&JsValue::NULL);
+            let _ = window.add_event_listener_with_callback(
+                "resize",
+                handle_resize.as_ref().unchecked_ref(),
+            );
+            // Trigger once on mount
+            let _ = handle_resize
+                .as_ref()
+                .unchecked_ref::<js_sys::Function>()
+                .call0(&JsValue::NULL);
         }
         handle_resize.forget();
     });
 
-    // Dynamic Grid Columns calculation
-    let sidebar_w = *layout.sidebar_width.read();
-    let info_w = *layout.infopanel_width.read();
-    let width = *window_width.read();
-    let is_mobile = width < 900.0;
+    let is_mobile = Signal::derive(move || window_width.get() < 900.0);
 
-    let sidebar_col = if is_mobile {
-         "0px".to_string()
-    } else if *layout.sidebar_visible.read() {
-        format!("{}px", sidebar_w)
-    } else {
-        "0px".to_string()
-    };
+    // Computed grid template columns
+    let grid_template_cols = Signal::derive(move || {
+        let sidebar_w = layout.sidebar_width.get();
+        let info_w = layout.infopanel_width.get();
 
-    let info_col = if *layout.infopanel_visible.read() { format!("{}px", info_w) } else { "0px".to_string() };
+        let sidebar_col = if is_mobile.get() {
+            "0px".to_string()
+        } else if layout.sidebar_visible.get() {
+            format!("{}px", sidebar_w)
+        } else {
+            "0px".to_string()
+        };
 
-    let grid_template_cols = format!("64px {} 1fr {}", sidebar_col, info_col);
+        let info_col = if layout.infopanel_visible.get() {
+            format!("{}px", info_w)
+        } else {
+            "0px".to_string()
+        };
 
-    // Handlers
-    let handle_mousemove = move |e: MouseEvent| {
-        if let Some(side) = *dragging.read() {
-            e.stop_propagation();
-             match side {
+        format!("64px {} 1fr {}", sidebar_col, info_col)
+    });
+
+    // Computed cursor style
+    let cursor_style = Signal::derive(move || {
+        if dragging.get().is_some() {
+            "col-resize"
+        } else {
+            "default"
+        }
+    });
+
+    // Mouse move handler for resizing
+    let handle_mousemove = move |e: web_sys::MouseEvent| {
+        if let Some(side) = dragging.get() {
+            let current_x = e.page_x() as f64;
+            match side {
                 ResizeSide::Left => {
-                    // Sidebar resizing (absolute position from left rail)
-                    let x = e.page_coordinates().x as i32;
-                    let new_w = (x - 64).max(200).min(600);
+                    let new_w = ((current_x as i32) - 64).max(200).min(800);
                     layout.sidebar_width.set(new_w);
                 }
                 ResizeSide::Right => {
-                    // TODO: Implement right-side resizing here, mirroring the delta-based logic in `handle_move_container`.
+                    let delta = current_x - last_x.get();
+                    let current_w = layout.infopanel_width.get();
+                    let new_w = ((current_w as f64 - delta) as i32).max(250).min(800);
+                    layout.infopanel_width.set(new_w);
                 }
             }
+            last_x.set(current_x);
         }
     };
 
-    // We need state for tracking delta
-    let mut last_x = use_signal(|| 0.0);
-
-    let handle_move_container = move |e: MouseEvent| {
-         if let Some(side) = *dragging.read() {
-             let current_x = e.page_coordinates().x;
-             match side {
-                 ResizeSide::Left => {
-                     let new_w = (current_x as i32 - 64).max(200).min(800);
-                     layout.sidebar_width.set(new_w);
-                 }
-                 ResizeSide::Right => {
-                     let delta = current_x - *last_x.read();
-                     let current_w = *layout.infopanel_width.read();
-                     let new_w = (current_w as f64 - delta) as i32;
-                     let new_w = new_w.max(250).min(800);
-                     layout.infopanel_width.set(new_w);
-                 }
-             }
-             last_x.set(current_x);
-         }
-    };
-
-    let handle_up = move |_| {
+    let handle_mouseup = move |_: web_sys::MouseEvent| {
         dragging.set(None);
     };
 
-    let cursor_style = if dragging.read().is_some() { "col-resize" } else { "default" };
-    let grid_style = format!(
-        "display: grid; grid-template-columns: {}; grid-template-rows: 1fr 56px; grid-template-areas: 'rail sidebar main info' 'rail sidebar footer info'; cursor: {};",
-        grid_template_cols, cursor_style
-    );
-
-    // Sidebar Class Logic
-    let sidebar_classes = if is_mobile {
-        if *layout.sidebar_visible.read() {
-            "fixed left-[64px] top-0 bottom-[56px] w-[300px] z-50 shadow-2xl border-r border-[var(--border-subtle)] bg-[var(--bg-surface)] overflow-visible transition-transform duration-300"
-        } else {
-            "hidden"
-        }
-    } else {
-        "grid-area: sidebar; border-r border-[var(--border-subtle)] bg-[var(--bg-surface)] overflow-visible transition-none relative"
+    let handle_mouseleave = move |_: web_sys::MouseEvent| {
+        dragging.set(None);
     };
 
-    // For inline style when normal
-    let sidebar_style_attr = if is_mobile { "" } else { "grid-area: sidebar;" };
+    // Sidebar drag start handler
+    let on_sidebar_drag_start = Callback::new(move |_: ()| {
+        dragging.set(Some(ResizeSide::Left));
+    });
 
-    // Backdrop for mobile
-    let show_backdrop = is_mobile && *layout.sidebar_visible.read();
-
-    rsx! {
-        div {
-            class: "h-screen w-screen overflow-hidden bg-[var(--bg-deep)] text-[var(--text-primary)] font-ui transition-all duration-300 select-none",
-            style: "{grid_style}",
-
-            onmousemove: handle_move_container,
-            onmouseup: handle_up,
-            onmouseleave: handle_up,
-
-            // Area: Rail
-            div { style: "grid-area: rail;", IconRail {} }
-
-            // Mobile Backdrop
-            if show_backdrop {
-                div {
-                    class: "fixed inset-0 bg-black/50 z-40 backdrop-blur-sm ml-[64px]",
-                    onclick: move |_| layout.sidebar_visible.set(false)
+    // Info panel drag start handler
+    let on_info_drag_start = Callback::new(move |_: ()| {
+        if let Some(window) = web_sys::window() {
+            let event = window.event();
+            // JsValue.is_undefined() checks if it's undefined
+            if !event.is_undefined() && !event.is_null() {
+                if let Some(mouse_event) = event.dyn_ref::<web_sys::MouseEvent>() {
+                    last_x.set(mouse_event.page_x() as f64);
                 }
-            }
-
-            // Area: Sidebar (Drawer or Grid)
-            div {
-                class: "{sidebar_classes}",
-                style: "{sidebar_style_attr}",
-                {props.sidebar}
-                // Drag Handle (Only if not mobile)
-                if !is_mobile && *layout.sidebar_visible.read() {
-                    DragHandle {
-                        side: ResizeSide::Left,
-                        on_drag_start: move |e: MouseEvent| {
-                            last_x.set(e.page_coordinates().x); // Init
-                            dragging.set(Some(ResizeSide::Left));
-                        }
-                    }
-                }
-            }
-
-            // Area: Main
-            div {
-                style: "grid-area: main;",
-                class: "overflow-y-auto relative bg-[var(--bg-deep)]",
-                {props.children}
-            }
-
-            // Area: Info
-            div {
-                style: "grid-area: info;",
-                class: "border-l border-[var(--border-subtle)] bg-[var(--bg-surface)] overflow-visible transition-none relative",
-                {props.info_panel}
-                // Drag Handle
-                if *layout.infopanel_visible.read() {
-                    DragHandle {
-                        side: ResizeSide::Right,
-                        on_drag_start: move |e: MouseEvent| {
-                            last_x.set(e.page_coordinates().x); // Init start pos
-                            dragging.set(Some(ResizeSide::Right));
-                        }
-                    }
-                }
-            }
-
-            // Area: Footer
-            div {
-                style: "grid-area: footer;",
-                class: "border-t border-[var(--border-subtle)] bg-[var(--bg-elevated)] z-10",
-                MediaBar {}
             }
         }
+        dragging.set(Some(ResizeSide::Right));
+    });
+
+    // Visibility signals for conditional rendering
+    let sidebar_visible = layout.sidebar_visible;
+    let infopanel_visible = layout.infopanel_visible;
+
+    // Derived signals for mobile drawer
+    let show_backdrop = Signal::derive(move || is_mobile.get() && sidebar_visible.get());
+
+    // Sidebar class based on mobile/desktop
+    let sidebar_class = Signal::derive(move || {
+        if is_mobile.get() {
+            if sidebar_visible.get() {
+                "fixed left-[64px] top-0 bottom-[56px] w-[300px] z-50 shadow-2xl border-r border-[var(--border-subtle)] bg-[var(--bg-surface)] overflow-visible transition-transform duration-300"
+            } else {
+                "hidden"
+            }
+        } else {
+            "border-r border-[var(--border-subtle)] bg-[var(--bg-surface)] overflow-visible transition-none relative"
+        }
+    });
+
+    view! {
+        <div
+            class="h-screen w-screen overflow-hidden bg-[var(--bg-deep)] text-[var(--text-primary)] font-ui transition-all duration-300 select-none"
+            style:display="grid"
+            style:grid-template-columns=move || grid_template_cols.get()
+            style:grid-template-rows="1fr 56px"
+            style:grid-template-areas="'rail sidebar main info' 'rail sidebar footer info'"
+            style:cursor=move || cursor_style.get()
+            on:mousemove=handle_mousemove
+            on:mouseup=handle_mouseup
+            on:mouseleave=handle_mouseleave
+        >
+            // Area: Rail
+            <div style:grid-area="rail">
+                <IconRail />
+            </div>
+
+            // Mobile Backdrop
+            <Show when=move || show_backdrop.get()>
+                <div
+                    class="fixed inset-0 bg-black/50 z-40 backdrop-blur-sm ml-[64px]"
+                    on:click=move |_| layout.sidebar_visible.set(false)
+                />
+            </Show>
+
+            // Area: Sidebar (Drawer or Grid)
+            <div
+                style:grid-area=move || if is_mobile.get() { "" } else { "sidebar" }
+                class=move || sidebar_class.get()
+            >
+                {sidebar()}
+                // Drag Handle (Only if not mobile)
+                <Show when=move || !is_mobile.get() && sidebar_visible.get()>
+                    <DragHandle
+                        side=ResizeSide::Left
+                        on_drag_start=on_sidebar_drag_start
+                    />
+                </Show>
+            </div>
+
+            // Area: Main
+            <div
+                style:grid-area="main"
+                class="overflow-y-auto relative bg-[var(--bg-deep)]"
+            >
+                {children()}
+            </div>
+
+            // Area: Info
+            <div
+                style:grid-area="info"
+                class="border-l border-[var(--border-subtle)] bg-[var(--bg-surface)] overflow-visible transition-none relative"
+            >
+                {info_panel()}
+                <Show when=move || infopanel_visible.get()>
+                    <DragHandle
+                        side=ResizeSide::Right
+                        on_drag_start=on_info_drag_start
+                    />
+                </Show>
+            </div>
+
+            // Area: Footer
+            <div
+                style:grid-area="footer"
+                class="border-t border-[var(--border-subtle)] bg-[var(--bg-elevated)] z-10"
+            >
+                <MediaBar />
+            </div>
+        </div>
     }
 }

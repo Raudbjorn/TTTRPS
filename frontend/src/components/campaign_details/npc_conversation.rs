@@ -1,45 +1,46 @@
-use dioxus::prelude::*;
+use leptos::prelude::*;
+use leptos::ev;
+use wasm_bindgen_futures::spawn_local;
 use crate::bindings::{
-    get_npc_conversation, add_npc_message, mark_npc_read, reply_as_npc, queue_voice,
-    NpcConversation as NpcConversationData, ConversationMessage,
+    get_npc_conversation, add_npc_message, mark_npc_read, reply_as_npc,
+    ConversationMessage,
 };
-use crate::components::design_system::{TypingIndicator, Markdown};
+use crate::components::design_system::Markdown;
 
-#[derive(Props, Clone, PartialEq)]
-pub struct NpcConversationProps {
-    pub npc_id: String,
-    pub npc_name: String,
-    pub on_close: EventHandler<()>,
-}
-
+/// NPC Conversation component for chat-style messaging with NPCs
 #[component]
-pub fn NpcConversation(props: NpcConversationProps) -> Element {
-    let mut messages = use_signal(|| Vec::<ConversationMessage>::new());
-    let mut is_loading = use_signal(|| true);
-    let mut is_sending = use_signal(|| false);
-    let mut is_typing = use_signal(|| false); // Separate signal for NPC typing state
-    let mut input_text = use_signal(|| String::new());
-    let mut error_msg = use_signal(|| Option::<String>::None);
-    let mut playing_msg_id = use_signal(|| Option::<String>::None); // Track which message is playing
+pub fn NpcConversation(
+    /// NPC ID to load conversation for
+    npc_id: String,
+    /// NPC name for display
+    npc_name: String,
+    /// Callback when the conversation is closed
+    on_close: Callback<()>,
+) -> impl IntoView {
+    let messages = RwSignal::new(Vec::<ConversationMessage>::new());
+    let is_loading = RwSignal::new(true);
+    let is_sending = RwSignal::new(false);
+    let is_typing = RwSignal::new(false);
+    let input_text = RwSignal::new(String::new());
+    let error_msg = RwSignal::new(Option::<String>::None);
 
-    let npc_id_sig = use_signal(|| props.npc_id.clone());
-    let npc_name = props.npc_name.clone();
+    let npc_id_signal = RwSignal::new(npc_id.clone());
+    let npc_name_display = npc_name.clone();
+    let npc_name_input = npc_name.clone();
+    let npc_initial = npc_name.chars().next().unwrap_or('?');
 
     // Load conversation on mount
-    use_effect(move || {
-        let npc_id = npc_id_sig.read().clone();
-        spawn(async move {
+    Effect::new(move |_| {
+        let npc_id = npc_id_signal.get();
+        spawn_local(async move {
             match get_npc_conversation(npc_id.clone()).await {
                 Ok(conv) => {
-                    // Parse messages from JSON
-                    let parsed: Vec<ConversationMessage> = serde_json::from_str(&conv.messages_json)
-                        .unwrap_or_default();
+                    let parsed: Vec<ConversationMessage> =
+                        serde_json::from_str(&conv.messages_json).unwrap_or_default();
                     messages.set(parsed);
-                    // Mark as read
                     let _ = mark_npc_read(npc_id).await;
                 }
                 Err(e) => {
-                     // Conversation might not exist yet - that's OK
                     if !e.contains("not found") {
                         error_msg.set(Some(e));
                     }
@@ -49,34 +50,28 @@ pub fn NpcConversation(props: NpcConversationProps) -> Element {
         });
     });
 
-    let mut handle_send = move || {
-        let text = input_text.read().trim().to_string();
-        if text.is_empty() || is_sending.read().clone() {
+    let do_send = move || {
+        let text = input_text.get().trim().to_string();
+        if text.is_empty() || is_sending.get() {
             return;
         }
 
         input_text.set(String::new());
         is_sending.set(true);
-        let npc_id = npc_id_sig.read().clone();
+        let npc_id = npc_id_signal.get();
 
-        spawn(async move {
-            // 1. Send User Message
+        spawn_local(async move {
             match add_npc_message(npc_id.clone(), text.clone(), "user".to_string(), None).await {
                 Ok(msg) => {
-                    // Add user message to list
-                    messages.with_mut(|m| m.push(msg));
-
-                    // 2. Trigger NPC Reply
+                    messages.update(|m| m.push(msg));
                     is_typing.set(true);
                     match reply_as_npc(npc_id.clone()).await {
-                         Ok(ai_msg) => {
-                             messages.with_mut(|m| m.push(ai_msg.clone()));
-                             // Auto-play the reply? optional.
-                         }
-                         Err(e) => {
-                             // Log error but don't crash UI
-                             println!("NPC failed to reply: {}", e);
-                         }
+                        Ok(ai_msg) => {
+                            messages.update(|m| m.push(ai_msg));
+                        }
+                        Err(e) => {
+                            web_sys::console::log_1(&format!("NPC failed to reply: {}", e).into());
+                        }
                     }
                     is_typing.set(false);
                 }
@@ -88,160 +83,185 @@ pub fn NpcConversation(props: NpcConversationProps) -> Element {
         });
     };
 
-    let handle_keydown = move |e: KeyboardEvent| {
-        if e.key() == Key::Enter && !e.modifiers().shift() {
-            e.prevent_default();
-            handle_send();
+    let handle_click = move |_: ev::MouseEvent| {
+        do_send();
+    };
+
+    let handle_keydown = move |evt: ev::KeyboardEvent| {
+        if evt.key() == "Enter" && !evt.shift_key() {
+            evt.prevent_default();
+            do_send();
         }
     };
 
-    let mut handle_play = move |text: String, msg_id: String| {
-        playing_msg_id.set(Some(msg_id));
-        spawn(async move {
-            // Queue voice
-            // TODO: Use specific NPC voice configuration
-            if let Err(e) = queue_voice(text, None).await {
-                println!("Error queuing voice: {}", e);
-            }
-            // Reset playing indicator after some time or by tracking status (simplified for now)
-             gloo_timers::future::TimeoutFuture::new(2000).await;
-             playing_msg_id.set(None);
-        });
-    };
-
-    rsx! {
-        div {
-            class: "flex flex-col h-full bg-zinc-950",
-
-            // Header
-            div { class: "flex items-center justify-between p-4 border-b border-zinc-800 bg-zinc-900/80 backdrop-blur-sm",
-                div { class: "flex items-center gap-3",
-                    // Avatar
-                    div {
-                        class: "w-10 h-10 rounded-full bg-[var(--accent)]/20 flex items-center justify-center text-[var(--accent)] font-bold border border-[var(--accent)]/40",
-                        "{npc_name.chars().next().unwrap_or('?')}"
-                    }
-                    div {
-                        h2 { class: "font-bold text-white", "{npc_name}" }
-                        p { class: "text-xs text-zinc-500", "NPC Conversation" }
-                    }
-                }
-                button {
-                    class: "p-2 text-zinc-500 hover:text-white hover:bg-zinc-800 rounded transition-colors",
-                    aria_label: "Close conversation",
-                    onclick: move |_| props.on_close.call(()),
-                    "×"
-                }
-            }
-
-            // Messages Area
-            div { class: "flex-1 overflow-y-auto p-4 space-y-4",
-                if is_loading.read().clone() {
-                    div { class: "flex items-center justify-center h-full text-zinc-500",
-                        "Loading conversation..."
-                    }
-                } else if let Some(err) = error_msg.read().as_ref() {
-                    div { class: "flex items-center justify-center h-full text-red-400",
-                        "{err}"
-                    }
-                } else if messages.read().is_empty() {
-                    div { class: "flex flex-col items-center justify-center h-full text-zinc-500",
-                        div { class: "text-4xl mb-4 opacity-20", "💬" }
-                        p { "No messages yet" }
-                        p { class: "text-sm", "Start a conversation with {npc_name}" }
-                    }
-                } else {
-                    for msg in messages.read().iter().cloned() {{
-                        let is_user = msg.role == "user";
-                        let msg_content = msg.content.clone();
-                        let msg_id = msg.id.clone();
-                        let timestamp = msg.created_at.clone();
-
-                        rsx! {
-                            div {
-                                key: "{msg_id}",
-                                class: if is_user {
-                                    "flex justify-end"
-                                } else {
-                                    "flex justify-start"
-                                },
-
-                                div {
-                                    class: if is_user {
-                                        "max-w-[80%] bg-[var(--accent)]/20 border border-[var(--accent)]/30 rounded-lg p-3 group relative"
-                                    } else {
-                                        "max-w-[80%] bg-zinc-800 border border-zinc-700 rounded-lg p-3 group relative"
-                                    },
-
-                                    if is_user {
-                                        p { class: "text-zinc-100 whitespace-pre-wrap", "{msg_content}" }
-                                    } else {
-                                        Markdown { content: msg_content.clone() }
-                                    }
-
-                                    div { class: "flex items-center justify-between mt-2",
-                                        p {
-                                            class: "text-xs text-zinc-500",
-                                            "{format_timestamp(&timestamp)}"
-                                        }
-                                        if !is_user {
-                                            button {
-                                                class: "opacity-0 group-hover:opacity-100 transition-opacity ml-2 p-1 hover:bg-zinc-700 rounded text-zinc-400 hover:text-white",
-                                                title: "Play Voice",
-                                                onclick: move |_| handle_play(msg_content.clone(), msg_id.clone()),
-                                                "🔊"
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }}
-                }
-
-                // Typing indicator when replying
-                if is_typing.read().clone() {
-                    div { class: "flex justify-start",
-                        div { class: "bg-zinc-800 border border-zinc-700 rounded-lg p-3 flex items-center gap-2",
-                            TypingIndicator {}
-                            span { class: "text-xs text-zinc-500", "..." }
-                        }
-                    }
-                }
-            }
-
-            // Input Area
-            div { class: "p-4 border-t border-zinc-900 bg-zinc-900",
-                div { class: "flex gap-2",
-                    textarea {
-                        class: "flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-3 text-white placeholder-zinc-500 resize-none focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/50 focus:border-[var(--accent)]",
-                        placeholder: "Message {npc_name}...",
-                        rows: "1",
-                        value: "{input_text}",
-                        disabled: is_sending.read().clone(), // Disable while sending user msg
-                        oninput: move |e| input_text.set(e.value()),
-                        onkeydown: handle_keydown,
-                    }
-                    button {
-                        class: "px-4 py-2 bg-[var(--accent)] hover:brightness-110 text-white rounded-lg font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed",
-                        disabled: input_text.read().trim().is_empty() || is_sending.read().clone(),
-                        onclick: move |_| handle_send(),
-                        if is_sending.read().clone() {
-                            "..."
-                        } else {
-                            "Send"
-                        }
-                    }
-                }
-                p { class: "text-xs text-zinc-600 mt-2", "Press Enter to send, Shift+Enter for new line" }
-            }
-        }
+    view! {
+        <div class="flex flex-col h-full bg-zinc-950">
+            <ConversationHeader
+                npc_initial=npc_initial
+                npc_name=npc_name_display
+                on_close=on_close
+            />
+            <MessagesArea
+                messages=messages
+                is_loading=is_loading
+                is_typing=is_typing
+                error_msg=error_msg
+                npc_name=npc_name.clone()
+            />
+            <InputArea
+                input_text=input_text
+                is_sending=is_sending
+                npc_name=npc_name_input
+                on_keydown=handle_keydown
+                on_click=handle_click
+            />
+        </div>
     }
 }
 
-/// Format ISO timestamp to a readable format
+#[component]
+fn ConversationHeader(
+    npc_initial: char,
+    npc_name: String,
+    on_close: Callback<()>,
+) -> impl IntoView {
+    view! {
+        <div class="flex items-center justify-between p-4 border-b border-zinc-800 bg-zinc-900/80 backdrop-blur-sm">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-full bg-[var(--accent)]/20 flex items-center justify-center text-[var(--accent)] font-bold border border-[var(--accent)]/40">
+                    {npc_initial.to_string()}
+                </div>
+                <div>
+                    <h2 class="font-bold text-white">{npc_name}</h2>
+                    <p class="text-xs text-zinc-500">"NPC Conversation"</p>
+                </div>
+            </div>
+            <button
+                class="p-2 text-zinc-500 hover:text-white hover:bg-zinc-800 rounded transition-colors"
+                aria-label="Close conversation"
+                on:click=move |_| on_close.run(())
+            >
+                "×"
+            </button>
+        </div>
+    }
+}
+
+#[component]
+fn MessagesArea(
+    messages: RwSignal<Vec<ConversationMessage>>,
+    is_loading: RwSignal<bool>,
+    is_typing: RwSignal<bool>,
+    error_msg: RwSignal<Option<String>>,
+    npc_name: String,
+) -> impl IntoView {
+    view! {
+        <div class="flex-1 overflow-y-auto p-4 space-y-4">
+            {move || {
+                if is_loading.get() {
+                    view! {
+                        <div class="flex items-center justify-center h-full text-zinc-500">
+                            "Loading conversation..."
+                        </div>
+                    }.into_any()
+                } else if let Some(err) = error_msg.get() {
+                    view! {
+                        <div class="flex items-center justify-center h-full text-red-400">
+                            {err}
+                        </div>
+                    }.into_any()
+                } else if messages.get().is_empty() {
+                    let name = npc_name.clone();
+                    view! {
+                        <div class="flex flex-col items-center justify-center h-full text-zinc-500">
+                            <p>"No messages yet"</p>
+                            <p class="text-sm">{format!("Start a conversation with {}", name)}</p>
+                        </div>
+                    }.into_any()
+                } else {
+                    view! {
+                        <For
+                            each=move || messages.get()
+                            key=|msg| msg.id.clone()
+                            children=move |msg| {
+                                view! { <MessageBubble msg=msg /> }
+                            }
+                        />
+                    }.into_any()
+                }
+            }}
+            <Show when=move || is_typing.get() fallback=|| ()>
+                <div class="flex justify-start">
+                    <div class="bg-zinc-800 border border-zinc-700 rounded-lg p-3">
+                        <span class="text-xs text-zinc-500">"Typing..."</span>
+                    </div>
+                </div>
+            </Show>
+        </div>
+    }
+}
+
+#[component]
+fn MessageBubble(msg: ConversationMessage) -> impl IntoView {
+    let is_user = msg.role == "user";
+    let msg_content = msg.content.clone();
+    let timestamp = msg.created_at.clone();
+
+    let outer_class = if is_user { "flex justify-end" } else { "flex justify-start" };
+    let bubble_class = if is_user {
+        "max-w-[80%] bg-[var(--accent)]/20 border border-[var(--accent)]/30 rounded-lg p-3"
+    } else {
+        "max-w-[80%] bg-zinc-800 border border-zinc-700 rounded-lg p-3"
+    };
+
+    view! {
+        <div class=outer_class>
+            <div class=bubble_class>
+                {if is_user {
+                    view! { <p class="text-zinc-100 whitespace-pre-wrap">{msg_content}</p> }.into_any()
+                } else {
+                    view! { <Markdown content=msg_content /> }.into_any()
+                }}
+                <p class="text-xs text-zinc-500 mt-2">{format_timestamp(&timestamp)}</p>
+            </div>
+        </div>
+    }
+}
+
+#[component]
+fn InputArea(
+    input_text: RwSignal<String>,
+    is_sending: RwSignal<bool>,
+    npc_name: String,
+    on_keydown: impl Fn(ev::KeyboardEvent) + 'static,
+    on_click: impl Fn(ev::MouseEvent) + 'static,
+) -> impl IntoView {
+    view! {
+        <div class="p-4 border-t border-zinc-900 bg-zinc-900">
+            <div class="flex gap-2">
+                <textarea
+                    class="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-3 text-white placeholder-zinc-500 resize-none focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/50"
+                    placeholder=format!("Message {}...", npc_name)
+                    rows="1"
+                    prop:value=move || input_text.get()
+                    prop:disabled=move || is_sending.get()
+                    on:input=move |evt| input_text.set(event_target_value(&evt))
+                    on:keydown=on_keydown
+                />
+                <button
+                    class="px-4 py-2 bg-[var(--accent)] hover:brightness-110 text-white rounded-lg font-medium transition-all disabled:opacity-50"
+                    prop:disabled=move || input_text.get().trim().is_empty() || is_sending.get()
+                    on:click=on_click
+                >
+                    {move || if is_sending.get() { "..." } else { "Send" }}
+                </button>
+            </div>
+            <p class="text-xs text-zinc-600 mt-2">"Press Enter to send, Shift+Enter for new line"</p>
+        </div>
+    }
+}
+
 fn format_timestamp(iso: &str) -> String {
-    // Simple formatting - in production would use chrono
     if let Some(time_part) = iso.split('T').nth(1) {
         if let Some(hm) = time_part.get(0..5) {
             return hm.to_string();

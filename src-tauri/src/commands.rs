@@ -35,7 +35,6 @@ use crate::core::character_gen::{CharacterGenerator, GenerationOptions, Characte
 use crate::core::npc_gen::{NPCGenerator, NPCGenerationOptions, NPC, NPCStore};
 use crate::core::credentials::CredentialManager;
 use crate::core::audio::AudioVolumes;
-use crate::ingestion::pdf_parser::PDFParser;
 use crate::core::sidecar_manager::{SidecarManager, MeilisearchConfig};
 use crate::core::search_client::SearchClient;
 use crate::core::meilisearch_pipeline::MeilisearchPipeline;
@@ -699,7 +698,7 @@ pub async fn configure_voice(
     state: State<'_, AppState>,
 ) -> Result<String, String> {
     // 1. If API keys are provided in config, save them securely and mask them in config
-    if let Some(mut elevenlabs) = config.elevenlabs.clone() {
+    if let Some(elevenlabs) = config.elevenlabs.clone() {
         if !elevenlabs.api_key.is_empty() && elevenlabs.api_key != "********" {
             state.credentials.store_secret("elevenlabs_api_key", &elevenlabs.api_key)
                 .map_err(|e| e.to_string())?;

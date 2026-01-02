@@ -22,7 +22,7 @@
 | Prefix | Type | Description |
 |--------|------|-------------|
 | `[BE]` | Backend | Rust/Tauri changes (src-tauri/) |
-| `[FE]` | Frontend | Dioxus/CSS changes (frontend/) |
+| `[FE]` | Frontend | Leptos/CSS changes (frontend/) |
 | `[REQ-XXX]` | Requirement | Links to requirements.md |
 
 **Priority**: P0 (Critical) → P1 (High) → P2 (Medium) → P3 (Nice-to-have)
@@ -155,7 +155,7 @@
 
 ---
 
-## Phase 2: Frontend Implementation (Dioxus/Rust)
+## Phase 2: Frontend Implementation (Leptos/Rust)
 
 ### Layout Architecture
 > Supports: REQ-010 (Session Workspace Layout)

@@ -2,7 +2,7 @@
 //!
 //! Predicts future LLM costs based on usage patterns.
 
-use chrono::{DateTime, Duration, Timelike, Utc};
+use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 use std::sync::RwLock;

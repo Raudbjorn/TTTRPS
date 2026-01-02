@@ -46,9 +46,7 @@ pub async fn invoke<A: Serialize, R: for<'de> Deserialize<'de>>(
     let result = invoke_raw(cmd, args_js).await;
 
     // Check if result is an error
-    if result.is_undefined() || result.is_null() {
-        return Err("Command returned null/undefined".to_string());
-    }
+
 
     serde_wasm_bindgen::from_value(result)
         .map_err(|e| format!("Failed to deserialize response: {}", e))
@@ -59,6 +57,34 @@ pub async fn invoke_no_args<R: for<'de> Deserialize<'de>>(cmd: &str) -> Result<R
     #[derive(Serialize)]
     struct Empty {}
     invoke(cmd, &Empty {}).await
+}
+
+/// Invoke a Tauri command that returns void (Result<(), String>)
+/// This handles the case where null/undefined is a valid success response
+pub async fn invoke_void<A: Serialize>(cmd: &str, args: &A) -> Result<(), String> {
+    let args_js = serde_wasm_bindgen::to_value(args)
+        .map_err(|e| format!("Failed to serialize args: {}", e))?;
+
+    let result = invoke_raw(cmd, args_js).await;
+
+    // For void commands, null/undefined means success
+    // Only check for error object with __TAURI_ERROR__ or similar patterns
+    if !result.is_null() && !result.is_undefined() {
+        // Check if it's an error response (Tauri wraps errors)
+        if let Ok(err_str) = serde_wasm_bindgen::from_value::<String>(result.clone()) {
+            if !err_str.is_empty() {
+                return Err(err_str);
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Invoke a Tauri command with no arguments that returns void
+pub async fn invoke_void_no_args(cmd: &str) -> Result<(), String> {
+    #[derive(Serialize)]
+    struct Empty {}
+    invoke_void(cmd, &Empty {}).await
 }
 
 // ============================================================================
@@ -225,17 +251,10 @@ pub struct VoiceConfig {
     pub provider: String, // Enum locally handled as string
     pub cache_dir: Option<String>,
     pub default_voice_id: Option<String>,
-    // Cloud providers
     pub elevenlabs: Option<ElevenLabsConfig>,
     pub fish_audio: Option<FishAudioConfig>,
-    pub openai: Option<OpenAIVoiceConfig>,
-    // Self-hosted providers
     pub ollama: Option<OllamaConfig>,
-    pub chatterbox: Option<ChatterboxConfig>,
-    pub gpt_sovits: Option<GptSoVitsConfig>,
-    pub xtts_v2: Option<XttsV2Config>,
-    pub fish_speech: Option<FishSpeechConfig>,
-    pub dia: Option<DiaConfig>,
+    pub openai: Option<OpenAIVoiceConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -261,61 +280,6 @@ pub struct OpenAIVoiceConfig {
     pub api_key: String,
     pub model: String,
     pub voice: String,
-}
-
-// Self-hosted TTS provider configs
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ChatterboxConfig {
-    pub base_url: String,
-    pub reference_audio: Option<String>,
-    pub exaggeration: Option<f32>,
-    pub cfg_weight: Option<f32>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GptSoVitsConfig {
-    pub base_url: String,
-    pub reference_audio: Option<String>,
-    pub reference_text: Option<String>,
-    pub language: Option<String>,
-    pub speaker_id: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct XttsV2Config {
-    pub base_url: String,
-    pub speaker_wav: Option<String>,
-    pub language: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FishSpeechConfig {
-    pub base_url: String,
-    pub reference_audio: Option<String>,
-    pub reference_text: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DiaConfig {
-    pub base_url: String,
-    pub voice_id: Option<String>,
-    pub dialogue_mode: Option<bool>,
-}
-
-// Provider detection types
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ProviderStatus {
-    pub provider: String,
-    pub available: bool,
-    pub endpoint: Option<String>,
-    pub version: Option<String>,
-    pub error: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct VoiceProviderDetection {
-    pub providers: Vec<ProviderStatus>,
-    pub detected_at: Option<String>,
 }
 
 /// Voice information from a TTS provider
@@ -458,12 +422,6 @@ pub async fn get_voice_config() -> Result<VoiceConfig, String> {
     invoke_no_args("get_voice_config").await
 }
 
-/// Detect available self-hosted voice providers on the local system.
-/// Cloud providers (ElevenLabs, OpenAI, FishAudio) require API keys and are not detected here.
-pub async fn detect_voice_providers() -> Result<VoiceProviderDetection, String> {
-    invoke_no_args("detect_voice_providers").await
-}
-
 pub async fn get_vector_store_status() -> Result<String, String> {
     invoke("get_vector_store_status", &()).await
 }
@@ -473,7 +431,7 @@ pub async fn speak(text: String) -> Result<(), String> {
     struct Args {
         text: String,
     }
-    invoke("speak", &Args { text }).await
+    invoke_void("speak", &Args { text }).await
 }
 
 // ============================================================================
@@ -486,7 +444,7 @@ pub async fn save_api_key(provider: String, api_key: String) -> Result<(), Strin
         provider: String,
         api_key: String,
     }
-    invoke("save_api_key", &Args { provider, api_key }).await
+    invoke_void("save_api_key", &Args { provider, api_key }).await
 }
 
 pub async fn get_api_key(provider: String) -> Result<Option<String>, String> {
@@ -566,6 +524,8 @@ pub struct Campaign {
     pub settings: CampaignSettings,
 }
 
+pub type ThemeWeights = std::collections::HashMap<String, f32>;
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct CampaignStats {
     pub session_count: usize,
@@ -577,8 +537,9 @@ pub struct CampaignStats {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct CampaignSettings {
     pub theme: String,
-    #[serde(default)]
-    pub theme_weights: ThemeWeights,
+    pub theme_weights: std::collections::HashMap<String, f32>,
+    pub voice_enabled: bool,
+    pub auto_transcribe: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -587,27 +548,6 @@ pub struct SnapshotSummary {
     pub description: String,
     pub created_at: String,
     pub snapshot_type: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ThemeWeights {
-    pub fantasy: f32,
-    pub cosmic: f32,
-    pub terminal: f32,
-    pub noir: f32,
-    pub neon: f32,
-}
-
-impl Default for ThemeWeights {
-    fn default() -> Self {
-        Self {
-            fantasy: 1.0,
-            cosmic: 0.0,
-            terminal: 0.0,
-            noir: 0.0,
-            neon: 0.0,
-        }
-    }
 }
 
 // ============================================================================
@@ -632,7 +572,7 @@ pub async fn get_campaign(id: String) -> Result<Option<Campaign>, String> {
 }
 
 pub async fn delete_campaign(id: String) -> Result<(), String> {
-    invoke("delete_campaign", &json!({ "id": id })).await
+    invoke_void("delete_campaign", &json!({ "id": id })).await
 }
 
 pub async fn get_campaign_theme(campaign_id: String) -> Result<ThemeWeights, String> {
@@ -645,7 +585,7 @@ pub async fn set_campaign_theme(campaign_id: String, weights: ThemeWeights) -> R
         campaign_id: String,
         weights: ThemeWeights,
     }
-    invoke("set_campaign_theme", &Args { campaign_id, weights }).await
+    invoke_void("set_campaign_theme", &Args { campaign_id, weights }).await
 }
 
 pub async fn get_theme_preset(system: String) -> Result<ThemeWeights, String> {
@@ -679,7 +619,7 @@ pub async fn restore_snapshot(campaign_id: String, snapshot_id: String) -> Resul
         campaign_id: String,
         snapshot_id: String,
     }
-    invoke("restore_snapshot", &Args { campaign_id, snapshot_id }).await
+    invoke_void("restore_snapshot", &Args { campaign_id, snapshot_id }).await
 }
 
 pub async fn get_campaign_stats(campaign_id: String) -> Result<CampaignStats, String> {
@@ -799,7 +739,7 @@ pub async fn reorder_session(session_id: String, new_order: i32) -> Result<(), S
         session_id: String,
         new_order: i32,
     }
-    invoke("reorder_session", &Args { session_id, new_order }).await
+    invoke_void("reorder_session", &Args { session_id, new_order }).await
 }
 
 // ============================================================================
@@ -819,7 +759,7 @@ pub async fn end_combat(session_id: String) -> Result<(), String> {
     struct Args {
         session_id: String,
     }
-    invoke("end_combat", &Args { session_id }).await
+    invoke_void("end_combat", &Args { session_id }).await
 }
 
 pub async fn get_combat(session_id: String) -> Result<Option<CombatState>, String> {
@@ -852,7 +792,7 @@ pub async fn remove_combatant(session_id: String, combatant_id: String) -> Resul
         session_id: String,
         combatant_id: String,
     }
-    invoke("remove_combatant", &Args { session_id, combatant_id }).await
+    invoke_void("remove_combatant", &Args { session_id, combatant_id }).await
 }
 
 pub async fn next_turn(session_id: String) -> Result<Option<Combatant>, String> {
@@ -890,7 +830,7 @@ pub async fn add_condition(session_id: String, combatant_id: String, condition_n
         combatant_id: String,
         condition_name: String,
     }
-    invoke("add_condition", &Args { session_id, combatant_id, condition_name }).await
+    invoke_void("add_condition", &Args { session_id, combatant_id, condition_name }).await
 }
 
 pub async fn remove_condition(session_id: String, combatant_id: String, condition_name: String) -> Result<(), String> {
@@ -900,7 +840,7 @@ pub async fn remove_condition(session_id: String, combatant_id: String, conditio
         combatant_id: String,
         condition_name: String,
     }
-    invoke("remove_condition", &Args { session_id, combatant_id, condition_name }).await
+    invoke_void("remove_condition", &Args { session_id, combatant_id, condition_name }).await
 }
 
 // ============================================================================
@@ -1073,7 +1013,7 @@ pub async fn get_session_usage() -> Result<SessionUsage, String> {
 }
 
 pub async fn reset_usage_stats() -> Result<(), String> {
-    invoke_no_args("reset_usage_stats").await
+    invoke_void_no_args("reset_usage_stats").await
 }
 
 // ============================================================================
@@ -1137,7 +1077,7 @@ pub async fn mark_npc_read(npc_id: String) -> Result<(), String> {
     struct Args {
         npc_id: String,
     }
-    invoke("mark_npc_read", &Args { npc_id }).await
+    invoke_void("mark_npc_read", &Args { npc_id }).await
 }
 
 // ============================================================================
@@ -1151,7 +1091,6 @@ pub struct NPC {
     pub role: String, // Stringified enum
     pub appearance: AppearanceDescription,
     pub personality: NPCPersonality,
-    pub personality_id: Option<String>,
     pub voice: VoiceDescription,
     pub stats: Option<Character>,
     pub relationships: Vec<NPCRelationship>,
@@ -1228,7 +1167,7 @@ pub struct NPCGenerationOptions {
     pub include_secrets: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NpcSummary {
     pub id: String,
     pub name: String,
@@ -1274,7 +1213,7 @@ pub async fn update_npc(npc: NPC) -> Result<(), String> {
     struct Args {
         npc: NPC,
     }
-    invoke("update_npc", &Args { npc }).await
+    invoke_void("update_npc", &Args { npc }).await
 }
 
 pub async fn delete_npc(id: String) -> Result<(), String> {
@@ -1282,7 +1221,7 @@ pub async fn delete_npc(id: String) -> Result<(), String> {
     struct Args {
         id: String,
     }
-    invoke("delete_npc", &Args { id }).await
+    invoke_void("delete_npc", &Args { id }).await
 }
 
 pub async fn list_npc_summaries(campaign_id: String) -> Result<Vec<NpcSummary>, String> {
@@ -1302,25 +1241,32 @@ pub async fn reply_as_npc(npc_id: String) -> Result<ConversationMessage, String>
 }
 
 // ============================================================================
-// Voice Queue Types and Commands
+// Voice Queue Types
 // ============================================================================
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum VoiceStatus {
-    Pending,
-    Processing,
+    Queued,
     Playing,
     Completed,
-    Failed(String),
+    Failed,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct QueuedVoice {
     pub id: String,
     pub text: String,
-    pub voice_id: String,
+    pub voice_id: Option<String>,
     pub status: VoiceStatus,
     pub created_at: String,
+}
+
+// ============================================================================
+// Voice Queue Commands
+// ============================================================================
+
+pub async fn get_voice_queue() -> Result<Vec<QueuedVoice>, String> {
+    invoke_no_args("get_voice_queue").await
 }
 
 pub async fn queue_voice(text: String, voice_id: Option<String>) -> Result<QueuedVoice, String> {
@@ -1330,16 +1276,4 @@ pub async fn queue_voice(text: String, voice_id: Option<String>) -> Result<Queue
         voice_id: Option<String>,
     }
     invoke("queue_voice", &Args { text, voice_id }).await
-}
-
-pub async fn get_voice_queue() -> Result<Vec<QueuedVoice>, String> {
-    invoke_no_args("get_voice_queue").await
-}
-
-pub async fn cancel_voice(queue_id: String) -> Result<(), String> {
-    #[derive(Serialize)]
-    struct Args {
-        queue_id: String,
-    }
-    invoke("cancel_voice", &Args { queue_id }).await
 }

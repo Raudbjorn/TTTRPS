@@ -6,7 +6,7 @@
 
 use async_trait::async_trait;
 use reqwest::Client;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 use super::VoiceProvider;
 use crate::core::voice::types::{

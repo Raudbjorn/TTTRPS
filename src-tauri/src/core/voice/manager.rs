@@ -8,7 +8,6 @@ use crate::core::voice::providers::{
     ChatterboxProvider, GptSoVitsProvider, XttsV2Provider, FishSpeechProvider, DiaProvider,
 };
 
-
 use rodio::{Decoder, OutputStream, Sink};
 use std::io::Cursor;
 

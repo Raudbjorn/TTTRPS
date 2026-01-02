@@ -266,6 +266,7 @@ impl LLMRouter {
     }
 
     /// Get the next available provider
+    #[allow(dead_code)]
     fn get_available_provider(&self) -> Option<(String, LLMConfig)> {
         for (name, config) in &self.providers {
             if self.is_provider_available(name) {

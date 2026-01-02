@@ -662,7 +662,7 @@ Respond with a JSON object containing:
         fears[rng.gen_range(0..fears.len())].to_string()
     }
 
-    fn generate_voice(&self, rng: &mut impl Rng, personality: &NPCPersonality) -> VoiceDescription {
+    fn generate_voice(&self, rng: &mut impl Rng, _personality: &NPCPersonality) -> VoiceDescription {
         let pitches = ["Low", "Medium", "High", "Gravelly", "Melodic"];
         let paces = ["Slow", "Normal", "Fast", "Halting", "Measured"];
         let accents = [
