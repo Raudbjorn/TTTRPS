@@ -419,6 +419,7 @@ fn main() {
             commands::get_claude_code_status,
             commands::claude_code_login,
             commands::claude_code_logout,
+            commands::claude_code_install_skill,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

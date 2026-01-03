@@ -263,6 +263,11 @@ impl ClaudeCodeProvider {
 
     /// Get full status of Claude Code CLI (installed, logged in, version)
     pub async fn get_status() -> ClaudeCodeStatus {
+        // Check if skill is installed
+        let skill_installed = Self::skill_path()
+            .map(|p| p.exists())
+            .unwrap_or(false);
+
         // Check if binary exists
         let binary = match which::which("claude") {
             Ok(b) => b,
@@ -270,6 +275,7 @@ impl ClaudeCodeProvider {
                 return ClaudeCodeStatus {
                     installed: false,
                     logged_in: false,
+                    skill_installed,
                     version: None,
                     user_email: None,
                     error: Some("Claude Code CLI not installed".to_string()),
@@ -310,6 +316,7 @@ impl ClaudeCodeProvider {
                     ClaudeCodeStatus {
                         installed: true,
                         logged_in: true,
+                        skill_installed,
                         version,
                         user_email,
                         error: None,
@@ -327,6 +334,7 @@ impl ClaudeCodeProvider {
                     ClaudeCodeStatus {
                         installed: true,
                         logged_in: false,
+                        skill_installed,
                         version,
                         user_email: None,
                         error: Some(error_msg),
@@ -336,11 +344,17 @@ impl ClaudeCodeProvider {
             Err(e) => ClaudeCodeStatus {
                 installed: true,
                 logged_in: false,
+                skill_installed,
                 version,
                 user_email: None,
                 error: Some(format!("Failed to check auth status: {}", e)),
             },
         }
+    }
+
+    /// Get the path to the skill file
+    fn skill_path() -> Option<std::path::PathBuf> {
+        dirs::home_dir().map(|h| h.join(".claude").join("commands").join("claude-code-bridge.md"))
     }
 
     /// Spawn the Claude Code login flow (opens browser)
@@ -379,7 +393,91 @@ impl ClaudeCodeProvider {
             Err("Logout failed".to_string())
         }
     }
+
+    /// Install the claude-code-bridge skill to ~/.claude/commands/
+    pub async fn install_skill() -> std::result::Result<(), String> {
+        let skill_path = Self::skill_path()
+            .ok_or("Could not determine home directory")?;
+
+        // Create the commands directory if it doesn't exist
+        if let Some(parent) = skill_path.parent() {
+            tokio::fs::create_dir_all(parent)
+                .await
+                .map_err(|e| format!("Failed to create commands directory: {}", e))?;
+        }
+
+        // Write the skill file
+        tokio::fs::write(&skill_path, CLAUDE_CODE_BRIDGE_SKILL)
+            .await
+            .map_err(|e| format!("Failed to write skill file: {}", e))?;
+
+        info!("Installed claude-code-bridge skill to {:?}", skill_path);
+        Ok(())
+    }
 }
+
+/// The claude-code-bridge skill content
+const CLAUDE_CODE_BRIDGE_SKILL: &str = r#"---
+name: claude-code-bridge
+description: Integrate with Claude Code CLI for delegating complex coding tasks. Use when you need to spawn a separate Claude Code instance to work on files, run tests, or perform multi-step coding operations in a specific directory. Enables "Claude calling Claude" patterns for parallel work or specialized contexts.
+---
+
+# Claude Code Bridge
+
+Delegate coding tasks to Claude Code CLI from any context.
+
+## When to Use
+
+- **Parallel Work**: Spawn Claude Code to work on a subtask while you continue
+- **Different Context**: Need Claude Code's file access in a specific directory
+- **Specialized Tasks**: Let Claude Code handle complex refactoring, testing, or debugging
+- **Isolation**: Keep risky operations in a separate session
+
+## Usage Patterns
+
+### Via MCP Server (Recommended)
+
+If the `claude-code-mcp` server is configured, use the MCP tools:
+
+```
+Use claude_prompt to ask Claude Code: "Refactor the authentication module to use JWT"
+```
+
+Tools available:
+- `claude_prompt` - Send a prompt to Claude Code
+- `claude_continue` - Continue most recent conversation
+- `claude_resume` - Resume a specific session by ID
+- `claude_version` - Get version info
+
+### Via CLI (Direct)
+
+Execute Claude Code directly:
+
+```bash
+# Single prompt
+claude -p "List all TODO comments in this project" --output-format json
+
+# Continue conversation
+claude -p "Now fix the first TODO" --continue
+
+# Resume specific session
+claude -p "What files did we modify?" --resume <session-id>
+```
+
+## Best Practices
+
+1. **Specify Working Directory**: Always set `working_dir` to give Claude Code proper context
+2. **Use Descriptive Prompts**: Be specific about what you want done
+3. **Capture Session IDs**: Save session IDs from responses to resume conversations
+4. **Set Timeouts**: Complex tasks may need longer timeouts (default: 5 min)
+5. **Check Results**: Verify Claude Code's output before proceeding
+
+## Error Handling
+
+- **Not Found**: Ensure Claude Code is installed (`npm install -g @anthropic-ai/claude-code`)
+- **Timeout**: Increase `timeout_secs` for complex tasks
+- **Permission Denied**: Claude Code may need approval for file writes
+"#;
 
 /// Status of Claude Code CLI installation and authentication
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -388,6 +486,8 @@ pub struct ClaudeCodeStatus {
     pub installed: bool,
     /// Whether the user is logged in
     pub logged_in: bool,
+    /// Whether the claude-code-bridge skill is installed
+    pub skill_installed: bool,
     /// CLI version if available
     pub version: Option<String>,
     /// User email if logged in

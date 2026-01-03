@@ -445,6 +445,8 @@ pub struct ClaudeCodeStatus {
     pub installed: bool,
     /// Whether the user is logged in
     pub logged_in: bool,
+    /// Whether the claude-code-bridge skill is installed
+    pub skill_installed: bool,
     /// CLI version if available
     pub version: Option<String>,
     /// User email if logged in
@@ -466,6 +468,11 @@ pub async fn claude_code_login() -> Result<(), String> {
 /// Logout from Claude Code
 pub async fn claude_code_logout() -> Result<(), String> {
     invoke_void_no_args("claude_code_logout").await
+}
+
+/// Install the claude-code-bridge skill to Claude Code
+pub async fn claude_code_install_skill() -> Result<(), String> {
+    invoke_void_no_args("claude_code_install_skill").await
 }
 
 // ============================================================================

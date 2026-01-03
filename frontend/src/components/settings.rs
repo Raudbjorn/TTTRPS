@@ -17,7 +17,7 @@ use crate::bindings::{
     get_audio_cache_stats, get_audio_cache_size, clear_audio_cache, prune_audio_cache,
     VoiceCacheStats, AudioCacheSizeInfo, format_bytes,
     // Claude Code CLI imports
-    ClaudeCodeStatus, get_claude_code_status, claude_code_login,
+    ClaudeCodeStatus, get_claude_code_status, claude_code_login, claude_code_install_skill,
 };
 use crate::components::design_system::{Badge, BadgeVariant, Button, ButtonVariant, Card, CardBody, CardHeader, Input, Select, Slider};
 use crate::services::theme_service::{ThemeState, ThemeWeights};
@@ -185,6 +185,7 @@ pub fn Settings() -> impl IntoView {
     // Claude Code CLI status
     let claude_code_status = RwSignal::new(ClaudeCodeStatus::default());
     let is_claude_code_logging_in = RwSignal::new(false);
+    let is_claude_code_installing = RwSignal::new(false);
 
     // Theme state
     let theme_state = expect_context::<ThemeState>();
@@ -715,6 +716,28 @@ pub fn Settings() -> impl IntoView {
         });
     };
 
+    // Handle Claude Code skill install
+    let on_claude_code_install_skill = move |_: ev::MouseEvent| {
+        is_claude_code_installing.set(true);
+        spawn_local(async move {
+            match claude_code_install_skill().await {
+                Ok(()) => {
+                    // Refresh status after install
+                    if let Ok(status) = get_claude_code_status().await {
+                        claude_code_status.set(status);
+                    }
+                }
+                Err(e) => {
+                    // Update status to show error
+                    let mut status = claude_code_status.get();
+                    status.error = Some(format!("Skill installation failed: {}", e));
+                    claude_code_status.set(status);
+                }
+            }
+            is_claude_code_installing.set(false);
+        });
+    };
+
     // Handle voice provider change
     let on_voice_provider_change = move |val: String| {
         selected_voice_provider.set(val.clone());
@@ -881,6 +904,7 @@ pub fn Settings() -> impl IntoView {
                                 {move || {
                                     let status = claude_code_status.get();
                                     if !status.installed {
+                                        // CLI not installed - show manual install instructions
                                         view! {
                                             <div class="space-y-2">
                                                 <div class="flex items-center gap-2 text-amber-500">
@@ -894,13 +918,14 @@ pub fn Settings() -> impl IntoView {
                                             </div>
                                         }.into_any()
                                     } else if !status.logged_in {
+                                        // CLI installed but not logged in
                                         view! {
                                             <div class="space-y-3">
                                                 <div class="flex items-center gap-2 text-amber-500">
                                                     <span class="text-lg">"!"</span>
                                                     <span class="font-medium">"Not logged in to Claude Code"</span>
                                                 </div>
-                                                {status.version.map(|v| view! {
+                                                {status.version.clone().map(|v| view! {
                                                     <p class="text-xs text-theme-secondary">"Version: " {v}</p>
                                                 })}
                                                 <Button
@@ -914,24 +939,53 @@ pub fn Settings() -> impl IntoView {
                                                         "Login with Claude Code"
                                                     }}
                                                 </Button>
-                                                {status.error.map(|e| view! {
+                                                {status.error.clone().map(|e| view! {
+                                                    <p class="text-xs text-red-400">{e}</p>
+                                                })}
+                                            </div>
+                                        }.into_any()
+                                    } else if !status.skill_installed {
+                                        // Logged in but skill not installed
+                                        view! {
+                                            <div class="space-y-3">
+                                                <div class="flex items-center gap-2 text-amber-500">
+                                                    <span class="text-lg">"!"</span>
+                                                    <span class="font-medium">"Bridge skill not installed"</span>
+                                                </div>
+                                                <p class="text-sm text-theme-secondary">
+                                                    "Install the claude-code-bridge skill to enable Claude-calling-Claude patterns."
+                                                </p>
+                                                <Button
+                                                    variant=ButtonVariant::Primary
+                                                    on_click=on_claude_code_install_skill
+                                                    disabled=is_claude_code_installing.get()
+                                                >
+                                                    {move || if is_claude_code_installing.get() {
+                                                        "Installing..."
+                                                    } else {
+                                                        "Install Bridge Skill"
+                                                    }}
+                                                </Button>
+                                                {status.error.clone().map(|e| view! {
                                                     <p class="text-xs text-red-400">{e}</p>
                                                 })}
                                             </div>
                                         }.into_any()
                                     } else {
+                                        // Fully configured
                                         view! {
                                             <div class="space-y-1">
                                                 <div class="flex items-center gap-2 text-green-500">
                                                     <span class="text-lg">"*"</span>
                                                     <span class="font-medium">"Connected to Claude Code"</span>
                                                 </div>
-                                                {status.user_email.map(|email| view! {
+                                                {status.user_email.clone().map(|email| view! {
                                                     <p class="text-sm text-theme-secondary">"Logged in as: " {email}</p>
                                                 })}
-                                                {status.version.map(|v| view! {
+                                                {status.version.clone().map(|v| view! {
                                                     <p class="text-xs text-theme-secondary">"Version: " {v}</p>
                                                 })}
+                                                <p class="text-xs text-green-400">"Bridge skill installed"</p>
                                             </div>
                                         }.into_any()
                                     }

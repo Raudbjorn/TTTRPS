@@ -5651,3 +5651,9 @@ pub async fn claude_code_login() -> Result<(), String> {
 pub async fn claude_code_logout() -> Result<(), String> {
     crate::core::llm::providers::ClaudeCodeProvider::logout().await
 }
+
+/// Install the claude-code-bridge skill to Claude Code.
+#[tauri::command]
+pub async fn claude_code_install_skill() -> Result<(), String> {
+    crate::core::llm::providers::ClaudeCodeProvider::install_skill().await
+}
