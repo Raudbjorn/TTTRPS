@@ -23,6 +23,27 @@ use crate::components::design_system::{Badge, BadgeVariant, Button, ButtonVarian
 use crate::services::theme_service::{ThemeState, ThemeWeights};
 
 // ============================================================================
+// Helper Functions
+// ============================================================================
+
+/// Returns the static model list for Gemini CLI provider.
+/// These are the models available via the gemini CLI without API key.
+fn get_gemini_cli_models() -> Vec<ModelInfo> {
+    vec![
+        ModelInfo {
+            id: "gemini-2.5-pro".to_string(),
+            name: "Gemini 2.5 Pro".to_string(),
+            description: Some("1M token context, best for complex tasks".to_string()),
+        },
+        ModelInfo {
+            id: "gemini-2.5-flash".to_string(),
+            name: "Gemini 2.5 Flash".to_string(),
+            description: Some("Fast responses, good for quick tasks".to_string()),
+        },
+    ]
+}
+
+// ============================================================================
 // LLM Provider Enum
 // ============================================================================
 
@@ -32,6 +53,7 @@ pub enum LLMProvider {
     Claude,
     ClaudeCode,
     Gemini,
+    GeminiCli,
     OpenAI,
     OpenRouter,
     Mistral,
@@ -48,6 +70,7 @@ impl std::fmt::Display for LLMProvider {
             LLMProvider::Claude => write!(f, "Claude (Anthropic)"),
             LLMProvider::ClaudeCode => write!(f, "Claude Code (CLI)"),
             LLMProvider::Gemini => write!(f, "Gemini (Google)"),
+            LLMProvider::GeminiCli => write!(f, "Gemini CLI (Free)"),
             LLMProvider::OpenAI => write!(f, "OpenAI"),
             LLMProvider::OpenRouter => write!(f, "OpenRouter (400+ models)"),
             LLMProvider::Mistral => write!(f, "Mistral AI"),
@@ -66,6 +89,7 @@ impl LLMProvider {
             LLMProvider::Claude => "claude".to_string(),
             LLMProvider::ClaudeCode => "claude-code".to_string(),
             LLMProvider::Gemini => "gemini".to_string(),
+            LLMProvider::GeminiCli => "gemini-cli".to_string(),
             LLMProvider::OpenAI => "openai".to_string(),
             LLMProvider::OpenRouter => "openrouter".to_string(),
             LLMProvider::Mistral => "mistral".to_string(),
@@ -81,6 +105,7 @@ impl LLMProvider {
             "Claude" | "claude" => LLMProvider::Claude,
             "ClaudeCode" | "claude-code" => LLMProvider::ClaudeCode,
             "Gemini" | "gemini" => LLMProvider::Gemini,
+            "GeminiCli" | "gemini-cli" => LLMProvider::GeminiCli,
             "OpenAI" | "openai" => LLMProvider::OpenAI,
             "OpenRouter" | "openrouter" => LLMProvider::OpenRouter,
             "Mistral" | "mistral" => LLMProvider::Mistral,
@@ -94,7 +119,7 @@ impl LLMProvider {
 
     #[allow(dead_code)]
     fn requires_api_key(&self) -> bool {
-        !matches!(self, LLMProvider::Ollama | LLMProvider::ClaudeCode)
+        !matches!(self, LLMProvider::Ollama | LLMProvider::ClaudeCode | LLMProvider::GeminiCli)
     }
 
     fn placeholder_text(&self) -> &'static str {
@@ -103,6 +128,7 @@ impl LLMProvider {
             LLMProvider::Claude => "sk-ant-...",
             LLMProvider::ClaudeCode => "(No API key needed)",
             LLMProvider::Gemini => "AIza...",
+            LLMProvider::GeminiCli => "Not required (uses Google account)",
             LLMProvider::OpenAI => "sk-...",
             LLMProvider::OpenRouter => "sk-or-...",
             LLMProvider::Mistral => "API Key",
@@ -119,6 +145,7 @@ impl LLMProvider {
             LLMProvider::Claude => "Claude API Key",
             LLMProvider::ClaudeCode => "Claude Code Status",
             LLMProvider::Gemini => "Gemini API Key",
+            LLMProvider::GeminiCli => "Gemini CLI Status",
             LLMProvider::OpenAI => "OpenAI API Key",
             LLMProvider::OpenRouter => "OpenRouter API Key",
             LLMProvider::Mistral => "Mistral API Key",
@@ -135,6 +162,7 @@ impl LLMProvider {
             LLMProvider::Claude => "claude-3-5-sonnet-20241022",
             LLMProvider::ClaudeCode => "claude-sonnet-4-20250514",
             LLMProvider::Gemini => "gemini-1.5-pro",
+            LLMProvider::GeminiCli => "gemini-2.5-pro",
             LLMProvider::OpenAI => "gpt-4o",
             LLMProvider::OpenRouter => "openai/gpt-4o",
             LLMProvider::Mistral => "mistral-large-latest",
@@ -241,6 +269,7 @@ pub fn Settings() -> impl IntoView {
                     LLMProvider::Claude => "Claude".to_string(),
                     LLMProvider::ClaudeCode => "ClaudeCode".to_string(),
                     LLMProvider::Gemini => "Gemini".to_string(),
+                    LLMProvider::GeminiCli => "GeminiCli".to_string(),
                     LLMProvider::OpenAI => "OpenAI".to_string(),
                     LLMProvider::OpenRouter => "OpenRouter".to_string(),
                     LLMProvider::Mistral => "Mistral".to_string(),
@@ -272,6 +301,11 @@ pub fn Settings() -> impl IntoView {
                         if let Ok(models) = list_gemini_models(None).await {
                             cloud_models.set(models);
                         }
+                    }
+                    LLMProvider::GeminiCli => {
+                        // No API key needed - uses Google account auth
+                        api_key_or_host.set("Authenticated via Google account".to_string());
+                        cloud_models.set(get_gemini_cli_models());
                     }
                     LLMProvider::OpenAI => {
                         api_key_or_host.set(String::new());
@@ -394,6 +428,7 @@ pub fn Settings() -> impl IntoView {
                 LLMProvider::Claude => list_claude_models(api_key).await.unwrap_or_default(),
                 LLMProvider::OpenAI => list_openai_models(api_key).await.unwrap_or_default(),
                 LLMProvider::Gemini => list_gemini_models(api_key).await.unwrap_or_default(),
+                LLMProvider::GeminiCli => get_gemini_cli_models(),
                 LLMProvider::OpenRouter => list_openrouter_models().await.unwrap_or_default(),
                 LLMProvider::Mistral
                 | LLMProvider::Groq
@@ -519,6 +554,16 @@ pub fn Settings() -> impl IntoView {
                         } else {
                             Some(api_key_or_host_val)
                         },
+                        host: None,
+                        model,
+                        embedding_model: None,
+                    }
+                }
+                "gemini-cli" => {
+                    // No API key needed for Gemini CLI - uses Google account auth
+                    LLMSettings {
+                        provider: "gemini-cli".to_string(),
+                        api_key: None,
                         host: None,
                         model,
                         embedding_model: None,
@@ -686,6 +731,12 @@ pub fn Settings() -> impl IntoView {
                 api_key_or_host.set(String::new());
                 model_name.set(provider.default_model().to_string());
             }
+            LLMProvider::GeminiCli => {
+                // No API key needed - uses Google account auth
+                api_key_or_host.set("Authenticated via Google account".to_string());
+                model_name.set(provider.default_model().to_string());
+                fetch_cloud_models(provider, None);
+            }
             _ => {
                 api_key_or_host.set(String::new());
                 model_name.set(provider.default_model().to_string());
@@ -809,7 +860,7 @@ pub fn Settings() -> impl IntoView {
     let placeholder_text = move || selected_provider.get().placeholder_text();
     let label_text = move || selected_provider.get().label_text();
     let input_type = move || {
-        if matches!(selected_provider.get(), LLMProvider::Ollama | LLMProvider::ClaudeCode) {
+        if matches!(selected_provider.get(), LLMProvider::Ollama | LLMProvider::ClaudeCode | LLMProvider::GeminiCli) {
             "text"
         } else {
             "password"
@@ -879,6 +930,9 @@ pub fn Settings() -> impl IntoView {
                                 </option>
                                 <option value="Gemini" selected=move || matches!(selected_provider.get(), LLMProvider::Gemini)>
                                     "Gemini (Google)"
+                                </option>
+                                <option value="GeminiCli" selected=move || matches!(selected_provider.get(), LLMProvider::GeminiCli)>
+                                    "Gemini CLI (Free)"
                                 </option>
                                 <option value="Mistral" selected=move || matches!(selected_provider.get(), LLMProvider::Mistral)>
                                     "Mistral AI"

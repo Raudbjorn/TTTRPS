@@ -325,7 +325,7 @@ pub async fn chat(
             LLMConfig::Together { api_key, .. } => api_key.clone(),
             LLMConfig::Cohere { api_key, .. } => api_key.clone(),
             LLMConfig::DeepSeek { api_key, .. } => api_key.clone(),
-            LLMConfig::Ollama { .. } | LLMConfig::ClaudeDesktop { .. } | LLMConfig::ClaudeCode { .. } => String::new(),
+            LLMConfig::Ollama { .. } | LLMConfig::ClaudeDesktop { .. } | LLMConfig::ClaudeCode { .. } | LLMConfig::GeminiCli { .. } => String::new(),
         };
 
         let model = match &config {
@@ -341,6 +341,7 @@ pub async fn chat(
             LLMConfig::Ollama { model, .. } => model.clone(),
             LLMConfig::ClaudeDesktop { .. } => "claude-desktop".to_string(),
             LLMConfig::ClaudeCode { model, .. } => model.clone().unwrap_or_else(|| "claude-code".to_string()),
+            LLMConfig::GeminiCli { model, .. } => model.clone(),
         };
 
         // Initialize the DM chat workspace (idempotent)
@@ -528,6 +529,13 @@ pub fn get_llm_config(state: State<'_, AppState>) -> Result<Option<LLMSettings>,
             api_key: None, // No API key needed - uses Claude Code auth
             host: None,
             model: model.clone().unwrap_or_else(|| "claude-code".to_string()),
+            embedding_model: None,
+        },
+        LLMConfig::GeminiCli { model, .. } => LLMSettings {
+            provider: "gemini-cli".to_string(),
+            api_key: None, // No API key needed - uses Google account auth
+            host: None,
+            model: model.clone(),
             embedding_model: None,
         },
     }))
@@ -2353,7 +2361,8 @@ pub async fn speak(text: String, state: State<'_, AppState>) -> Result<(), Strin
                 LLMConfig::Cohere { .. } |
                 LLMConfig::DeepSeek { .. } |
                 LLMConfig::ClaudeDesktop { .. } |
-                LLMConfig::ClaudeCode { .. } => VoiceConfig::default(),
+                LLMConfig::ClaudeCode { .. } |
+                LLMConfig::GeminiCli { .. } => VoiceConfig::default(),
             }
         } else {
              VoiceConfig::default()
@@ -5656,6 +5665,84 @@ pub async fn claude_code_logout() -> Result<(), String> {
 #[tauri::command]
 pub async fn claude_code_install_skill() -> Result<(), String> {
     crate::core::llm::providers::ClaudeCodeProvider::install_skill().await
+}
+
+// ============================================================================
+// Gemini CLI Status and Extension Commands
+// ============================================================================
+
+/// Status of Gemini CLI installation and authentication.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GeminiCliStatus {
+    pub is_installed: bool,
+    pub is_authenticated: bool,
+    pub message: String,
+}
+
+/// Status of Gemini CLI extension installation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GeminiCliExtensionStatus {
+    pub is_installed: bool,
+    pub message: String,
+}
+
+/// Check Gemini CLI installation and authentication status.
+#[tauri::command]
+pub async fn check_gemini_cli_status() -> GeminiCliStatus {
+    use crate::core::llm::providers::GeminiCliProvider;
+
+    let (is_installed, is_authenticated, message) = GeminiCliProvider::check_status().await;
+    GeminiCliStatus {
+        is_installed,
+        is_authenticated,
+        message,
+    }
+}
+
+/// Launch Gemini CLI for authentication.
+#[tauri::command]
+pub fn launch_gemini_cli_login() -> Result<(), String> {
+    use crate::core::llm::providers::GeminiCliProvider;
+
+    GeminiCliProvider::launch_login()
+        .map(|_| ())
+        .map_err(|e| format!("Failed to launch Gemini CLI: {}", e))
+}
+
+/// Check if the Sidecar DM extension is installed.
+#[tauri::command]
+pub async fn check_gemini_cli_extension() -> GeminiCliExtensionStatus {
+    use crate::core::llm::providers::GeminiCliProvider;
+
+    let (is_installed, message) = GeminiCliProvider::check_extension_status().await;
+    GeminiCliExtensionStatus {
+        is_installed,
+        message,
+    }
+}
+
+/// Install the Sidecar DM extension from a source (git URL or local path).
+#[tauri::command]
+pub async fn install_gemini_cli_extension(source: String) -> Result<String, String> {
+    use crate::core::llm::providers::GeminiCliProvider;
+
+    GeminiCliProvider::install_extension(&source).await
+}
+
+/// Link a local extension directory for development.
+#[tauri::command]
+pub async fn link_gemini_cli_extension(path: String) -> Result<String, String> {
+    use crate::core::llm::providers::GeminiCliProvider;
+
+    GeminiCliProvider::link_extension(&path).await
+}
+
+/// Uninstall the Sidecar DM extension.
+#[tauri::command]
+pub async fn uninstall_gemini_cli_extension() -> Result<String, String> {
+    use crate::core::llm::providers::GeminiCliProvider;
+
+    GeminiCliProvider::uninstall_extension().await
 }
 
 // ============================================================================

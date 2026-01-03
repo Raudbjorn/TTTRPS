@@ -9,6 +9,7 @@ mod claude_code;
 mod claude_desktop;
 mod openai;
 mod gemini;
+mod gemini_cli;
 mod openrouter;
 mod mistral;
 mod groq;
@@ -22,6 +23,7 @@ pub use claude_code::{ClaudeCodeProvider, ClaudeCodeStatus};
 pub use claude_desktop::ClaudeDesktopProvider;
 pub use openai::OpenAIProvider;
 pub use gemini::GeminiProvider;
+pub use gemini_cli::GeminiCliProvider;
 pub use openrouter::OpenRouterProvider;
 pub use mistral::MistralProvider;
 pub use groq::GroqProvider;
@@ -90,6 +92,11 @@ pub enum ProviderConfig {
         model: Option<String>,      // Optional model override
         working_dir: Option<String>, // Optional working directory
     },
+    /// Gemini CLI (no API key needed, uses Google account auth)
+    GeminiCli {
+        model: String,      // Model to use (default: gemini-2.5-pro)
+        timeout_secs: u64,  // Response timeout (default 120s)
+    },
 }
 
 impl ProviderConfig {
@@ -138,6 +145,9 @@ impl ProviderConfig {
             ProviderConfig::ClaudeCode { timeout_secs, model, working_dir } => {
                 Arc::new(ClaudeCodeProvider::with_config(*timeout_secs, model.clone(), working_dir.clone()))
             }
+            ProviderConfig::GeminiCli { model, timeout_secs } => {
+                Arc::new(GeminiCliProvider::with_config(model.clone(), *timeout_secs))
+            }
         }
     }
 
@@ -156,6 +166,7 @@ impl ProviderConfig {
             ProviderConfig::DeepSeek { .. } => "deepseek",
             ProviderConfig::ClaudeDesktop { .. } => "claude-desktop",
             ProviderConfig::ClaudeCode { .. } => "claude-code",
+            ProviderConfig::GeminiCli { .. } => "gemini-cli",
         }
     }
 }
