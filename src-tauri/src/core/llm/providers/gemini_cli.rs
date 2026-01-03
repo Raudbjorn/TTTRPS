@@ -252,8 +252,8 @@ impl GeminiCliProvider {
                         }
                     }
                     Err(_) => {
-                        // Couldn't run auth check, assume installed but status unknown
-                        (true, false, format!("Gemini CLI {} installed (auth status unknown)", version))
+                        // Couldn't run auth check - don't assume authenticated
+                        (true, false, format!("Gemini CLI {} installed (run 'gemini' to verify auth)", version))
                     }
                 }
             }
@@ -308,8 +308,14 @@ impl GeminiCliProvider {
     pub fn launch_login() -> std::io::Result<std::process::Child> {
         use std::process::Command as StdCommand;
 
-        StdCommand::new("open")
-            .args(["-a", "Terminal", "--args", "-e", "gemini"])
+        // Use osascript to open Terminal and run gemini
+        StdCommand::new("osascript")
+            .args([
+                "-e",
+                "tell application \"Terminal\" to do script \"gemini\"",
+                "-e",
+                "tell application \"Terminal\" to activate",
+            ])
             .spawn()
     }
 

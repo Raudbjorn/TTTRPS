@@ -21,6 +21,29 @@ use crate::components::design_system::{Badge, BadgeVariant, Button, ButtonVarian
 use crate::services::theme_service::{ThemeState, ThemeWeights};
 
 // ============================================================================
+// Helper Functions
+// ============================================================================
+
+/// Returns the static model list for Gemini CLI provider.
+/// These are the models available via the gemini CLI without API key.
+fn get_gemini_cli_models() -> Vec<ModelInfo> {
+    vec![
+        ModelInfo {
+            id: "gemini-2.5-pro".to_string(),
+            name: "Gemini 2.5 Pro".to_string(),
+            description: Some("1M token context, best for complex tasks".to_string()),
+            context_length: Some(1_000_000),
+        },
+        ModelInfo {
+            id: "gemini-2.5-flash".to_string(),
+            name: "Gemini 2.5 Flash".to_string(),
+            description: Some("Fast responses, good for quick tasks".to_string()),
+            context_length: Some(1_000_000),
+        },
+    ]
+}
+
+// ============================================================================
 // LLM Provider Enum
 // ============================================================================
 
@@ -269,21 +292,7 @@ pub fn Settings() -> impl IntoView {
                     LLMProvider::GeminiCli => {
                         // No API key needed - uses Google account auth
                         api_key_or_host.set("Authenticated via Google account".to_string());
-                        // Set default models for Gemini CLI
-                        cloud_models.set(vec![
-                            ModelInfo {
-                                id: "gemini-2.5-pro".to_string(),
-                                name: "Gemini 2.5 Pro".to_string(),
-                                description: Some("1M token context, best for complex tasks".to_string()),
-                                context_length: Some(1_000_000),
-                            },
-                            ModelInfo {
-                                id: "gemini-2.5-flash".to_string(),
-                                name: "Gemini 2.5 Flash".to_string(),
-                                description: Some("Fast responses, good for quick tasks".to_string()),
-                                context_length: Some(1_000_000),
-                            },
-                        ]);
+                        cloud_models.set(get_gemini_cli_models());
                     }
                     LLMProvider::OpenAI => {
                         api_key_or_host.set(String::new());
@@ -397,23 +406,7 @@ pub fn Settings() -> impl IntoView {
                 LLMProvider::Claude => list_claude_models(api_key).await.unwrap_or_default(),
                 LLMProvider::OpenAI => list_openai_models(api_key).await.unwrap_or_default(),
                 LLMProvider::Gemini => list_gemini_models(api_key).await.unwrap_or_default(),
-                LLMProvider::GeminiCli => {
-                    // Static model list for Gemini CLI
-                    vec![
-                        ModelInfo {
-                            id: "gemini-2.5-pro".to_string(),
-                            name: "Gemini 2.5 Pro".to_string(),
-                            description: Some("1M token context, best for complex tasks".to_string()),
-                            context_length: Some(1_000_000),
-                        },
-                        ModelInfo {
-                            id: "gemini-2.5-flash".to_string(),
-                            name: "Gemini 2.5 Flash".to_string(),
-                            description: Some("Fast responses, good for quick tasks".to_string()),
-                            context_length: Some(1_000_000),
-                        },
-                    ]
-                }
+                LLMProvider::GeminiCli => get_gemini_cli_models(),
                 LLMProvider::OpenRouter => list_openrouter_models().await.unwrap_or_default(),
                 LLMProvider::Mistral
                 | LLMProvider::Groq
