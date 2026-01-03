@@ -980,4 +980,266 @@ mod tests {
         let settings = ChatWorkspaceSettings::default();
         assert!(settings.prompts.is_some());
     }
+
+    // ========================================================================
+    // ChatProviderConfig Tests
+    // ========================================================================
+
+    #[test]
+    fn test_provider_id_returns_correct_ids() {
+        let openai = ChatProviderConfig::OpenAI {
+            api_key: "key".to_string(),
+            model: None,
+            organization_id: None,
+        };
+        assert_eq!(openai.provider_id(), "openai");
+
+        let claude = ChatProviderConfig::Claude {
+            api_key: "key".to_string(),
+            model: None,
+            max_tokens: None,
+        };
+        assert_eq!(claude.provider_id(), "claude");
+
+        let mistral = ChatProviderConfig::Mistral {
+            api_key: "key".to_string(),
+            model: None,
+        };
+        assert_eq!(mistral.provider_id(), "mistral");
+
+        let ollama = ChatProviderConfig::Ollama {
+            host: "http://localhost:11434".to_string(),
+            model: "llama3".to_string(),
+        };
+        assert_eq!(ollama.provider_id(), "ollama");
+
+        let gemini = ChatProviderConfig::Gemini {
+            api_key: "key".to_string(),
+            model: None,
+        };
+        assert_eq!(gemini.provider_id(), "gemini");
+
+        let azure = ChatProviderConfig::AzureOpenAI {
+            api_key: "key".to_string(),
+            base_url: "https://example.openai.azure.com".to_string(),
+            deployment_id: "gpt-4".to_string(),
+            api_version: "2024-02-01".to_string(),
+        };
+        assert_eq!(azure.provider_id(), "azure");
+
+        let claude_code = ChatProviderConfig::ClaudeCode {
+            timeout_secs: None,
+            model: None,
+        };
+        assert_eq!(claude_code.provider_id(), "claude-code");
+    }
+
+    #[test]
+    fn test_requires_proxy_native_providers() {
+        // Native providers (should NOT require proxy)
+        let openai = ChatProviderConfig::OpenAI {
+            api_key: "key".to_string(),
+            model: None,
+            organization_id: None,
+        };
+        assert!(!openai.requires_proxy());
+
+        let mistral = ChatProviderConfig::Mistral {
+            api_key: "key".to_string(),
+            model: None,
+        };
+        assert!(!mistral.requires_proxy());
+
+        let azure = ChatProviderConfig::AzureOpenAI {
+            api_key: "key".to_string(),
+            base_url: "https://example.openai.azure.com".to_string(),
+            deployment_id: "gpt-4".to_string(),
+            api_version: "2024-02-01".to_string(),
+        };
+        assert!(!azure.requires_proxy());
+    }
+
+    #[test]
+    fn test_requires_proxy_non_native_providers() {
+        // Non-native providers (should require proxy)
+        let claude = ChatProviderConfig::Claude {
+            api_key: "key".to_string(),
+            model: None,
+            max_tokens: None,
+        };
+        assert!(claude.requires_proxy());
+
+        let gemini = ChatProviderConfig::Gemini {
+            api_key: "key".to_string(),
+            model: None,
+        };
+        assert!(gemini.requires_proxy());
+
+        let ollama = ChatProviderConfig::Ollama {
+            host: "http://localhost:11434".to_string(),
+            model: "llama3".to_string(),
+        };
+        assert!(ollama.requires_proxy());
+
+        let groq = ChatProviderConfig::Groq {
+            api_key: "key".to_string(),
+            model: "llama-3.1-70b".to_string(),
+        };
+        assert!(groq.requires_proxy());
+
+        let claude_code = ChatProviderConfig::ClaudeCode {
+            timeout_secs: None,
+            model: None,
+        };
+        assert!(claude_code.requires_proxy());
+    }
+
+    #[test]
+    fn test_proxy_model_id_format() {
+        let openai = ChatProviderConfig::OpenAI {
+            api_key: "key".to_string(),
+            model: Some("gpt-4".to_string()),
+            organization_id: None,
+        };
+        assert_eq!(openai.proxy_model_id(), "openai:gpt-4");
+
+        let claude = ChatProviderConfig::Claude {
+            api_key: "key".to_string(),
+            model: Some("claude-3-opus".to_string()),
+            max_tokens: None,
+        };
+        assert_eq!(claude.proxy_model_id(), "claude:claude-3-opus");
+
+        let ollama = ChatProviderConfig::Ollama {
+            host: "http://localhost:11434".to_string(),
+            model: "llama3:70b".to_string(),
+        };
+        assert_eq!(ollama.proxy_model_id(), "ollama:llama3:70b");
+
+        // Test default model fallback
+        let openai_default = ChatProviderConfig::OpenAI {
+            api_key: "key".to_string(),
+            model: None,
+            organization_id: None,
+        };
+        assert_eq!(openai_default.proxy_model_id(), "openai:gpt-4o-mini");
+
+        let gemini_default = ChatProviderConfig::Gemini {
+            api_key: "key".to_string(),
+            model: None,
+        };
+        assert_eq!(gemini_default.proxy_model_id(), "gemini:gemini-pro");
+    }
+
+    #[test]
+    fn test_to_meilisearch_settings_native_openai() {
+        let openai = ChatProviderConfig::OpenAI {
+            api_key: "sk-test-key".to_string(),
+            model: Some("gpt-4o".to_string()),
+            organization_id: None,
+        };
+
+        let settings = openai.to_meilisearch_settings("http://proxy:8080");
+
+        assert!(matches!(settings.source, ChatLLMSource::OpenAi));
+        assert_eq!(settings.api_key, Some("sk-test-key".to_string()));
+        assert_eq!(settings.model, Some("gpt-4o".to_string()));
+        assert!(settings.base_url.is_none()); // Native, no proxy URL
+        assert!(settings.prompts.is_some());
+    }
+
+    #[test]
+    fn test_to_meilisearch_settings_native_mistral() {
+        let mistral = ChatProviderConfig::Mistral {
+            api_key: "mistral-key".to_string(),
+            model: None,
+        };
+
+        let settings = mistral.to_meilisearch_settings("http://proxy:8080");
+
+        assert!(matches!(settings.source, ChatLLMSource::Mistral));
+        assert_eq!(settings.api_key, Some("mistral-key".to_string()));
+        assert_eq!(settings.model, Some("mistral-large-latest".to_string()));
+        assert!(settings.base_url.is_none());
+    }
+
+    #[test]
+    fn test_to_meilisearch_settings_native_azure() {
+        let azure = ChatProviderConfig::AzureOpenAI {
+            api_key: "azure-key".to_string(),
+            base_url: "https://myresource.openai.azure.com".to_string(),
+            deployment_id: "gpt-4".to_string(),
+            api_version: "2024-02-01".to_string(),
+        };
+
+        let settings = azure.to_meilisearch_settings("http://proxy:8080");
+
+        assert!(matches!(settings.source, ChatLLMSource::AzureOpenAi));
+        assert_eq!(settings.api_key, Some("azure-key".to_string()));
+        assert_eq!(
+            settings.base_url,
+            Some("https://myresource.openai.azure.com".to_string())
+        );
+    }
+
+    #[test]
+    fn test_to_meilisearch_settings_proxied_claude() {
+        let claude = ChatProviderConfig::Claude {
+            api_key: "anthropic-key".to_string(),
+            model: Some("claude-3-sonnet".to_string()),
+            max_tokens: None,
+        };
+
+        let settings = claude.to_meilisearch_settings("http://proxy:8080");
+
+        assert!(matches!(settings.source, ChatLLMSource::VLlm));
+        assert!(settings.api_key.is_none()); // Proxy handles auth
+        assert_eq!(settings.model, Some("claude:claude-3-sonnet".to_string()));
+        assert_eq!(settings.base_url, Some("http://proxy:8080/v1".to_string()));
+    }
+
+    #[test]
+    fn test_to_meilisearch_settings_proxied_ollama() {
+        let ollama = ChatProviderConfig::Ollama {
+            host: "http://localhost:11434".to_string(),
+            model: "llama3".to_string(),
+        };
+
+        let settings = ollama.to_meilisearch_settings("http://proxy:8080");
+
+        assert!(matches!(settings.source, ChatLLMSource::VLlm));
+        assert!(settings.api_key.is_none());
+        assert_eq!(settings.model, Some("ollama:llama3".to_string()));
+        assert_eq!(settings.base_url, Some("http://proxy:8080/v1".to_string()));
+    }
+
+    #[test]
+    fn test_to_meilisearch_settings_proxied_gemini() {
+        let gemini = ChatProviderConfig::Gemini {
+            api_key: "google-key".to_string(),
+            model: Some("gemini-1.5-pro".to_string()),
+        };
+
+        let settings = gemini.to_meilisearch_settings("http://proxy:8080");
+
+        assert!(matches!(settings.source, ChatLLMSource::VLlm));
+        assert!(settings.api_key.is_none());
+        assert_eq!(settings.model, Some("gemini:gemini-1.5-pro".to_string()));
+        assert_eq!(settings.base_url, Some("http://proxy:8080/v1".to_string()));
+    }
+
+    #[test]
+    fn test_to_meilisearch_settings_includes_system_prompt() {
+        let openai = ChatProviderConfig::OpenAI {
+            api_key: "key".to_string(),
+            model: None,
+            organization_id: None,
+        };
+
+        let settings = openai.to_meilisearch_settings("http://proxy:8080");
+
+        let prompts = settings.prompts.expect("prompts should be present");
+        let system = prompts.system.expect("system prompt should be present");
+        assert!(system.contains("Dungeon Master"));
+    }
 }

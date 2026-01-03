@@ -26,6 +26,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::convert::Infallible;
 use std::net::SocketAddr;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::sync::{oneshot, RwLock};
 use tower_http::cors::{Any, CorsLayer};
@@ -136,6 +137,63 @@ pub struct OpenAIModelList {
 }
 
 // ============================================================================
+// Proxy Metrics
+// ============================================================================
+
+/// Metrics for the proxy service with atomic counters for thread-safe updates
+pub struct ProxyMetrics {
+    pub total_requests: AtomicU64,
+    pub successful_requests: AtomicU64,
+    pub failed_requests: AtomicU64,
+}
+
+impl ProxyMetrics {
+    /// Create a new metrics instance with zeroed counters
+    pub fn new() -> Self {
+        Self {
+            total_requests: AtomicU64::new(0),
+            successful_requests: AtomicU64::new(0),
+            failed_requests: AtomicU64::new(0),
+        }
+    }
+
+    /// Record a successful request
+    pub fn record_success(&self) {
+        self.total_requests.fetch_add(1, Ordering::Relaxed);
+        self.successful_requests.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Record a failed request
+    pub fn record_failure(&self) {
+        self.total_requests.fetch_add(1, Ordering::Relaxed);
+        self.failed_requests.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Get snapshot of current metrics
+    pub fn snapshot(&self) -> MetricsSnapshot {
+        MetricsSnapshot {
+            total_requests: self.total_requests.load(Ordering::Relaxed),
+            successful_requests: self.successful_requests.load(Ordering::Relaxed),
+            failed_requests: self.failed_requests.load(Ordering::Relaxed),
+        }
+    }
+}
+
+impl Default for ProxyMetrics {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Serializable snapshot of metrics
+#[derive(Debug, Clone, Serialize)]
+pub struct MetricsSnapshot {
+    pub total_requests: u64,
+    pub successful_requests: u64,
+    pub failed_requests: u64,
+}
+
+// ============================================================================
 // Proxy Service State
 // ============================================================================
 
@@ -145,6 +203,8 @@ pub struct ProxyState {
     pub providers: RwLock<HashMap<String, Arc<dyn LLMProvider>>>,
     /// Default provider ID (used when no prefix in model name)
     pub default_provider: RwLock<Option<String>>,
+    /// Metrics for tracking request statistics
+    pub metrics: ProxyMetrics,
 }
 
 impl ProxyState {
@@ -152,6 +212,7 @@ impl ProxyState {
         Self {
             providers: RwLock::new(HashMap::new()),
             default_provider: RwLock::new(None),
+            metrics: ProxyMetrics::new(),
         }
     }
 
@@ -254,6 +315,7 @@ impl LLMProxyService {
             .route("/v1/chat/completions", post(chat_completions))
             .route("/v1/models", get(list_models))
             .route("/health", get(health_check))
+            .route("/metrics", get(metrics_handler))
             .layer(CorsLayer::new().allow_origin(Any).allow_methods(Any).allow_headers(Any))
             .with_state(state);
 
@@ -305,6 +367,25 @@ impl LLMProxyService {
 /// Health check endpoint
 async fn health_check() -> impl IntoResponse {
     Json(serde_json::json!({ "status": "ok" }))
+}
+
+/// Metrics endpoint returning JSON health data
+async fn metrics_handler(State(state): State<Arc<ProxyState>>) -> impl IntoResponse {
+    let snapshot = state.metrics.snapshot();
+    let providers = state.providers.read().await;
+    let provider_count = providers.len();
+
+    Json(serde_json::json!({
+        "status": "ok",
+        "requests": {
+            "total": snapshot.total_requests,
+            "successful": snapshot.successful_requests,
+            "failed": snapshot.failed_requests
+        },
+        "providers": {
+            "count": provider_count
+        }
+    }))
 }
 
 /// List models endpoint
@@ -534,6 +615,101 @@ fn error_response(error: LLMError) -> Response {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use super::super::cost::ProviderPricing;
+    use async_trait::async_trait;
+    use tokio::sync::mpsc;
+
+    // ========================================================================
+    // MockProvider for testing
+    // ========================================================================
+
+    /// Mock LLM provider for testing purposes
+    pub struct MockProvider {
+        id: String,
+        name: String,
+        model: String,
+        healthy: bool,
+    }
+
+    impl MockProvider {
+        pub fn new(id: &str, name: &str, model: &str) -> Self {
+            Self {
+                id: id.to_string(),
+                name: name.to_string(),
+                model: model.to_string(),
+                healthy: true,
+            }
+        }
+
+        pub fn with_health(mut self, healthy: bool) -> Self {
+            self.healthy = healthy;
+            self
+        }
+    }
+
+    #[async_trait]
+    impl LLMProvider for MockProvider {
+        fn id(&self) -> &str {
+            &self.id
+        }
+
+        fn name(&self) -> &str {
+            &self.name
+        }
+
+        fn model(&self) -> &str {
+            &self.model
+        }
+
+        async fn health_check(&self) -> bool {
+            self.healthy
+        }
+
+        fn pricing(&self) -> Option<ProviderPricing> {
+            None
+        }
+
+        async fn chat(&self, _request: ChatRequest) -> super::super::router::Result<ChatResponse> {
+            Ok(ChatResponse {
+                content: "Mock response".to_string(),
+                model: self.model.clone(),
+                provider: self.id.clone(),
+                usage: None,
+                finish_reason: Some("stop".to_string()),
+                latency_ms: 100,
+                cost_usd: None,
+            })
+        }
+
+        async fn stream_chat(
+            &self,
+            _request: ChatRequest,
+        ) -> super::super::router::Result<mpsc::Receiver<super::super::router::Result<ChatChunk>>> {
+            let (tx, rx) = mpsc::channel(1);
+            let model = self.model.clone();
+            let provider = self.id.clone();
+
+            tokio::spawn(async move {
+                let chunk = ChatChunk {
+                    stream_id: "mock-stream".to_string(),
+                    content: "Mock streaming response".to_string(),
+                    provider,
+                    model,
+                    is_final: true,
+                    finish_reason: Some("stop".to_string()),
+                    usage: None,
+                    index: 0,
+                };
+                let _ = tx.send(Ok(chunk)).await;
+            });
+
+            Ok(rx)
+        }
+    }
+
+    // ========================================================================
+    // Existing tests
+    // ========================================================================
 
     #[test]
     fn test_openai_message_conversion() {
@@ -565,5 +741,251 @@ mod tests {
         }
         let result = state.parse_model("gpt-4").await;
         assert_eq!(result, Some(("openai".to_string(), "gpt-4".to_string())));
+    }
+
+    // ========================================================================
+    // Model name parsing tests
+    // ========================================================================
+
+    #[tokio::test]
+    async fn test_model_parsing_various_formats() {
+        let state = ProxyState::new();
+
+        // Standard provider:model format
+        let result = state.parse_model("gemini:gemini-pro").await;
+        assert_eq!(result, Some(("gemini".to_string(), "gemini-pro".to_string())));
+
+        // Provider with complex model name
+        let result = state.parse_model("openai:gpt-4-turbo-preview").await;
+        assert_eq!(result, Some(("openai".to_string(), "gpt-4-turbo-preview".to_string())));
+
+        // Model name containing colon after provider prefix
+        let result = state.parse_model("custom:model:with:colons").await;
+        assert_eq!(result, Some(("custom".to_string(), "model:with:colons".to_string())));
+
+        // Empty provider part
+        let result = state.parse_model(":model").await;
+        assert_eq!(result, Some(("".to_string(), "model".to_string())));
+    }
+
+    // ========================================================================
+    // Provider registration/lookup tests
+    // ========================================================================
+
+    #[tokio::test]
+    async fn test_provider_registration() {
+        let service = LLMProxyService::new(0);
+        let mock = Arc::new(MockProvider::new("test-provider", "Test Provider", "test-model"));
+
+        // Register provider
+        service.register_provider("test-provider", mock.clone()).await;
+
+        // Verify registration
+        let providers = service.list_providers().await;
+        assert!(providers.contains(&"test-provider".to_string()));
+
+        // Lookup provider
+        let found = service.state.get_provider("test-provider").await;
+        assert!(found.is_some());
+        assert_eq!(found.unwrap().id(), "test-provider");
+    }
+
+    #[tokio::test]
+    async fn test_provider_unregistration() {
+        let service = LLMProxyService::new(0);
+        let mock = Arc::new(MockProvider::new("temp-provider", "Temp", "temp-model"));
+
+        // Register and then unregister
+        service.register_provider("temp-provider", mock).await;
+        assert!(service.list_providers().await.contains(&"temp-provider".to_string()));
+
+        service.unregister_provider("temp-provider").await;
+        assert!(!service.list_providers().await.contains(&"temp-provider".to_string()));
+
+        // Lookup should fail
+        let found = service.state.get_provider("temp-provider").await;
+        assert!(found.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_multiple_providers() {
+        let service = LLMProxyService::new(0);
+
+        let claude = Arc::new(MockProvider::new("claude", "Claude", "claude-sonnet"));
+        let gemini = Arc::new(MockProvider::new("gemini", "Gemini", "gemini-pro"));
+        let openai = Arc::new(MockProvider::new("openai", "OpenAI", "gpt-4"));
+
+        service.register_provider("claude", claude).await;
+        service.register_provider("gemini", gemini).await;
+        service.register_provider("openai", openai).await;
+
+        let providers = service.list_providers().await;
+        assert_eq!(providers.len(), 3);
+        assert!(providers.contains(&"claude".to_string()));
+        assert!(providers.contains(&"gemini".to_string()));
+        assert!(providers.contains(&"openai".to_string()));
+    }
+
+    // ========================================================================
+    // Proxy start/stop lifecycle tests
+    // ========================================================================
+
+    #[tokio::test]
+    async fn test_proxy_lifecycle() {
+        let mut service = LLMProxyService::new(0); // Port 0 = OS assigns free port
+
+        // Initially not running
+        assert!(!service.is_running());
+
+        // Start succeeds
+        let result = service.start().await;
+        assert!(result.is_ok());
+        assert!(service.is_running());
+
+        // Double start fails
+        let result = service.start().await;
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), "Proxy already running");
+
+        // Stop
+        service.stop().await;
+        assert!(!service.is_running());
+
+        // Can restart after stop
+        let result = service.start().await;
+        assert!(result.is_ok());
+        assert!(service.is_running());
+
+        // Cleanup
+        service.stop().await;
+    }
+
+    #[tokio::test]
+    async fn test_proxy_url() {
+        let service = LLMProxyService::new(8787);
+        assert_eq!(service.url(), "http://127.0.0.1:8787");
+
+        let custom_service = LLMProxyService::new(9000);
+        assert_eq!(custom_service.url(), "http://127.0.0.1:9000");
+    }
+
+    #[tokio::test]
+    async fn test_default_provider_setting() {
+        let service = LLMProxyService::new(0);
+
+        // Set default
+        service.set_default_provider("claude").await;
+
+        // Verify via model parsing
+        let result = service.state.parse_model("sonnet-4").await;
+        assert_eq!(result, Some(("claude".to_string(), "sonnet-4".to_string())));
+    }
+
+    // ========================================================================
+    // ProxyMetrics tests
+    // ========================================================================
+
+    #[test]
+    fn test_metrics_new() {
+        let metrics = ProxyMetrics::new();
+        let snapshot = metrics.snapshot();
+
+        assert_eq!(snapshot.total_requests, 0);
+        assert_eq!(snapshot.successful_requests, 0);
+        assert_eq!(snapshot.failed_requests, 0);
+    }
+
+    #[test]
+    fn test_metrics_record_success() {
+        let metrics = ProxyMetrics::new();
+
+        metrics.record_success();
+        metrics.record_success();
+
+        let snapshot = metrics.snapshot();
+        assert_eq!(snapshot.total_requests, 2);
+        assert_eq!(snapshot.successful_requests, 2);
+        assert_eq!(snapshot.failed_requests, 0);
+    }
+
+    #[test]
+    fn test_metrics_record_failure() {
+        let metrics = ProxyMetrics::new();
+
+        metrics.record_failure();
+        metrics.record_failure();
+        metrics.record_failure();
+
+        let snapshot = metrics.snapshot();
+        assert_eq!(snapshot.total_requests, 3);
+        assert_eq!(snapshot.successful_requests, 0);
+        assert_eq!(snapshot.failed_requests, 3);
+    }
+
+    #[test]
+    fn test_metrics_mixed_requests() {
+        let metrics = ProxyMetrics::new();
+
+        metrics.record_success();
+        metrics.record_failure();
+        metrics.record_success();
+        metrics.record_success();
+        metrics.record_failure();
+
+        let snapshot = metrics.snapshot();
+        assert_eq!(snapshot.total_requests, 5);
+        assert_eq!(snapshot.successful_requests, 3);
+        assert_eq!(snapshot.failed_requests, 2);
+    }
+
+    #[test]
+    fn test_metrics_thread_safety() {
+        use std::thread;
+
+        let metrics = Arc::new(ProxyMetrics::new());
+        let mut handles = vec![];
+
+        // Spawn multiple threads recording successes
+        for _ in 0..10 {
+            let m = Arc::clone(&metrics);
+            handles.push(thread::spawn(move || {
+                for _ in 0..100 {
+                    m.record_success();
+                }
+            }));
+        }
+
+        // Spawn multiple threads recording failures
+        for _ in 0..5 {
+            let m = Arc::clone(&metrics);
+            handles.push(thread::spawn(move || {
+                for _ in 0..100 {
+                    m.record_failure();
+                }
+            }));
+        }
+
+        for h in handles {
+            h.join().unwrap();
+        }
+
+        let snapshot = metrics.snapshot();
+        assert_eq!(snapshot.total_requests, 1500); // 10*100 + 5*100
+        assert_eq!(snapshot.successful_requests, 1000); // 10*100
+        assert_eq!(snapshot.failed_requests, 500); // 5*100
+    }
+
+    #[test]
+    fn test_proxy_state_includes_metrics() {
+        let state = ProxyState::new();
+
+        // Metrics should be accessible and zeroed
+        let snapshot = state.metrics.snapshot();
+        assert_eq!(snapshot.total_requests, 0);
+
+        // Record via state
+        state.metrics.record_success();
+        let snapshot = state.metrics.snapshot();
+        assert_eq!(snapshot.successful_requests, 1);
     }
 }
