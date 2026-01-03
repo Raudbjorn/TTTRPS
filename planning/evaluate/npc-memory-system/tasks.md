@@ -70,6 +70,8 @@
   Friendly:   20 to 59
   Allied:     60 to 100
   ```
+  - [ ] Clamp scores to [-100, 100] range on all adjustments
+  - [ ] Status derived from clamped score
 
 - [ ] **Preset score adjustments**
   - [ ] Helped in combat: +15
@@ -125,6 +127,10 @@
   - [ ] Summarize old interactions (keep recent in detail)
   - [ ] Preserve milestone events always
   - [ ] Token budget management
+  - [ ] **Summarization triggers:**
+    - [ ] Background job after session end (preferred - no dialogue latency)
+    - [ ] On-demand when interaction count exceeds threshold (e.g., >10 unsummarized)
+    - [ ] Never during dialogue generation to avoid latency
 
 - [ ] **Prompt injection**
   - [ ] Integrate memory context into NPC dialogue prompts

@@ -5,17 +5,18 @@
 ### Backend (Rust)
 
 - [ ] **Extend Rodio audio manager**
-  - [ ] Add named sinks: `music`, `ambience`, `sfx` (voice already exists)
-  - [ ] Per-sink volume control (0.0 - 1.0)
-  - [ ] Per-sink mute toggle
+  - [ ] Add named sink pairs for crossfade: `music_a`/`music_b`, `ambience_a`/`ambience_b`, `sfx` (voice already exists)
+  - [ ] Per-channel volume control (0.0 - 1.0) - controls both sinks in pair
+  - [ ] Per-channel mute toggle
   - [ ] Sink state tracking (playing, paused, stopped)
+  - [ ] Active sink tracking per channel (which of A/B is currently playing)
 
 - [ ] **Audio playback utilities**
-  - [ ] `play_audio(sink, path, loop)` - Start playback
-  - [ ] `stop_audio(sink)` - Stop with fade out
-  - [ ] `pause_audio(sink)` / `resume_audio(sink)`
-  - [ ] `set_volume(sink, level)` - Adjust volume
-  - [ ] `crossfade(sink, from_path, to_path, duration_ms)` - Smooth transition
+  - [ ] `play_audio(channel, path, loop)` - Start playback on inactive sink
+  - [ ] `stop_audio(channel)` - Stop with fade out
+  - [ ] `pause_audio(channel)` / `resume_audio(channel)`
+  - [ ] `set_volume(channel, level)` - Adjust volume
+  - [ ] `crossfade(channel, to_path, duration_ms)` - Fade out active sink while fading in inactive sink with new track, then swap active pointer
 
 - [ ] **Tauri commands**
   - [ ] `play_soundscape_track` - Play on specific sink
@@ -87,6 +88,10 @@
   - [ ] `create_soundscape` - Save custom preset
   - [ ] `delete_soundscape` - Remove custom preset
   - [ ] `import_audio_file` - Add custom audio to library
+    - [ ] Validate file path to prevent path traversal attacks
+    - [ ] Copy file into managed `data/audio/custom/` directory (never reference external paths)
+    - [ ] Validate file format and size limits before copy
+    - [ ] Generate unique filename with content hash
 
 ### Frontend
 
@@ -187,9 +192,15 @@
 
 - [ ] **Curate starter pack** (~50-100MB compressed)
   - [ ] Source from CC0/royalty-free libraries
-  - [ ] Document attribution where required
+  - [ ] Document attribution where required (JSON manifest per track)
   - [ ] Normalize audio levels
   - [ ] Convert to consistent format (OGG recommended)
+
+- [ ] **Attribution display (required for CC-BY)**
+  - [ ] Create `AUDIO_CREDITS.md` with all attributions
+  - [ ] Add "Audio Credits" section in Settings/About UI
+  - [ ] Display artist/source for CC-BY tracks (Incompetech, etc.)
+  - [ ] Link to original sources where applicable
 
 - [ ] **Sources to evaluate**
   - [ ] Freesound.org (CC0 ambience/sfx)

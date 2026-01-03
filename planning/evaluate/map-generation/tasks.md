@@ -6,15 +6,23 @@
 
 - [ ] **Define core data structures**
   - [ ] `BattleMap` struct (id, name, width, height, grid_type, cells, metadata)
-  - [ ] `MapCell` struct (terrain, elevation, walkable, decoration)
+  - [ ] `MapCell` struct (terrain, elevation, movement_cost, decoration)
+    - [ ] `movement_cost: f32` - 1.0 = normal, 2.0 = difficult terrain, f32::INFINITY = impassable
+    - [ ] Derive walkable from movement_cost (walkable = cost < INFINITY)
   - [ ] `MapToken` struct (entity_id, entity_type, x, y, size)
   - [ ] `TerrainType` enum (Grass, Stone, Water, DifficultTerrain, Void)
   - [ ] `GridType` enum (Square, Hex)
 
 - [ ] **Database schema**
   - [ ] Create `maps` table migration
-  - [ ] Create `map_tokens` table migration
+  - [ ] Create `map_tokens` table migration (persistent decorations/objects only)
   - [ ] Add indexes for campaign_id lookups
+
+  **Note on token storage:**
+  - `map_tokens` table: Persistent map decorations (furniture, traps, loot markers)
+  - `CombatState.combatant_positions`: Active combatant positions during combat (source of truth for combat)
+  - On combat start: Initialize combatant positions from auto-placement or manual
+  - On combat end: Combatant positions discarded; map_tokens persist
 
 - [ ] **Procedural generation algorithms**
   - [ ] Arena generator (simple rectangular room with optional pillars)
@@ -81,7 +89,11 @@
   - [ ] `get_tokens_for_map` - List all tokens
 
 - [ ] **Distance calculations**
-  - [ ] Square grid distance (Chebyshev or Manhattan)
+  - [ ] Square grid distance modes:
+    - [ ] Chebyshev (D&D 4e/simple: diagonal = 1)
+    - [ ] Manhattan (no diagonals)
+    - [ ] D&D 5e alternating (5ft/10ft/5ft/10ft for diagonals)
+    - [ ] Configurable per campaign/system
   - [ ] Hex grid distance
   - [ ] Line-of-sight check (basic, no obstacles)
 

@@ -12,6 +12,7 @@
 - [ ] **Portrait storage**
   - [ ] Define portraits directory: `data/portraits/`
   - [ ] File naming convention: `{entity_type}_{id}_{hash}.{ext}`
+    - [ ] `hash`: SHA256 of image content (first 12 chars) - prevents duplicate storage and enables cache-busting on frontend
   - [ ] Supported formats: PNG, JPG, WebP
 
 - [ ] **Image processing**
@@ -90,6 +91,12 @@
   - [ ] Model configuration
   - [ ] Queue management for slow generation
   - [ ] Fallback to cloud if local fails
+  - [ ] **User documentation for ComfyUI setup:**
+    - [ ] Installation guide (ComfyUI + dependencies)
+    - [ ] Required models (SD 1.5/SDXL recommendations)
+    - [ ] API mode configuration (`--listen --port 8188`)
+    - [ ] In-app setup wizard with connection test
+    - [ ] Troubleshooting common issues
 
 - [ ] **Prompt building**
   - [ ] Character data -> structured prompt
@@ -159,6 +166,10 @@
   - [ ] Tag portraits for reuse
   - [ ] Search library by tags
   - [ ] Share portraits across campaigns
+  - [ ] **Storage strategy:**
+    - [ ] Local storage in `data/portraits/library/` (default)
+    - [ ] Portraits stored as files with metadata in SQLite `portrait_library` table
+    - [ ] Future consideration: Optional cloud sync for multi-device (out of scope for MVP)
 
 - [ ] **Token export**
   - [ ] Circular crop for VTT tokens

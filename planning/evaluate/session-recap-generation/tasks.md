@@ -17,7 +17,12 @@
   - [ ] Collect chat history for session
   - [ ] Chunk transcript by message count or token limit
   - [ ] Extract speaker information
-  - [ ] Filter out system messages
+  - [ ] Filter out system messages:
+    - [ ] Application-generated status messages (combat start/end, dice rolls)
+    - [ ] Out-of-character messages (prefixed with "OOC:" or bracketed [OOC])
+    - [ ] System prompts and LLM instructions
+    - [ ] Error messages and warnings
+    - [ ] Define `is_system_message(msg)` predicate with configurable rules
 
 - [ ] **Multi-stage summarization**
   - [ ] Stage 1: Summarize each chunk independently
@@ -32,6 +37,10 @@
   - [ ] Location changes
   - [ ] Major player decisions
   - [ ] Item acquisitions
+
+  **Phase 1 approach (MVP):** Use LLM-based extraction via structured prompt (see Prompt Engineering section). While this has cost/latency, it provides the best accuracy for identifying narrative significance. Simpler regex/keyword approaches miss context-dependent events.
+
+  **Future optimization:** Cache extraction results per chunk; only re-extract on session edit.
 
 - [ ] **Tauri commands**
   - [ ] `generate_session_recap(session_id, style)` - Create recap
@@ -210,5 +219,5 @@
 - [ ] Unit tests for transcript chunking
 - [ ] Unit tests for key event extraction parsing
 - [ ] Integration tests for recap CRUD
-- [ ] Manual evaluation of recap quality (F1 metric)
+- [ ] Manual evaluation of recap quality (human rubric: coherence, coverage, style, faithfulness; optionally ROUGE/BLEU if reference recaps exist)
 - [ ] Test with various session lengths
