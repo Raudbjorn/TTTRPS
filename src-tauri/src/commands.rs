@@ -10,7 +10,7 @@ use crate::core::voice::{
     types::{QueuedVoice, VoiceStatus}
 };
 use crate::core::models::Campaign;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, OnceLock, RwLock};
 use tokio::sync::RwLock as AsyncRwLock;
 use std::path::Path;
 use std::path::PathBuf;
@@ -20,7 +20,7 @@ use crate::database::{Database, NpcConversation, ConversationMessage};
 
 // Core modules
 // use crate::core::database::Database;
-use crate::core::llm::{LLMConfig, LLMClient, ChatMessage, ChatRequest, MessageRole};
+use crate::core::llm::{LLMConfig, LLMClient, LLMManager, ChatMessage, ChatRequest, MessageRole};
 use crate::core::llm::router::{LLMRouter, RouterConfig, ProviderStats};
 use crate::core::campaign_manager::{
     CampaignManager, SessionNote, SnapshotSummary, ThemeWeights
@@ -59,6 +59,18 @@ fn serialize_enum_to_string<T: serde::Serialize>(value: &T) -> String {
     serde_json::to_string(value)
         .map(|s| s.trim_matches('"').to_string())
         .unwrap_or_default()
+}
+
+// ============================================================================
+// Module-Level Statics
+// ============================================================================
+
+/// Shared LLM manager for all chat provider commands.
+/// This ensures the proxy state is shared across all commands.
+static LLM_MANAGER: OnceLock<AsyncRwLock<LLMManager>> = OnceLock::new();
+
+fn get_llm_manager() -> &'static AsyncRwLock<LLMManager> {
+    LLM_MANAGER.get_or_init(|| AsyncRwLock::new(LLMManager::new()))
 }
 
 // ============================================================================
@@ -5686,25 +5698,7 @@ pub async fn configure_chat_workspace(
     custom_prompts: Option<ChatPrompts>,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    use crate::core::llm::LLMManager;
-    use std::sync::OnceLock;
-    use tokio::sync::RwLock as AsyncRwLock;
-
-    // Get or create the LLM manager (stored statically for now)
-    static LLM_MANAGER: OnceLock<AsyncRwLock<LLMManager>> = OnceLock::new();
-    let manager = LLM_MANAGER.get_or_init(|| AsyncRwLock::new(LLMManager::new()));
-
-    // Ensure Meilisearch client is configured
-    {
-        let manager_guard = manager.read().await;
-        let host = state.search_client.host();
-        // Note: We're setting the chat client fresh each time to ensure it's configured
-        drop(manager_guard);
-
-        let manager_guard = manager.write().await;
-        // TODO: Get API key from credentials if needed
-        drop(manager_guard);
-    }
+    let manager = get_llm_manager();
 
     // Configure with Meilisearch host from search client
     {
@@ -5734,13 +5728,7 @@ pub async fn get_chat_workspace_settings(
 /// Check if the LLM proxy is running.
 #[tauri::command]
 pub async fn is_llm_proxy_running() -> bool {
-    use crate::core::llm::LLMManager;
-    use std::sync::OnceLock;
-    use tokio::sync::RwLock as AsyncRwLock;
-
-    static LLM_MANAGER: OnceLock<AsyncRwLock<LLMManager>> = OnceLock::new();
-    let manager = LLM_MANAGER.get_or_init(|| AsyncRwLock::new(LLMManager::new()));
-
+    let manager = get_llm_manager();
     let guard = manager.read().await;
     guard.is_proxy_running().await
 }
@@ -5754,13 +5742,7 @@ pub fn get_llm_proxy_url() -> String {
 /// List providers currently registered with the LLM proxy.
 #[tauri::command]
 pub async fn list_proxy_providers() -> Vec<String> {
-    use crate::core::llm::LLMManager;
-    use std::sync::OnceLock;
-    use tokio::sync::RwLock as AsyncRwLock;
-
-    static LLM_MANAGER: OnceLock<AsyncRwLock<LLMManager>> = OnceLock::new();
-    let manager = LLM_MANAGER.get_or_init(|| AsyncRwLock::new(LLMManager::new()));
-
+    let manager = get_llm_manager();
     let guard = manager.read().await;
     guard.list_proxy_providers().await
 }
@@ -5768,13 +5750,7 @@ pub async fn list_proxy_providers() -> Vec<String> {
 /// Get LLM proxy metrics (request counts, etc.).
 #[tauri::command]
 pub async fn get_llm_proxy_metrics() -> Option<crate::core::llm::proxy::MetricsSnapshot> {
-    use crate::core::llm::LLMManager;
-    use std::sync::OnceLock;
-    use tokio::sync::RwLock as AsyncRwLock;
-
-    static LLM_MANAGER: OnceLock<AsyncRwLock<LLMManager>> = OnceLock::new();
-    let manager = LLM_MANAGER.get_or_init(|| AsyncRwLock::new(LLMManager::new()));
-
+    let manager = get_llm_manager();
     let guard = manager.read().await;
     guard.get_proxy_metrics().await
 }
