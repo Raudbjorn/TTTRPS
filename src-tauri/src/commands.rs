@@ -5764,3 +5764,17 @@ pub async fn list_proxy_providers() -> Vec<String> {
     let guard = manager.read().await;
     guard.list_proxy_providers().await
 }
+
+/// Get LLM proxy metrics (request counts, etc.).
+#[tauri::command]
+pub async fn get_llm_proxy_metrics() -> Option<crate::core::llm::proxy::MetricsSnapshot> {
+    use crate::core::llm::LLMManager;
+    use std::sync::OnceLock;
+    use tokio::sync::RwLock as AsyncRwLock;
+
+    static LLM_MANAGER: OnceLock<AsyncRwLock<LLMManager>> = OnceLock::new();
+    let manager = LLM_MANAGER.get_or_init(|| AsyncRwLock::new(LLMManager::new()));
+
+    let guard = manager.read().await;
+    guard.get_proxy_metrics().await
+}

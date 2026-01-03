@@ -226,6 +226,12 @@ impl LLMManager {
             None => Vec::new(),
         }
     }
+
+    /// Get proxy health metrics
+    pub async fn get_proxy_metrics(&self) -> Option<proxy::MetricsSnapshot> {
+        let proxy_guard = self.proxy.read().await;
+        proxy_guard.as_ref().map(|p| p.get_metrics())
+    }
 }
 
 impl Default for LLMManager {

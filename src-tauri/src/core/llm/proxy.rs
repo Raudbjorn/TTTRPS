@@ -358,6 +358,11 @@ impl LLMProxyService {
     pub fn is_running(&self) -> bool {
         self.shutdown_tx.is_some()
     }
+
+    /// Get metrics snapshot
+    pub fn get_metrics(&self) -> MetricsSnapshot {
+        self.state.metrics.snapshot()
+    }
 }
 
 // ============================================================================

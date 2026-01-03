@@ -428,6 +428,7 @@ fn main() {
             commands::is_llm_proxy_running,
             commands::get_llm_proxy_url,
             commands::list_proxy_providers,
+            commands::get_llm_proxy_metrics,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
