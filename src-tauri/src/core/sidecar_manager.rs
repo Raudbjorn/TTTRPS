@@ -1,9 +1,20 @@
-use std::sync::Arc;
+use sha2::{Sha256, Digest};
 use std::path::PathBuf;
+use std::process::Stdio;
+use std::sync::Arc;
+use tokio::io::{AsyncBufReadExt, BufReader};
+use tokio::process::{Child, Command};
 use tokio::sync::Mutex;
-use tauri::{async_runtime, AppHandle};
-use tauri_plugin_shell::ShellExt;
-use tauri_plugin_shell::process::{CommandEvent, CommandChild};
+
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
+const MEILISEARCH_VERSION: &str = "v1.31.0";
+const MEILISEARCH_DOWNLOAD_URL: &str = "https://github.com/meilisearch/meilisearch/releases/download";
+
+/// Windows flag to prevent console window from appearing
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 /// Configuration for Meilisearch sidecar
 #[derive(Debug, Clone)]
@@ -34,10 +45,22 @@ impl MeilisearchConfig {
     }
 }
 
+/// Determines how meilisearch was resolved
+#[derive(Debug, Clone, PartialEq)]
+pub enum MeilisearchSource {
+    /// Already running on configured port
+    ExistingInstance,
+    /// Found in $PATH
+    SystemPath,
+    /// Downloaded to cache directory
+    Downloaded,
+}
+
 pub struct SidecarManager {
     running: Arc<Mutex<bool>>,
-    child: Arc<Mutex<Option<CommandChild>>>,
+    child: Arc<Mutex<Option<Child>>>,
     config: MeilisearchConfig,
+    source: Arc<Mutex<Option<MeilisearchSource>>>,
 }
 
 impl SidecarManager {
@@ -50,6 +73,7 @@ impl SidecarManager {
             running: Arc::new(Mutex::new(false)),
             child: Arc::new(Mutex::new(None)),
             config,
+            source: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -61,90 +85,8 @@ impl SidecarManager {
         *self.running.lock().await
     }
 
-    pub fn start(&self, app_handle: AppHandle) {
-        let running = self.running.clone();
-        let child_handle = self.child.clone();
-        let config = self.config.clone();
-
-        async_runtime::spawn(async move {
-            let mut lock = running.lock().await;
-            if *lock {
-                log::info!("Meilisearch sidecar already running.");
-                return;
-            }
-
-            // Ensure data directory exists
-            if let Err(e) = std::fs::create_dir_all(&config.data_dir) {
-                log::error!("Failed to create Meilisearch data directory: {}", e);
-                return;
-            }
-
-            // Build sidecar command with arguments
-            let sidecar_command = match app_handle.shell().sidecar("meilisearch") {
-                Ok(cmd) => cmd
-                    .args([
-                        "--http-addr", &format!("{}:{}", config.host, config.port),
-                        "--master-key", &config.master_key,
-                        "--db-path", config.data_dir.to_str().unwrap_or("./meilisearch_data"),
-                        "--env", "development",
-                        "--log-level", "WARN",
-                    ]),
-                Err(e) => {
-                    log::error!("Failed to create meilisearch sidecar command: {}", e);
-                    return;
-                }
-            };
-
-            let (mut rx, child) = match sidecar_command.spawn() {
-                Ok(res) => res,
-                Err(e) => {
-                    log::error!("Failed to spawn meilisearch sidecar: {}", e);
-                    return;
-                }
-            };
-
-            let pid = child.pid();
-            *child_handle.lock().await = Some(child);
-            *lock = true;
-            drop(lock); // Release lock before entering loop
-
-            log::info!("Meilisearch sidecar started (PID: {}) at {}", pid, config.url());
-
-            while let Some(event) = rx.recv().await {
-                match event {
-                    CommandEvent::Stdout(line) => {
-                        log::debug!("[MEILI] {}", String::from_utf8_lossy(&line));
-                    }
-                    CommandEvent::Stderr(line) => {
-                        let msg = String::from_utf8_lossy(&line);
-                        // Filter out noisy startup messages
-                        if msg.contains("error") || msg.contains("Error") {
-                            log::error!("[MEILI] {}", msg);
-                        } else {
-                            log::debug!("[MEILI] {}", msg);
-                        }
-                    }
-                    CommandEvent::Terminated(payload) => {
-                        log::warn!("Meilisearch terminated: {:?}", payload);
-                        let mut lock = running.lock().await;
-                        *lock = false;
-                        *child_handle.lock().await = None;
-                        break;
-                    }
-                    _ => {}
-                }
-            }
-        });
-    }
-
-    pub async fn stop(&self) -> Result<(), String> {
-        let mut child_lock = self.child.lock().await;
-        if let Some(child) = child_lock.take() {
-            child.kill().map_err(|e| e.to_string())?;
-            *self.running.lock().await = false;
-            log::info!("Meilisearch sidecar stopped");
-        }
-        Ok(())
+    pub async fn source(&self) -> Option<MeilisearchSource> {
+        self.source.lock().await.clone()
     }
 
     /// Check if Meilisearch is healthy (HTTP health endpoint)
@@ -154,6 +96,332 @@ impl SidecarManager {
             Ok(resp) => resp.status().is_success(),
             Err(_) => false,
         }
+    }
+
+    /// Find meilisearch binary in $PATH (checks both with and without .exe on Windows)
+    fn find_in_path() -> Option<PathBuf> {
+        which::which("meilisearch")
+            .or_else(|_| which::which("meilisearch.exe"))
+            .ok()
+    }
+
+    /// Get the cache directory for downloaded binaries
+    fn cache_dir() -> PathBuf {
+        dirs::cache_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join("ttrpg-assistant")
+            .join("bin")
+    }
+
+    /// Get the expected path for a downloaded meilisearch binary
+    fn cached_binary_path() -> PathBuf {
+        let filename = if cfg!(windows) {
+            format!("meilisearch-{}.exe", MEILISEARCH_VERSION)
+        } else {
+            format!("meilisearch-{}", MEILISEARCH_VERSION)
+        };
+        Self::cache_dir().join(filename)
+    }
+
+    /// Fetch and parse the SHA256 checksum for a specific file from the release
+    async fn fetch_checksum(filename: &str) -> Result<String, String> {
+        let checksum_url = format!(
+            "{}/{}/meilisearch-{}-sha256.txt",
+            MEILISEARCH_DOWNLOAD_URL, MEILISEARCH_VERSION, MEILISEARCH_VERSION
+        );
+
+        log::debug!("Fetching checksum from: {}", checksum_url);
+
+        let response = reqwest::get(&checksum_url)
+            .await
+            .map_err(|e| format!("Failed to fetch checksum file: {}", e))?;
+
+        if !response.status().is_success() {
+            return Err(format!(
+                "Failed to fetch checksum file: HTTP {}",
+                response.status()
+            ));
+        }
+
+        let checksum_content = response
+            .text()
+            .await
+            .map_err(|e| format!("Failed to read checksum file: {}", e))?;
+
+        // Parse the checksum file - format is "checksum  filename" per line
+        for line in checksum_content.lines() {
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            if parts.len() >= 2 {
+                let file = parts[1].trim_start_matches('*'); // Handle BSD-style "*filename"
+                if file == filename {
+                    return Ok(parts[0].to_lowercase());
+                }
+            }
+        }
+
+        Err(format!(
+            "Checksum for '{}' not found in checksum file",
+            filename
+        ))
+    }
+
+    /// Verify SHA256 checksum of downloaded bytes
+    fn verify_checksum(bytes: &[u8], expected: &str) -> Result<(), String> {
+        let mut hasher = Sha256::new();
+        hasher.update(bytes);
+        let result = hasher.finalize();
+        let actual = hex::encode(result);
+
+        if actual.to_lowercase() == expected.to_lowercase() {
+            log::info!("SHA256 checksum verified: {}", actual);
+            Ok(())
+        } else {
+            Err(format!(
+                "SHA256 checksum mismatch: expected {}, got {}",
+                expected, actual
+            ))
+        }
+    }
+
+    /// Download meilisearch binary to cache with checksum verification
+    async fn download_binary() -> Result<PathBuf, String> {
+        let cache_dir = Self::cache_dir();
+        let binary_path = Self::cached_binary_path();
+
+        // Already downloaded?
+        if binary_path.exists() {
+            log::info!("Using cached meilisearch binary: {:?}", binary_path);
+            return Ok(binary_path);
+        }
+
+        log::info!("Downloading meilisearch {}...", MEILISEARCH_VERSION);
+
+        // Create cache directory
+        std::fs::create_dir_all(&cache_dir)
+            .map_err(|e| format!("Failed to create cache dir: {}", e))?;
+
+        // Determine platform-specific download URL
+        let (os, arch) = if cfg!(target_os = "linux") && cfg!(target_arch = "x86_64") {
+            ("linux", "amd64")
+        } else if cfg!(target_os = "macos") && cfg!(target_arch = "x86_64") {
+            ("macos", "amd64")
+        } else if cfg!(target_os = "macos") && cfg!(target_arch = "aarch64") {
+            ("macos", "apple-silicon")
+        } else if cfg!(target_os = "windows") && cfg!(target_arch = "x86_64") {
+            ("windows", "amd64")
+        } else {
+            return Err("Unsupported platform for meilisearch download".to_string());
+        };
+
+        let filename = if cfg!(target_os = "windows") {
+            format!("meilisearch-{}-{}.exe", os, arch)
+        } else {
+            format!("meilisearch-{}-{}", os, arch)
+        };
+
+        // Fetch expected checksum first (fail fast if checksum unavailable)
+        let expected_checksum = Self::fetch_checksum(&filename).await?;
+        log::debug!("Expected checksum for {}: {}", filename, expected_checksum);
+
+        let url = format!("{}/{}/{}", MEILISEARCH_DOWNLOAD_URL, MEILISEARCH_VERSION, filename);
+
+        // Download binary
+        let response = reqwest::get(&url)
+            .await
+            .map_err(|e| format!("Download failed: {}", e))?;
+
+        if !response.status().is_success() {
+            return Err(format!("Download failed with status: {}", response.status()));
+        }
+
+        let bytes = response
+            .bytes()
+            .await
+            .map_err(|e| format!("Failed to read response: {}", e))?;
+
+        // Verify checksum BEFORE writing to disk
+        Self::verify_checksum(&bytes, &expected_checksum)?;
+
+        // Write to temp file first, then rename (atomic on Unix, best-effort on Windows)
+        // On Windows, keep .exe extension but add .tmp before it
+        let temp_path = if cfg!(windows) {
+            binary_path.with_extension("tmp.exe")
+        } else {
+            binary_path.with_extension("tmp")
+        };
+
+        std::fs::write(&temp_path, &bytes)
+            .map_err(|e| format!("Failed to write binary: {}", e))?;
+
+        // Make executable on Unix
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = std::fs::metadata(&temp_path)
+                .map_err(|e| format!("Failed to get metadata: {}", e))?
+                .permissions();
+            perms.set_mode(0o755);
+            std::fs::set_permissions(&temp_path, perms)
+                .map_err(|e| format!("Failed to set permissions: {}", e))?;
+        }
+
+        // Rename to final path (atomic on Unix, may fail on Windows if target exists)
+        #[cfg(windows)]
+        {
+            // On Windows, remove target first if it exists (rename doesn't overwrite)
+            let _ = std::fs::remove_file(&binary_path);
+        }
+
+        std::fs::rename(&temp_path, &binary_path)
+            .map_err(|e| format!("Failed to rename binary: {}", e))?;
+
+        log::info!("Downloaded meilisearch to {:?}", binary_path);
+        Ok(binary_path)
+    }
+
+    /// Resolve the meilisearch binary: check existing, PATH, or download
+    async fn resolve_binary(&self) -> Result<(PathBuf, MeilisearchSource), String> {
+        // 1. Check if already running on configured port
+        if self.health_check().await {
+            log::info!(
+                "Meilisearch already running at {}",
+                self.config.url()
+            );
+            return Ok((PathBuf::new(), MeilisearchSource::ExistingInstance));
+        }
+
+        // 2. Check $PATH
+        if let Some(path) = Self::find_in_path() {
+            log::info!("Found meilisearch in PATH: {:?}", path);
+            return Ok((path, MeilisearchSource::SystemPath));
+        }
+
+        // 3. Check cached download
+        let cached = Self::cached_binary_path();
+        if cached.exists() {
+            log::info!("Using cached meilisearch: {:?}", cached);
+            return Ok((cached, MeilisearchSource::Downloaded));
+        }
+
+        // 4. Download
+        let path = Self::download_binary().await?;
+        Ok((path, MeilisearchSource::Downloaded))
+    }
+
+    pub async fn start(&self) -> Result<(), String> {
+        let mut lock = self.running.lock().await;
+        if *lock {
+            log::info!("Meilisearch sidecar already running.");
+            return Ok(());
+        }
+
+        let (binary_path, source) = self.resolve_binary().await?;
+
+        // If already running externally, just mark as running
+        if source == MeilisearchSource::ExistingInstance {
+            *lock = true;
+            *self.source.lock().await = Some(source);
+            return Ok(());
+        }
+
+        // Ensure data directory exists
+        std::fs::create_dir_all(&self.config.data_dir)
+            .map_err(|e| format!("Failed to create Meilisearch data directory: {}", e))?;
+
+        // Build the command
+        let mut cmd = Command::new(&binary_path);
+
+        // Convert data_dir to UTF-8 string - fail fast if path contains non-UTF8 characters
+        let db_path = self.config.data_dir
+            .to_str()
+            .ok_or_else(|| {
+                format!(
+                    "Meilisearch data directory path contains non-UTF8 characters: {:?}",
+                    self.config.data_dir
+                )
+            })?;
+
+        cmd.args([
+            "--http-addr",
+            &format!("{}:{}", self.config.host, self.config.port),
+            "--master-key",
+            &self.config.master_key,
+            "--db-path",
+            &db_path,
+            "--env",
+            "development",
+            "--log-level",
+            "WARN",
+        ])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+        // On Windows, prevent console window from appearing
+        #[cfg(windows)]
+        cmd.creation_flags(CREATE_NO_WINDOW);
+
+        // Spawn the process
+        let mut child = cmd
+            .spawn()
+            .map_err(|e| format!("Failed to spawn meilisearch: {}", e))?;
+
+        let pid = child.id().unwrap_or(0);
+        log::info!(
+            "Meilisearch started (PID: {}, source: {:?}) at {}",
+            pid,
+            source,
+            self.config.url()
+        );
+
+        // Spawn log reader tasks
+        if let Some(stdout) = child.stdout.take() {
+            tokio::spawn(async move {
+                let reader = BufReader::new(stdout);
+                let mut lines = reader.lines();
+                while let Ok(Some(line)) = lines.next_line().await {
+                    log::debug!("[MEILI] {}", line);
+                }
+            });
+        }
+
+        if let Some(stderr) = child.stderr.take() {
+            tokio::spawn(async move {
+                let reader = BufReader::new(stderr);
+                let mut lines = reader.lines();
+                while let Ok(Some(line)) = lines.next_line().await {
+                    if line.contains("error") || line.contains("Error") {
+                        log::error!("[MEILI] {}", line);
+                    } else {
+                        log::debug!("[MEILI] {}", line);
+                    }
+                }
+            });
+        }
+
+        *self.child.lock().await = Some(child);
+        *self.source.lock().await = Some(source);
+        *lock = true;
+
+        Ok(())
+    }
+
+    pub async fn stop(&self) -> Result<(), String> {
+        let source = self.source.lock().await.clone();
+
+        // Don't kill external instances
+        if source == Some(MeilisearchSource::ExistingInstance) {
+            log::info!("Not stopping external meilisearch instance");
+            *self.running.lock().await = false;
+            return Ok(());
+        }
+
+        let mut child_lock = self.child.lock().await;
+        if let Some(mut child) = child_lock.take() {
+            child.kill().await.map_err(|e| e.to_string())?;
+            *self.running.lock().await = false;
+            log::info!("Meilisearch sidecar stopped");
+        }
+        Ok(())
     }
 
     /// Wait for Meilisearch to become healthy

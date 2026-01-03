@@ -57,8 +57,13 @@ fn main() {
             });
             log::info!("Database initialized at {:?}", database.path());
 
-            // Start Meilisearch Sidecar
-            sidecar_manager.start(handle.clone());
+            // Start Meilisearch Sidecar (checks existing/PATH/downloads as needed)
+            let sm_clone = sidecar_manager.clone();
+            tauri::async_runtime::spawn(async move {
+                if let Err(e) = sm_clone.start().await {
+                    log::error!("Failed to start Meilisearch: {}", e);
+                }
+            });
 
             // Initialize Meilisearch indexes after sidecar starts
             let sc = search_client.clone();
