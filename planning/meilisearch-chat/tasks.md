@@ -63,14 +63,14 @@
 
 ### Testing
 
-- [ ] Unit tests for ChatProviderConfig mapping
-- [ ] Integration tests for proxy service
+- [x] Unit tests for ChatProviderConfig mapping
+- [x] Integration tests for proxy service
 - [ ] E2E tests with live Meilisearch
 - [ ] Test streaming responses
 
 ### Improvements
 
-- [ ] Add proxy health monitoring
+- [x] Add proxy health monitoring (ProxyMetrics + /metrics endpoint)
 - [ ] Implement proxy auto-restart on failure
 - [ ] Add request/response logging
 - [ ] Consider connection pooling for providers
