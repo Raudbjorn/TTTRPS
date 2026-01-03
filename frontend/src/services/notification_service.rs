@@ -61,8 +61,12 @@ impl NotificationState {
             toast_type,
             title,
             message,
-            action,
-            duration_ms: None, // Could add auto-dismiss logic here
+            action: action.clone(),
+            duration_ms: if action.is_none() && toast_type != ToastType::Error {
+                Some(5000)
+            } else {
+                None
+            },
         };
 
         self.notifications.update(|list| list.push(notification));

@@ -31,11 +31,13 @@ pub fn Toast(notification: Notification) -> impl IntoView {
         }, std::time::Duration::from_millis(300));
     };
 
-    // Auto-close if duration is set (and not sticky which might be implied by Action)
-    // For now, let's assume errors persist until dismissed if they have actions, otherwise 5s?
-    // The service handles auto-removal logic usually, but let's add a self-destruct for simple toasts here or in service.
-    // simpler to let the user dismiss errors or have service handle timeouts.
-    // We'll rely on manual dismiss for errors with actions.
+    // Auto-close if duration is set
+    if let Some(duration) = notification.duration_ms {
+        let close = close.clone();
+        set_timeout(move || {
+            close();
+        }, std::time::Duration::from_millis(duration));
+    }
 
     let bg_class = match notification.toast_type {
         ToastType::Success => "bg-[var(--bg-surface)] border-l-4 border-[var(--success)]",
@@ -54,7 +56,7 @@ pub fn Toast(notification: Notification) -> impl IntoView {
     view! {
         <div
             class=move || format!(
-                "pointer-events-auto min-w-[300px] max-w-md p-4 roundedshadow-lg border border-[var(--border-subtle)] flex gap-3 transition-all duration-300 transform {} {}",
+                "pointer-events-auto min-w-[300px] max-w-md p-4 rounded shadow-lg border border-[var(--border-subtle)] flex gap-3 transition-all duration-300 transform {} {}",
                 bg_class,
                 if is_exiting.get() { "translate-x-full opacity-0" } else { "translate-x-0 opacity-100" }
             )

@@ -369,6 +369,9 @@ pub fn Campaigns() -> impl IntoView {
     let filter = RwSignal::new(CampaignFilter::Active);
     let archive_confirm = RwSignal::new(Option::<(String, String, bool)>::None); // (id, name, is_archived)
 
+    // Trigger for retrying fetches
+    let refresh_trigger = Trigger::new();
+
     // Shared fetch logic for retry actions
     let fetch_campaigns = {
         let campaigns = campaigns;
@@ -390,21 +393,11 @@ pub fn Campaigns() -> impl IntoView {
                         campaigns.set(list);
                     }
                     Err(e) => {
-                        let retry = {
-                            // We need to construct a retry handler.
-                            // Since we are inside the closure we want to call, we can't easily recurse without some tricks.
-                            // However, we can use a signal or just accept that "Retry" might need a top-level function reference
-                            // or we just reload the page for now as a fallback if recursion is too hard in this context.
-                            // Actually, let's just show the error. For "Retry", we can wrap this in a stored callback if needed.
-                            // But for now, let's just provide a simple "Dismiss" or try to handle it.
+                        let retry = Some(ToastAction {
+                            label: "Retry".to_string(),
+                            handler: Arc::new(move || refresh_trigger.notify()),
+                        });
 
-                            // To properly handle retry, we'd need `fetch_campaigns` to be accessible here, which is circular.
-                            // A common pattern is to use a `StoredCallback` or `Action`.
-                            // Let's defer complexities of recursive retry for a moment and just show the error.
-                            // But the user demanded a course of action.
-                            // Action: "Check Connection" or "Reload Page"
-                            None
-                        };
                          show_error(
                             "Failed to load campaigns",
                             Some(&format!("Could not fetch campaign list: {}", e)),
@@ -428,12 +421,10 @@ pub fn Campaigns() -> impl IntoView {
         })
     };
 
-    // Load campaigns on mount
-    Effect::new({
-        let fetch = fetch_campaigns.clone();
-        move |_| {
-            (fetch)();
-        }
+    // Load campaigns on mount and refresh
+    Effect::new(move |_| {
+        refresh_trigger.track();
+        (fetch_campaigns)();
     });
 
     // Refresh campaigns handler
@@ -586,7 +577,7 @@ pub fn Campaigns() -> impl IntoView {
                     Ok(_) => {
                         campaigns.update(|c| c.retain(|campaign| campaign.id != id));
                          show_success("Campaign Deleted", Some(&format!("{} is gone forever.", name)));
-                         delete_confirm.set(None); // Close only on success
+                         delete_confirm.set(None);
                     }
                     Err(e) => {
                         show_error("Failed to delete", Some(&e), None);

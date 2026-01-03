@@ -61,14 +61,30 @@
         }
 
         /* Smooth Theme Transitions */
-        body, div, button, input, textarea, select {
+        body, button, input, textarea, select {
             transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease, fill 0.3s ease, stroke 0.3s ease;
+        }
+
+        .skip-link {
+            position: absolute;
+            top: -9999px;
+            left: 0;
+            background: #ffffff;
+            color: #000000;
+            padding: 8px 16px;
+            z-index: 10000;
+            text-decoration: none;
+            border-radius: 4px;
+        }
+        .skip-link:focus {
+            top: 0;
+            left: 0;
         }
     </style>
 </head>
 <body>
     <!-- Accessibility Skip Link -->
-    <a href="#main-content" class="skip-link" style="position: absolute; opacity: 0; pointer-events: none;">Skip to main content</a>
+    <a href="#main-content" class="skip-link">Skip to main content</a>
 
     <!-- Loading Splash -->
     <div id="app-loading">

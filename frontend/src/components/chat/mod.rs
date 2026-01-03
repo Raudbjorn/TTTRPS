@@ -65,6 +65,11 @@ pub fn Chat() -> impl IntoView {
     let unlisten_handle: Rc<RefCell<Option<JsValue>>> = Rc::new(RefCell::new(None));
 
     // Shared health check logic
+    // Trigger for health check retry
+    let health_trigger = Trigger::new();
+
+    // Shared health check logic (moved directly into effect for easier trigger usage)
+    // or we can keep the closure if we prefer, but effect + trigger is cleaner for retry recursion
     let check_health = {
         let llm_status = llm_status;
         Arc::new(move || {
@@ -77,17 +82,19 @@ pub fn Chat() -> impl IntoView {
                             llm_status.set(format!("{} connected", status.provider));
                         } else {
                             llm_status.set(format!("{}: {}", status.provider, status.message));
-                            show_error("LLM Issue", Some(&status.message), None); // Retry could be here but maybe user needs to config
+                            show_error("LLM Issue", Some(&status.message), None);
                         }
                     }
                     Err(e) => {
                         llm_status.set(format!("Error: {}", e));
-                         show_error(
+                        let retry = Some(ToastAction {
+                            label: "Retry".to_string(),
+                            handler: Arc::new(move || health_trigger.notify()),
+                        });
+                        show_error(
                             "LLM Connection Error",
                             Some(&format!("Could not connect: {}", e)),
-                            // We can't easily recurse retry here without the stored callback pattern again.
-                            // But we can suggest checking settings.
-                            None
+                            retry
                         );
                     }
                 }
@@ -96,9 +103,11 @@ pub fn Chat() -> impl IntoView {
     };
 
     // Check LLM health on mount
+    // Check LLM health on mount and refresh
     Effect::new({
         let check = check_health.clone();
         move |_| {
+            health_trigger.track();
             (check)();
         }
     });
