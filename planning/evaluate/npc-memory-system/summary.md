@@ -122,6 +122,12 @@ CREATE TABLE npc_relationships (
     UNIQUE(npc_id, character_id, campaign_id)
 );
 
+-- Enforce a single party-wide relationship per NPC (NULL character_id)
+-- SQLite treats NULLs as distinct, so UNIQUE constraint won't catch this
+CREATE UNIQUE INDEX idx_npc_relationships_party_wide
+    ON npc_relationships(npc_id, campaign_id)
+    WHERE character_id IS NULL;
+
 -- Indexes
 CREATE INDEX idx_npc_interactions_npc ON npc_interactions(npc_id);
 CREATE INDEX idx_npc_relationships_npc ON npc_relationships(npc_id);

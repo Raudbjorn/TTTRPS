@@ -125,6 +125,18 @@ pub enum AudioSink {
     Voice,  // existing
 }
 
+pub enum TransitionStyle {
+    Crossfade,
+    FadeOutFadeIn,
+    HardCut,
+}
+
+pub enum LoopMode {
+    NoLoop,
+    LoopTrack,
+    LoopPlaylist,
+}
+
 pub struct AudioTrack {
     pub path: PathBuf,
     pub title: String,
