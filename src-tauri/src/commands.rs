@@ -236,6 +236,11 @@ pub async fn configure_llm(
             api_key: settings.api_key.clone().ok_or("DeepSeek requires an API key")?,
             model: settings.model,
         },
+        "claude-code" => LLMConfig::ClaudeCode {
+            timeout_secs: 300, // 5 minute default
+            model: if settings.model.is_empty() { None } else { Some(settings.model) },
+            working_dir: None, // Could be extended to accept from settings
+        },
         _ => return Err(format!("Unknown provider: {}", settings.provider)),
     };
 
@@ -320,7 +325,7 @@ pub async fn chat(
             LLMConfig::Together { api_key, .. } => api_key.clone(),
             LLMConfig::Cohere { api_key, .. } => api_key.clone(),
             LLMConfig::DeepSeek { api_key, .. } => api_key.clone(),
-            LLMConfig::Ollama { .. } | LLMConfig::ClaudeDesktop { .. } => String::new(),
+            LLMConfig::Ollama { .. } | LLMConfig::ClaudeDesktop { .. } | LLMConfig::ClaudeCode { .. } => String::new(),
         };
 
         let model = match &config {
@@ -335,6 +340,7 @@ pub async fn chat(
             LLMConfig::DeepSeek { model, .. } => model.clone(),
             LLMConfig::Ollama { model, .. } => model.clone(),
             LLMConfig::ClaudeDesktop { .. } => "claude-desktop".to_string(),
+            LLMConfig::ClaudeCode { model, .. } => model.clone().unwrap_or_else(|| "claude-code".to_string()),
         };
 
         // Initialize the DM chat workspace (idempotent)
@@ -515,6 +521,13 @@ pub fn get_llm_config(state: State<'_, AppState>) -> Result<Option<LLMSettings>,
             api_key: None, // No API key needed - uses Claude Desktop auth
             host: Some(format!("localhost:{}", port)),
             model: "claude-desktop".to_string(),
+            embedding_model: None,
+        },
+        LLMConfig::ClaudeCode { model, .. } => LLMSettings {
+            provider: "claude-code".to_string(),
+            api_key: None, // No API key needed - uses Claude Code auth
+            host: None,
+            model: model.clone().unwrap_or_else(|| "claude-code".to_string()),
             embedding_model: None,
         },
     }))
@@ -2339,7 +2352,8 @@ pub async fn speak(text: String, state: State<'_, AppState>) -> Result<(), Strin
                 LLMConfig::Together { .. } |
                 LLMConfig::Cohere { .. } |
                 LLMConfig::DeepSeek { .. } |
-                LLMConfig::ClaudeDesktop { .. } => VoiceConfig::default(),
+                LLMConfig::ClaudeDesktop { .. } |
+                LLMConfig::ClaudeCode { .. } => VoiceConfig::default(),
             }
         } else {
              VoiceConfig::default()

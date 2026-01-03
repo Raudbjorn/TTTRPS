@@ -28,6 +28,7 @@ use crate::services::theme_service::{ThemeState, ThemeWeights};
 pub enum LLMProvider {
     Ollama,
     Claude,
+    ClaudeCode,
     Gemini,
     OpenAI,
     OpenRouter,
@@ -43,6 +44,7 @@ impl std::fmt::Display for LLMProvider {
         match self {
             LLMProvider::Ollama => write!(f, "Ollama (Local)"),
             LLMProvider::Claude => write!(f, "Claude (Anthropic)"),
+            LLMProvider::ClaudeCode => write!(f, "Claude Code (CLI)"),
             LLMProvider::Gemini => write!(f, "Gemini (Google)"),
             LLMProvider::OpenAI => write!(f, "OpenAI"),
             LLMProvider::OpenRouter => write!(f, "OpenRouter (400+ models)"),
@@ -60,6 +62,7 @@ impl LLMProvider {
         match self {
             LLMProvider::Ollama => "ollama".to_string(),
             LLMProvider::Claude => "claude".to_string(),
+            LLMProvider::ClaudeCode => "claude-code".to_string(),
             LLMProvider::Gemini => "gemini".to_string(),
             LLMProvider::OpenAI => "openai".to_string(),
             LLMProvider::OpenRouter => "openrouter".to_string(),
@@ -74,6 +77,7 @@ impl LLMProvider {
     fn from_string(s: &str) -> Self {
         match s {
             "Claude" | "claude" => LLMProvider::Claude,
+            "ClaudeCode" | "claude-code" => LLMProvider::ClaudeCode,
             "Gemini" | "gemini" => LLMProvider::Gemini,
             "OpenAI" | "openai" => LLMProvider::OpenAI,
             "OpenRouter" | "openrouter" => LLMProvider::OpenRouter,
@@ -88,13 +92,14 @@ impl LLMProvider {
 
     #[allow(dead_code)]
     fn requires_api_key(&self) -> bool {
-        !matches!(self, LLMProvider::Ollama)
+        !matches!(self, LLMProvider::Ollama | LLMProvider::ClaudeCode)
     }
 
     fn placeholder_text(&self) -> &'static str {
         match self {
             LLMProvider::Ollama => "http://localhost:11434",
             LLMProvider::Claude => "sk-ant-...",
+            LLMProvider::ClaudeCode => "(No API key needed)",
             LLMProvider::Gemini => "AIza...",
             LLMProvider::OpenAI => "sk-...",
             LLMProvider::OpenRouter => "sk-or-...",
@@ -110,6 +115,7 @@ impl LLMProvider {
         match self {
             LLMProvider::Ollama => "Ollama Host",
             LLMProvider::Claude => "Claude API Key",
+            LLMProvider::ClaudeCode => "Claude Code Status",
             LLMProvider::Gemini => "Gemini API Key",
             LLMProvider::OpenAI => "OpenAI API Key",
             LLMProvider::OpenRouter => "OpenRouter API Key",
@@ -125,6 +131,7 @@ impl LLMProvider {
         match self {
             LLMProvider::Ollama => "llama3.2",
             LLMProvider::Claude => "claude-3-5-sonnet-20241022",
+            LLMProvider::ClaudeCode => "claude-sonnet-4-20250514",
             LLMProvider::Gemini => "gemini-1.5-pro",
             LLMProvider::OpenAI => "gpt-4o",
             LLMProvider::OpenRouter => "openai/gpt-4o",
@@ -225,6 +232,7 @@ pub fn Settings() -> impl IntoView {
                 provider_select_value.set(match provider {
                     LLMProvider::Ollama => "Ollama".to_string(),
                     LLMProvider::Claude => "Claude".to_string(),
+                    LLMProvider::ClaudeCode => "ClaudeCode".to_string(),
                     LLMProvider::Gemini => "Gemini".to_string(),
                     LLMProvider::OpenAI => "OpenAI".to_string(),
                     LLMProvider::OpenRouter => "OpenRouter".to_string(),
@@ -736,12 +744,13 @@ pub fn Settings() -> impl IntoView {
     let placeholder_text = move || selected_provider.get().placeholder_text();
     let label_text = move || selected_provider.get().label_text();
     let input_type = move || {
-        if matches!(selected_provider.get(), LLMProvider::Ollama) {
+        if matches!(selected_provider.get(), LLMProvider::Ollama | LLMProvider::ClaudeCode) {
             "text"
         } else {
             "password"
         }
     };
+    let is_claude_code = move || matches!(selected_provider.get(), LLMProvider::ClaudeCode);
 
     view! {
         <div class="p-8 bg-theme-primary text-theme-primary min-h-screen font-sans transition-colors duration-300">
@@ -796,6 +805,9 @@ pub fn Settings() -> impl IntoView {
                                 </option>
                                 <option value="Claude" selected=move || matches!(selected_provider.get(), LLMProvider::Claude)>
                                     "Claude (Anthropic)"
+                                </option>
+                                <option value="ClaudeCode" selected=move || matches!(selected_provider.get(), LLMProvider::ClaudeCode)>
+                                    "Claude Code (CLI)"
                                 </option>
                                 <option value="OpenAI" selected=move || matches!(selected_provider.get(), LLMProvider::OpenAI)>
                                     "OpenAI"
