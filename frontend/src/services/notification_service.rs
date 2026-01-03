@@ -58,7 +58,7 @@ impl NotificationState {
         let id = Uuid::new_v4();
         let notification = Notification {
             id,
-            toast_type,
+            toast_type: toast_type.clone(),
             title,
             message,
             action: action.clone(),
