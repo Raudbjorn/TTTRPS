@@ -436,6 +436,51 @@ pub fn launch_gemini_cli_login() -> Result<(), String> {
 }
 
 // ============================================================================
+// Gemini CLI Extension Commands
+// ============================================================================
+
+/// Response for Gemini CLI extension status check
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GeminiCliExtensionStatus {
+    /// Whether the extension is installed
+    pub is_installed: bool,
+    /// Status message (version or error)
+    pub message: String,
+}
+
+/// Check if the Sidecar DM extension is installed
+pub async fn check_gemini_cli_extension() -> GeminiCliExtensionStatus {
+    use super::providers::GeminiCliProvider;
+
+    let (is_installed, message) = GeminiCliProvider::check_extension_status().await;
+    GeminiCliExtensionStatus {
+        is_installed,
+        message,
+    }
+}
+
+/// Install the Sidecar DM extension from a source (git URL or local path)
+pub async fn install_gemini_cli_extension(source: String) -> Result<String, String> {
+    use super::providers::GeminiCliProvider;
+
+    GeminiCliProvider::install_extension(&source).await
+}
+
+/// Link a local extension directory for development
+pub async fn link_gemini_cli_extension(path: String) -> Result<String, String> {
+    use super::providers::GeminiCliProvider;
+
+    GeminiCliProvider::link_extension(&path).await
+}
+
+/// Uninstall the Sidecar DM extension
+pub async fn uninstall_gemini_cli_extension() -> Result<String, String> {
+    use super::providers::GeminiCliProvider;
+
+    GeminiCliProvider::uninstall_extension().await
+}
+
+// ============================================================================
 // Tests
 // ============================================================================
 

@@ -414,6 +414,14 @@ fn main() {
             commands::detect_claude_desktop,
             commands::claude_desktop_send_message,
             commands::configure_claude_desktop,
+
+            // Gemini CLI Status & Extension Commands
+            commands::check_gemini_cli_status,
+            commands::launch_gemini_cli_login,
+            commands::check_gemini_cli_extension,
+            commands::install_gemini_cli_extension,
+            commands::link_gemini_cli_extension,
+            commands::uninstall_gemini_cli_extension,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

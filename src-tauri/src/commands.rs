@@ -5624,3 +5624,81 @@ pub async fn configure_claude_desktop(
     guard.update_config(port, timeout_secs).await;
     Ok(())
 }
+
+// ============================================================================
+// Gemini CLI Status and Extension Commands
+// ============================================================================
+
+/// Status of Gemini CLI installation and authentication.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GeminiCliStatus {
+    pub is_installed: bool,
+    pub is_authenticated: bool,
+    pub message: String,
+}
+
+/// Status of Gemini CLI extension installation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GeminiCliExtensionStatus {
+    pub is_installed: bool,
+    pub message: String,
+}
+
+/// Check Gemini CLI installation and authentication status.
+#[tauri::command]
+pub async fn check_gemini_cli_status() -> GeminiCliStatus {
+    use crate::core::llm::providers::GeminiCliProvider;
+
+    let (is_installed, is_authenticated, message) = GeminiCliProvider::check_status().await;
+    GeminiCliStatus {
+        is_installed,
+        is_authenticated,
+        message,
+    }
+}
+
+/// Launch Gemini CLI for authentication.
+#[tauri::command]
+pub fn launch_gemini_cli_login() -> Result<(), String> {
+    use crate::core::llm::providers::GeminiCliProvider;
+
+    GeminiCliProvider::launch_login()
+        .map(|_| ())
+        .map_err(|e| format!("Failed to launch Gemini CLI: {}", e))
+}
+
+/// Check if the Sidecar DM extension is installed.
+#[tauri::command]
+pub async fn check_gemini_cli_extension() -> GeminiCliExtensionStatus {
+    use crate::core::llm::providers::GeminiCliProvider;
+
+    let (is_installed, message) = GeminiCliProvider::check_extension_status().await;
+    GeminiCliExtensionStatus {
+        is_installed,
+        message,
+    }
+}
+
+/// Install the Sidecar DM extension from a source (git URL or local path).
+#[tauri::command]
+pub async fn install_gemini_cli_extension(source: String) -> Result<String, String> {
+    use crate::core::llm::providers::GeminiCliProvider;
+
+    GeminiCliProvider::install_extension(&source).await
+}
+
+/// Link a local extension directory for development.
+#[tauri::command]
+pub async fn link_gemini_cli_extension(path: String) -> Result<String, String> {
+    use crate::core::llm::providers::GeminiCliProvider;
+
+    GeminiCliProvider::link_extension(&path).await
+}
+
+/// Uninstall the Sidecar DM extension.
+#[tauri::command]
+pub async fn uninstall_gemini_cli_extension() -> Result<String, String> {
+    use crate::core::llm::providers::GeminiCliProvider;
+
+    GeminiCliProvider::uninstall_extension().await
+}

@@ -322,6 +322,101 @@ impl GeminiCliProvider {
             .spawn()
     }
 
+    /// The name of the Sidecar DM extension for Gemini CLI.
+    pub const EXTENSION_NAME: &'static str = "sidecar-dm";
+
+    /// Check if the Sidecar DM extension is installed.
+    /// Returns (is_installed, extension_version_or_message).
+    pub async fn check_extension_status() -> (bool, String) {
+        let output = Command::new("gemini")
+            .args(["extensions", "list"])
+            .output()
+            .await;
+
+        match output {
+            Ok(result) if result.status.success() => {
+                let stdout = String::from_utf8_lossy(&result.stdout);
+                // Check if our extension is in the list
+                if stdout.contains(Self::EXTENSION_NAME) {
+                    // Try to extract version if present
+                    for line in stdout.lines() {
+                        if line.contains(Self::EXTENSION_NAME) {
+                            return (true, format!("Extension '{}' installed", Self::EXTENSION_NAME));
+                        }
+                    }
+                    (true, format!("Extension '{}' installed", Self::EXTENSION_NAME))
+                } else {
+                    (false, format!("Extension '{}' not installed", Self::EXTENSION_NAME))
+                }
+            }
+            Ok(_) => {
+                (false, "Could not list extensions".to_string())
+            }
+            Err(e) => {
+                (false, format!("Error checking extensions: {}", e))
+            }
+        }
+    }
+
+    /// Install the Sidecar DM extension from a git repository or local path.
+    /// Returns Ok(message) on success, Err(error) on failure.
+    pub async fn install_extension(source: &str) -> std::result::Result<String, String> {
+        info!("Installing Gemini CLI extension from: {}", source);
+
+        let output = Command::new("gemini")
+            .args(["extensions", "install", source])
+            .output()
+            .await
+            .map_err(|e| format!("Failed to run install command: {}", e))?;
+
+        if output.status.success() {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            info!("Extension installed successfully: {}", stdout.trim());
+            Ok(format!("Extension '{}' installed successfully", Self::EXTENSION_NAME))
+        } else {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            error!("Extension installation failed: {} {}", stdout, stderr);
+            Err(format!("Installation failed: {} {}", stdout.trim(), stderr.trim()))
+        }
+    }
+
+    /// Link a local extension directory for development.
+    pub async fn link_extension(path: &str) -> std::result::Result<String, String> {
+        info!("Linking local Gemini CLI extension from: {}", path);
+
+        let output = Command::new("gemini")
+            .args(["extensions", "link", path])
+            .output()
+            .await
+            .map_err(|e| format!("Failed to link extension: {}", e))?;
+
+        if output.status.success() {
+            Ok(format!("Extension linked from '{}'", path))
+        } else {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            Err(format!("Link failed: {}", stderr.trim()))
+        }
+    }
+
+    /// Uninstall the Sidecar DM extension.
+    pub async fn uninstall_extension() -> std::result::Result<String, String> {
+        info!("Uninstalling Gemini CLI extension: {}", Self::EXTENSION_NAME);
+
+        let output = Command::new("gemini")
+            .args(["extensions", "uninstall", Self::EXTENSION_NAME])
+            .output()
+            .await
+            .map_err(|e| format!("Failed to uninstall extension: {}", e))?;
+
+        if output.status.success() {
+            Ok(format!("Extension '{}' uninstalled", Self::EXTENSION_NAME))
+        } else {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            Err(format!("Uninstall failed: {}", stderr.trim()))
+        }
+    }
+
     /// Build command arguments for a chat request.
     fn build_args(&self, prompt: &str) -> Vec<String> {
         let mut args = vec![

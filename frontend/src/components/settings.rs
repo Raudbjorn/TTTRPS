@@ -32,13 +32,11 @@ fn get_gemini_cli_models() -> Vec<ModelInfo> {
             id: "gemini-2.5-pro".to_string(),
             name: "Gemini 2.5 Pro".to_string(),
             description: Some("1M token context, best for complex tasks".to_string()),
-            context_length: Some(1_000_000),
         },
         ModelInfo {
             id: "gemini-2.5-flash".to_string(),
             name: "Gemini 2.5 Flash".to_string(),
             description: Some("Fast responses, good for quick tasks".to_string()),
-            context_length: Some(1_000_000),
         },
     ]
 }
