@@ -239,7 +239,7 @@ pub async fn configure_llm(
         "claude-code" => LLMConfig::ClaudeCode {
             timeout_secs: 300, // 5 minute default
             model: if settings.model.is_empty() { None } else { Some(settings.model) },
-            working_dir: None, // Could be extended to accept from settings
+            working_dir: None, // Not needed for TTRPG prompts (no file operations)
         },
         _ => return Err(format!("Unknown provider: {}", settings.provider)),
     };
