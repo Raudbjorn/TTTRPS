@@ -71,7 +71,7 @@ pub async fn connect(state: State<'_, AppState>) -> Result<CommandResult<Connect
     let status = ConnectionStatus {
         state: format!("{:?}", client.state()),
         connected: client.is_connected(),
-        port: 9222, // TODO: get from config
+        port: client.config().port,
     };
     
     match result {
@@ -107,7 +107,7 @@ pub async fn get_status(state: State<'_, AppState>) -> Result<ConnectionStatus, 
     Ok(ConnectionStatus {
         state: format!("{:?}", client.state()),
         connected: client.is_connected(),
-        port: 9222,
+        port: client.config().port,
     })
 }
 
