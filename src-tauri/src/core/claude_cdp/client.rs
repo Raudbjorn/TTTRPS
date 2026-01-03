@@ -129,7 +129,8 @@ impl ClaudeClient {
         // Spawn the CDP handler task
         tokio::spawn(async move {
             while let Some(event) = handler.next().await {
-                if event.is_err() {
+                if let Err(e) = event {
+                    error!("CDP event handler error: {}", e);
                     break;
                 }
             }

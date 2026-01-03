@@ -153,6 +153,10 @@ impl ClaudeDesktopManager {
     }
 
     /// Launch Claude Desktop with CDP enabled.
+    ///
+    /// Note: stdout/stderr are discarded to avoid blocking on output.
+    /// If debugging launch issues, run Claude Desktop manually with:
+    /// `claude --remote-debugging-port=9333`
     async fn launch(&self, binary_path: &str) -> Result<()> {
         let config = self.config.read().await;
         let port = config.port;
@@ -168,10 +172,13 @@ impl ClaudeDesktopManager {
                 reason: e.to_string(),
             })?;
 
+        let pid = child.id();
+        debug!(pid, "Claude Desktop process spawned");
+
         let mut process = self.process.lock().await;
         *process = Some(child);
 
-        info!("Claude Desktop launched");
+        info!(pid, "Claude Desktop launched successfully");
         Ok(())
     }
 

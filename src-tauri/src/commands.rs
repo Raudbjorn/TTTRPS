@@ -5472,15 +5472,24 @@ pub async fn connect_claude_desktop(
     port: Option<u16>,
     state: State<'_, AppState>,
 ) -> Result<ClaudeDesktopStatus, String> {
-    let manager = state.claude_desktop_manager.write().await;
+    let manager = state.claude_desktop_manager.clone();
 
     // Update port if specified
     if let Some(p) = port {
-        manager.update_config(Some(p), None).await;
+        let guard = manager.read().await;
+        guard.update_config(Some(p), None).await;
     }
 
-    manager.connect().await.map_err(|e| e.to_string())?;
-    Ok(manager.status().await)
+    // Connect (lock released after block)
+    {
+        let guard = manager.read().await;
+        guard.connect().await.map_err(|e| e.to_string())?;
+    }
+
+    // Get status (separate lock acquisition)
+    let guard = manager.read().await;
+    let status = guard.status().await;
+    Ok(status)
 }
 
 /// Launch Claude Desktop with CDP enabled and connect.
@@ -5488,9 +5497,18 @@ pub async fn connect_claude_desktop(
 pub async fn launch_claude_desktop(
     state: State<'_, AppState>,
 ) -> Result<ClaudeDesktopStatus, String> {
-    let manager = state.claude_desktop_manager.write().await;
-    manager.connect_or_launch().await.map_err(|e| e.to_string())?;
-    Ok(manager.status().await)
+    let manager = state.claude_desktop_manager.clone();
+
+    // Connect or launch
+    {
+        let guard = manager.read().await;
+        guard.connect_or_launch().await.map_err(|e| e.to_string())?;
+    }
+
+    // Get status
+    let guard = manager.read().await;
+    let status = guard.status().await;
+    Ok(status)
 }
 
 /// Try to connect to Claude Desktop, launch if not running.
@@ -5499,15 +5517,24 @@ pub async fn connect_or_launch_claude_desktop(
     port: Option<u16>,
     state: State<'_, AppState>,
 ) -> Result<ClaudeDesktopStatus, String> {
-    let manager = state.claude_desktop_manager.write().await;
+    let manager = state.claude_desktop_manager.clone();
 
     // Update port if specified
     if let Some(p) = port {
-        manager.update_config(Some(p), None).await;
+        let guard = manager.read().await;
+        guard.update_config(Some(p), None).await;
     }
 
-    manager.connect_or_launch().await.map_err(|e| e.to_string())?;
-    Ok(manager.status().await)
+    // Connect or launch
+    {
+        let guard = manager.read().await;
+        guard.connect_or_launch().await.map_err(|e| e.to_string())?;
+    }
+
+    // Get status
+    let guard = manager.read().await;
+    let status = guard.status().await;
+    Ok(status)
 }
 
 /// Disconnect from Claude Desktop.
@@ -5516,12 +5543,13 @@ pub async fn disconnect_claude_desktop(
     kill_if_launched: Option<bool>,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    let manager = state.claude_desktop_manager.write().await;
+    let manager = state.claude_desktop_manager.clone();
+    let guard = manager.read().await;
 
     if kill_if_launched.unwrap_or(false) {
-        manager.disconnect_and_kill().await;
+        guard.disconnect_and_kill().await;
     } else {
-        manager.disconnect().await;
+        guard.disconnect().await;
     }
 
     Ok(())
@@ -5532,8 +5560,10 @@ pub async fn disconnect_claude_desktop(
 pub async fn get_claude_desktop_status(
     state: State<'_, AppState>,
 ) -> Result<ClaudeDesktopStatus, String> {
-    let manager = state.claude_desktop_manager.read().await;
-    Ok(manager.status().await)
+    let manager = state.claude_desktop_manager.clone();
+    let guard = manager.read().await;
+    let status = guard.status().await;
+    Ok(status)
 }
 
 /// Start a new conversation in Claude Desktop.
@@ -5541,8 +5571,9 @@ pub async fn get_claude_desktop_status(
 pub async fn claude_desktop_new_conversation(
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    let manager = state.claude_desktop_manager.read().await;
-    manager.new_conversation().await.map_err(|e| e.to_string())
+    let manager = state.claude_desktop_manager.clone();
+    let guard = manager.read().await;
+    guard.new_conversation().await.map_err(|e| e.to_string())
 }
 
 /// Get conversation history from Claude Desktop.
@@ -5550,8 +5581,9 @@ pub async fn claude_desktop_new_conversation(
 pub async fn claude_desktop_get_history(
     state: State<'_, AppState>,
 ) -> Result<Vec<crate::core::claude_cdp::Message>, String> {
-    let manager = state.claude_desktop_manager.read().await;
-    manager.get_conversation().await.map_err(|e| e.to_string())
+    let manager = state.claude_desktop_manager.clone();
+    let guard = manager.read().await;
+    guard.get_conversation().await.map_err(|e| e.to_string())
 }
 
 /// Check if Claude Desktop binary is installed.
@@ -5566,8 +5598,9 @@ pub async fn claude_desktop_send_message(
     message: String,
     state: State<'_, AppState>,
 ) -> Result<String, String> {
-    let manager = state.claude_desktop_manager.read().await;
-    manager.send_message(&message).await.map_err(|e| e.to_string())
+    let manager = state.claude_desktop_manager.clone();
+    let guard = manager.read().await;
+    guard.send_message(&message).await.map_err(|e| e.to_string())
 }
 
 /// Update Claude Desktop CDP configuration.
@@ -5577,7 +5610,8 @@ pub async fn configure_claude_desktop(
     timeout_secs: Option<u64>,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    let manager = state.claude_desktop_manager.write().await;
-    manager.update_config(port, timeout_secs).await;
+    let manager = state.claude_desktop_manager.clone();
+    let guard = manager.read().await;
+    guard.update_config(port, timeout_secs).await;
     Ok(())
 }
