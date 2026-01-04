@@ -97,26 +97,271 @@ check_rust_env() {
     print_success "Tauri CLI installed: $(cargo tauri --version 2>/dev/null || echo 'unknown')"
 }
 
+detect_linux_distro() {
+    if [ -f /etc/os-release ]; then
+        . /etc/os-release
+        echo "$ID"
+    elif command_exists lsb_release; then
+        lsb_release -si | tr '[:upper:]' '[:lower:]'
+    else
+        echo "unknown"
+    fi
+}
+
+install_linux_deps() {
+    local distro=$(detect_linux_distro)
+    print_info "Detected Linux distribution: $distro"
+
+    case "$distro" in
+        ubuntu|debian|pop|linuxmint|elementary)
+            print_info "Installing dependencies for Debian/Ubuntu-based system..."
+            sudo apt-get update
+            sudo apt-get install -y \
+                libwebkit2gtk-4.1-dev \
+                libgtk-3-dev \
+                libayatana-appindicator3-dev \
+                librsvg2-dev \
+                patchelf \
+                libasound2-dev \
+                libssl-dev \
+                curl \
+                wget \
+                file
+            ;;
+        fedora|rhel|centos|rocky|almalinux)
+            print_info "Installing dependencies for Fedora/RHEL-based system..."
+            sudo dnf install -y \
+                webkit2gtk4.1-devel \
+                gtk3-devel \
+                libappindicator-gtk3-devel \
+                librsvg2-devel \
+                patchelf \
+                alsa-lib-devel \
+                openssl-devel \
+                curl \
+                wget \
+                file
+            ;;
+        arch|manjaro|endeavouros)
+            print_info "Installing dependencies for Arch-based system..."
+            sudo pacman -S --needed --noconfirm \
+                webkit2gtk-4.1 \
+                gtk3 \
+                libappindicator-gtk3 \
+                librsvg \
+                patchelf \
+                alsa-lib \
+                openssl \
+                curl \
+                wget \
+                file
+            ;;
+        opensuse*|sles)
+            print_info "Installing dependencies for openSUSE/SLES..."
+            sudo zypper install -y \
+                webkit2gtk3-devel \
+                gtk3-devel \
+                libappindicator3-devel \
+                librsvg-devel \
+                patchelf \
+                alsa-devel \
+                libopenssl-devel \
+                curl \
+                wget \
+                file
+            ;;
+        *)
+            print_warning "Unknown distribution: $distro"
+            print_warning "Please manually install: webkit2gtk, gtk3, libappindicator, librsvg, alsa-lib, openssl"
+            return 1
+            ;;
+    esac
+}
+
 check_linux_deps() {
     print_section "Checking Linux Dependencies"
 
     local missing_deps=()
+    local needs_install=false
 
+    # Check for webkit2gtk
     if ! pkg-config --exists webkit2gtk-4.1 2>/dev/null && ! pkg-config --exists webkit2gtk-4.0 2>/dev/null; then
-        missing_deps+=("webkit2gtk-4.1")
+        missing_deps+=("webkit2gtk")
+        needs_install=true
     fi
 
+    # Check for GTK3
     if ! pkg-config --exists gtk+-3.0 2>/dev/null; then
-        missing_deps+=("gtk+-3.0")
+        missing_deps+=("gtk3")
+        needs_install=true
     fi
 
-    if [ ${#missing_deps[@]} -gt 0 ]; then
+    # Check for ALSA
+    if ! pkg-config --exists alsa 2>/dev/null; then
+        missing_deps+=("alsa")
+        needs_install=true
+    fi
+
+    # Check for OpenSSL
+    if ! pkg-config --exists openssl 2>/dev/null; then
+        missing_deps+=("openssl")
+        needs_install=true
+    fi
+
+    if [ "$needs_install" = true ]; then
         print_warning "Missing dependencies: ${missing_deps[*]}"
-        print_warning "On Arch: paru -S webkit2gtk-4.1 gtk3 libappindicator-gtk3"
-        print_warning "Proceeding anyway, build might fail."
+
+        if [ "$AUTO_INSTALL_DEPS" = true ]; then
+            print_info "Auto-installing dependencies..."
+            if install_linux_deps; then
+                print_success "Dependencies installed successfully"
+            else
+                print_error "Failed to install dependencies automatically"
+                exit 1
+            fi
+        else
+            echo -e "\n${YELLOW}Would you like to install missing dependencies automatically? (y/n)${NC}"
+            read -r response
+            if [[ "$response" =~ ^[Yy]$ ]]; then
+                if install_linux_deps; then
+                    print_success "Dependencies installed successfully"
+                else
+                    print_error "Failed to install dependencies"
+                    exit 1
+                fi
+            else
+                print_warning "Proceeding without installing dependencies. Build might fail."
+            fi
+        fi
     else
         print_success "Linux dependencies check passed"
     fi
+}
+
+install_macos_deps() {
+    print_section "Checking macOS Dependencies"
+
+    if ! command_exists brew; then
+        print_warning "Homebrew not found. Installing Homebrew..."
+        /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+    fi
+
+    print_info "Installing dependencies via Homebrew..."
+    brew install curl wget
+
+    print_success "macOS dependencies installed"
+}
+
+check_windows_deps() {
+    print_section "Windows Dependencies"
+
+    # Check if running in WSL
+    if grep -qi microsoft /proc/version 2>/dev/null; then
+        print_info "Running in WSL - using Linux dependency installation"
+        check_linux_deps
+        return
+    fi
+
+    print_info "For Windows native builds, ensure you have:"
+    print_info "  - Microsoft Visual Studio C++ Build Tools"
+    print_info "  - WebView2 Runtime (usually pre-installed on Windows 10/11)"
+    print_info "  - Rust installed via rustup-init.exe"
+
+    if ! command_exists choco; then
+        print_warning "Chocolatey not found. Consider installing it for easier dependency management:"
+        print_info "https://chocolatey.org/install"
+    else
+        print_info "You can install build tools via Chocolatey:"
+        print_info "  choco install visualstudio2022buildtools visualstudio2022-workload-vctools"
+    fi
+}
+
+install_frontend_tools() {
+    print_section "Installing Frontend Build Tools"
+
+    # Install Trunk if missing
+    if ! command_exists trunk; then
+        print_info "Installing Trunk..."
+        cargo install trunk --locked || { print_error "Failed to install trunk"; return 1; }
+        print_success "Trunk installed"
+    else
+        print_success "Trunk already installed"
+    fi
+
+    # Install/Update Tailwind CSS CLI
+    cd "$FRONTEND_DIR"
+
+    local tailwind_version="3.4.17"
+    local needs_install=false
+
+    if [ ! -f "tailwindcss" ]; then
+        needs_install=true
+    else
+        local current_version=$(./tailwindcss --help 2>&1 | head -1 | grep -oP 'v\K[0-9.]+' || echo "0.0.0")
+        if [ "$current_version" != "$tailwind_version" ]; then
+            print_warning "Tailwind CSS version mismatch (current: $current_version, expected: $tailwind_version)"
+            needs_install=true
+        fi
+    fi
+
+    if [ "$needs_install" = true ]; then
+        print_info "Installing Tailwind CSS CLI v$tailwind_version..."
+
+        # Detect platform
+        local platform=""
+        local arch=""
+
+        case "$OSTYPE" in
+            linux*)
+                platform="linux"
+                ;;
+            darwin*)
+                platform="macos"
+                ;;
+            msys*|cygwin*|win32)
+                platform="windows"
+                ;;
+        esac
+
+        # Detect architecture
+        case "$(uname -m)" in
+            x86_64|amd64)
+                arch="x64"
+                ;;
+            aarch64|arm64)
+                arch="arm64"
+                ;;
+            armv7*)
+                arch="armv7"
+                ;;
+        esac
+
+        if [ -n "$platform" ] && [ -n "$arch" ]; then
+            local binary_name="tailwindcss-${platform}-${arch}"
+            [ "$platform" = "windows" ] && binary_name="${binary_name}.exe"
+
+            local download_url="https://github.com/tailwindlabs/tailwindcss/releases/download/v${tailwind_version}/${binary_name}"
+
+            print_info "Downloading from: $download_url"
+
+            if curl -sL "$download_url" -o tailwindcss.tmp; then
+                chmod +x tailwindcss.tmp
+                mv tailwindcss.tmp tailwindcss
+                print_success "Tailwind CSS CLI v$tailwind_version installed"
+            else
+                print_error "Failed to download Tailwind CSS CLI"
+                rm -f tailwindcss.tmp
+                return 1
+            fi
+        else
+            print_error "Unsupported platform: $OSTYPE $(uname -m)"
+            return 1
+        fi
+    else
+        print_success "Tailwind CSS CLI already installed (v$tailwind_version)"
+    fi
+
+    cd "$PROJECT_ROOT"
 }
 
 build_frontend() {
@@ -262,16 +507,19 @@ show_help() {
     echo "  test        Run all tests"
     echo "  check       Run cargo check"
     echo "  clean       Remove all build artifacts"
+    echo "  setup       Install all required dependencies"
     echo "  help        Show this help message"
     echo ""
     echo -e "${CYAN}Options:${NC}"
     echo "  --release      Build in release mode (optimized)"
     echo "  --integration  Run integration tests (requires Meilisearch)"
+    echo "  --auto-deps    Automatically install dependencies without prompting"
 }
 
 # Parse arguments
 RELEASE=false
 RUN_INTEGRATION=false
+AUTO_INSTALL_DEPS=false
 COMMAND="build"
 
 while [[ $# -gt 0 ]]; do
@@ -284,7 +532,11 @@ while [[ $# -gt 0 ]]; do
             RUN_INTEGRATION=true
             shift
             ;;
-        dev|build|frontend|backend|test|check|clean|help)
+        --auto-deps)
+            AUTO_INSTALL_DEPS=true
+            shift
+            ;;
+        dev|build|frontend|backend|test|check|clean|setup|help)
             COMMAND=$1
             shift
             ;;
@@ -300,23 +552,63 @@ done
 print_header
 
 case $COMMAND in
+    setup)
+        check_rust_env
+        case "$OSTYPE" in
+            linux*)
+                check_linux_deps
+                ;;
+            darwin*)
+                install_macos_deps
+                ;;
+            msys*|cygwin*|win32)
+                check_windows_deps
+                ;;
+        esac
+        install_frontend_tools
+        print_success "Setup complete! You can now run './build.sh dev' or './build.sh build'"
+        ;;
     dev)
         if command_exists cargo; then
              :
         else
              check_rust_env
         fi
-        [[ "$OSTYPE" == "linux-gnu"* ]] && check_linux_deps
+        case "$OSTYPE" in
+            linux*)
+                check_linux_deps
+                ;;
+            darwin*)
+                # macOS doesn't need special system deps for Tauri
+                :
+                ;;
+            msys*|cygwin*|win32)
+                check_windows_deps
+                ;;
+        esac
+        install_frontend_tools
         run_dev
         ;;
     build)
         check_rust_env
-        [[ "$OSTYPE" == "linux-gnu"* ]] && check_linux_deps
+        case "$OSTYPE" in
+            linux*)
+                check_linux_deps
+                ;;
+            darwin*)
+                :
+                ;;
+            msys*|cygwin*|win32)
+                check_windows_deps
+                ;;
+        esac
+        install_frontend_tools
         build_frontend
         build_desktop
         ;;
     frontend)
         check_rust_env
+        install_frontend_tools
         build_frontend
         ;;
     backend)
