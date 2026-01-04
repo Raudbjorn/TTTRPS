@@ -189,13 +189,17 @@ pub struct HealthStatus {
 // LLM Commands
 // ============================================================================
 
+/// Providers that can auto-detect or have default models, so model selection is optional
+const PROVIDERS_WITH_OPTIONAL_MODEL: &[&str] = &["claude-code", "claude-desktop", "gemini-cli"];
+
 #[tauri::command]
 pub async fn configure_llm(
     settings: LLMSettings,
     state: State<'_, AppState>,
 ) -> Result<String, String> {
-    // Validate model is not empty (except for claude-code which allows None)
-    if settings.model.trim().is_empty() && settings.provider != "claude-code" {
+    // Validate model is not empty (except for providers that support auto-detection)
+    let model_optional = PROVIDERS_WITH_OPTIONAL_MODEL.contains(&settings.provider.as_str());
+    if settings.model.trim().is_empty() && !model_optional {
         return Err("Model name is required. Please select a model.".to_string());
     }
 
