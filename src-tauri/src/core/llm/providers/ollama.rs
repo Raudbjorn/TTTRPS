@@ -162,58 +162,70 @@ impl LLMProvider for OllamaProvider {
         tokio::spawn(async move {
             let mut stream = response.bytes_stream();
             let mut chunk_index = 0u32;
+            // Buffer to hold incomplete lines across chunks (NDJSON may split at arbitrary byte positions)
+            let mut buffer = String::new();
 
             while let Some(item) = stream.next().await {
                 match item {
                     Ok(bytes) => {
                         let text = String::from_utf8_lossy(&bytes);
+                        buffer.push_str(&text);
 
-                        for line in text.lines() {
+                        // Process complete lines from the buffer (newline-terminated)
+                        while let Some(newline_pos) = buffer.find('\n') {
+                            let line = buffer[..newline_pos].trim().to_string();
+                            buffer.drain(..newline_pos + 1);
+
                             if line.is_empty() {
                                 continue;
                             }
 
-                            if let Ok(json) = serde_json::from_str::<serde_json::Value>(line) {
-                                if let Some(content) = json["message"]["content"].as_str() {
-                                    if !content.is_empty() {
-                                        chunk_index += 1;
-                                        let chunk = ChatChunk {
-                                            stream_id: stream_id.clone(),
-                                            content: content.to_string(),
-                                            provider: "ollama".to_string(),
-                                            model: model.clone(),
-                                            is_final: false,
-                                            finish_reason: None,
-                                            usage: None,
-                                            index: chunk_index,
-                                        };
-                                        if tx.send(Ok(chunk)).await.is_err() {
-                                            return;
+                            match serde_json::from_str::<serde_json::Value>(&line) {
+                                Ok(json) => {
+                                    if let Some(content) = json["message"]["content"].as_str() {
+                                        if !content.is_empty() {
+                                            chunk_index += 1;
+                                            let chunk = ChatChunk {
+                                                stream_id: stream_id.clone(),
+                                                content: content.to_string(),
+                                                provider: "ollama".to_string(),
+                                                model: model.clone(),
+                                                is_final: false,
+                                                finish_reason: None,
+                                                usage: None,
+                                                index: chunk_index,
+                                            };
+                                            if tx.send(Ok(chunk)).await.is_err() {
+                                                return;
+                                            }
                                         }
                                     }
+
+                                    if json["done"].as_bool().unwrap_or(false) {
+                                        let input_tokens =
+                                            json["prompt_eval_count"].as_u64().unwrap_or(0) as u32;
+                                        let output_tokens =
+                                            json["eval_count"].as_u64().unwrap_or(0) as u32;
+
+                                        let final_chunk = ChatChunk {
+                                            stream_id: stream_id.clone(),
+                                            content: String::new(),
+                                            provider: "ollama".to_string(),
+                                            model: model.clone(),
+                                            is_final: true,
+                                            finish_reason: Some("stop".to_string()),
+                                            usage: Some(TokenUsage {
+                                                input_tokens,
+                                                output_tokens,
+                                            }),
+                                            index: chunk_index + 1,
+                                        };
+                                        let _ = tx.send(Ok(final_chunk)).await;
+                                        return;
+                                    }
                                 }
-
-                                if json["done"].as_bool().unwrap_or(false) {
-                                    let input_tokens =
-                                        json["prompt_eval_count"].as_u64().unwrap_or(0) as u32;
-                                    let output_tokens =
-                                        json["eval_count"].as_u64().unwrap_or(0) as u32;
-
-                                    let final_chunk = ChatChunk {
-                                        stream_id: stream_id.clone(),
-                                        content: String::new(),
-                                        provider: "ollama".to_string(),
-                                        model: model.clone(),
-                                        is_final: true,
-                                        finish_reason: Some("stop".to_string()),
-                                        usage: Some(TokenUsage {
-                                            input_tokens,
-                                            output_tokens,
-                                        }),
-                                        index: chunk_index + 1,
-                                    };
-                                    let _ = tx.send(Ok(final_chunk)).await;
-                                    return;
+                                Err(e) => {
+                                    eprintln!("Ollama JSON parse error: {} for line: {}", e, line);
                                 }
                             }
                         }
@@ -223,6 +235,11 @@ impl LLMProvider for OllamaProvider {
                         return;
                     }
                 }
+            }
+
+            // Handle any remaining buffer content (shouldn't happen with proper NDJSON)
+            if !buffer.trim().is_empty() {
+                eprintln!("Ollama stream ended with incomplete buffer: {}", buffer);
             }
         });
 

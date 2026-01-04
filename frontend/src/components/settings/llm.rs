@@ -411,11 +411,12 @@ pub fn LLMSettingsView() -> impl IntoView {
                                     view! {
                                         <select
                                             class="w-full p-3 rounded-lg bg-[var(--bg-deep)] border border-[var(--border-subtle)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)] transition-colors"
+                                            style="color-scheme: dark;"
                                             prop:value=model_name
                                             on:change=move |ev| model_name.set(event_target_value(&ev))
                                         >
                                             {ollama_models.get().into_iter().map(|m| {
-                                                view! { <option value=m.name.clone()>{m.name.clone()}</option> }
+                                                view! { <option value=m.name.clone() class="bg-zinc-800 text-white">{m.name.clone()}</option> }
                                             }).collect::<Vec<_>>()}
                                         </select>
                                     }.into_any()
@@ -427,11 +428,12 @@ pub fn LLMSettingsView() -> impl IntoView {
                                          view! {
                                             <select
                                                 class="w-full p-3 rounded-lg bg-[var(--bg-deep)] border border-[var(--border-subtle)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]"
+                                                style="color-scheme: dark;"
                                                 prop:value=model_name
                                                 on:change=move |ev| model_name.set(event_target_value(&ev))
                                             >
                                                 {models.into_iter().map(|m| {
-                                                    view! { <option value=m.id.clone()>{m.id.clone()}</option> }
+                                                    view! { <option value=m.id.clone() class="bg-zinc-800 text-white">{m.id.clone()}</option> }
                                                 }).collect::<Vec<_>>()}
                                             </select>
                                         }.into_any()

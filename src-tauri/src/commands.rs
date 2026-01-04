@@ -194,6 +194,11 @@ pub async fn configure_llm(
     settings: LLMSettings,
     state: State<'_, AppState>,
 ) -> Result<String, String> {
+    // Validate model is not empty (except for claude-code which allows None)
+    if settings.model.trim().is_empty() && settings.provider != "claude-code" {
+        return Err("Model name is required. Please select a model.".to_string());
+    }
+
     let config = match settings.provider.as_str() {
         "ollama" => LLMConfig::Ollama {
             host: settings.host.unwrap_or_else(|| "http://localhost:11434".to_string()),
@@ -735,10 +740,11 @@ pub async fn stream_chat(
                     }
                 }
                 Err(e) => {
-                    // Emit error event
+                    // Emit error event with error message in content
+                    let error_message = format!("Error: {}", e);
                     let error_chunk = ChatChunk {
                         stream_id: stream_id_clone.clone(),
-                        content: String::new(),
+                        content: error_message.clone(),
                         provider: String::new(),
                         model: String::new(),
                         is_final: true,
