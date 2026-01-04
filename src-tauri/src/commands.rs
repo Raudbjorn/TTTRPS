@@ -6,7 +6,8 @@ use tauri::State;
 use crate::core::voice::{
     VoiceManager, VoiceConfig, VoiceProviderType, ElevenLabsConfig,
     OllamaConfig, SynthesisRequest, OutputFormat, VoiceProviderDetection,
-    detect_providers,
+    detect_providers, ProviderInstaller, InstallStatus,
+    AvailablePiperVoice, get_recommended_piper_voices,
     types::{QueuedVoice, VoiceStatus}
 };
 use crate::core::models::Campaign;
@@ -1171,6 +1172,79 @@ pub async fn get_voice_config(state: State<'_, AppState>) -> Result<VoiceConfig,
 #[tauri::command]
 pub async fn detect_voice_providers() -> Result<VoiceProviderDetection, String> {
     Ok(detect_providers().await)
+}
+
+// ============================================================================
+// Voice Provider Installation Commands
+// ============================================================================
+
+/// Check installation status for all local voice providers
+#[tauri::command]
+pub async fn check_voice_provider_installations() -> Result<Vec<InstallStatus>, String> {
+    let models_dir = dirs::data_local_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join("ttrpg-assistant/voice/piper");
+
+    let installer = ProviderInstaller::new(models_dir);
+    Ok(installer.check_all_local().await)
+}
+
+/// Check installation status for a specific provider
+#[tauri::command]
+pub async fn check_voice_provider_status(provider: VoiceProviderType) -> Result<InstallStatus, String> {
+    let models_dir = dirs::data_local_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join("ttrpg-assistant/voice/piper");
+
+    let installer = ProviderInstaller::new(models_dir);
+    Ok(installer.check_status(&provider).await)
+}
+
+/// Install a voice provider (Piper or Coqui)
+#[tauri::command]
+pub async fn install_voice_provider(provider: VoiceProviderType) -> Result<InstallStatus, String> {
+    let models_dir = dirs::data_local_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join("ttrpg-assistant/voice/piper");
+
+    let installer = ProviderInstaller::new(models_dir);
+    installer.install(&provider).await.map_err(|e| e.to_string())
+}
+
+/// List available Piper voices for download from Hugging Face
+#[tauri::command]
+pub async fn list_downloadable_piper_voices() -> Result<Vec<AvailablePiperVoice>, String> {
+    let models_dir = dirs::data_local_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join("ttrpg-assistant/voice/piper");
+
+    let installer = ProviderInstaller::new(models_dir);
+    installer.list_available_piper_voices().await.map_err(|e| e.to_string())
+}
+
+/// Get recommended/popular Piper voices (quick, no network call)
+#[tauri::command]
+pub fn get_popular_piper_voices() -> Vec<(String, String, String)> {
+    get_recommended_piper_voices()
+        .into_iter()
+        .map(|(k, n, d)| (k.to_string(), n.to_string(), d.to_string()))
+        .collect()
+}
+
+/// Download a Piper voice from Hugging Face
+#[tauri::command]
+pub async fn download_piper_voice(voice_key: String, quality: Option<String>) -> Result<String, String> {
+    let models_dir = dirs::data_local_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join("ttrpg-assistant/voice/piper");
+
+    let installer = ProviderInstaller::new(models_dir);
+    let path = installer
+        .download_piper_voice(&voice_key, quality.as_deref())
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(path.to_string_lossy().to_string())
 }
 
 // ============================================================================

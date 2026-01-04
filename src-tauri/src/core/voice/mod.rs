@@ -7,6 +7,7 @@ pub mod presets;
 pub mod cache;
 pub mod queue;
 pub mod download;
+pub mod install;
 
 pub use types::*;
 pub use manager::VoiceManager;
@@ -38,4 +39,10 @@ pub use queue::{
 pub use download::{
     VoiceDownloader, AvailablePiperVoice, PiperLanguage, PiperVoiceFiles, PiperFileInfo,
     DownloadError, DownloadResult, ProgressCallback, popular_piper_voices,
+};
+
+// Re-export install system
+pub use install::{
+    ProviderInstaller, InstallStatus, InstallMethod, InstallError, InstallResult,
+    get_recommended_piper_voices,
 };
