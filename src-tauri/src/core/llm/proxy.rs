@@ -62,8 +62,12 @@ impl From<OpenAIMessage> for ChatMessage {
             _ => MessageRole::User,
         };
         ChatMessage {
-            role,
+            role: MessageRole::User,
             content: msg.content,
+            images: None,
+            name: None,
+            tool_calls: None,
+            tool_call_id: None,
         }
     }
 }
@@ -376,10 +380,12 @@ async fn chat_completions(
     // Build internal request
     let chat_request = ChatRequest {
         messages,
-        system_prompt: None,
         temperature: request.temperature,
         max_tokens: request.max_tokens,
+        system_prompt: None,
         provider: None,
+        tools: None,
+        tool_choice: None,
     };
 
     if request.stream {
