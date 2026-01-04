@@ -484,7 +484,7 @@ pub fn LLMSettingsView() -> impl IntoView {
                                     class=move || format!(
                                         "w-full flex items-center justify-between p-3 rounded-lg text-sm transition-all {}",
                                         if is_active() {
-                                            "bg-[var(--accent-primary)] text-white shadow-md"
+                                            "bg-[var(--accent-primary)] text-[var(--bg-deep)] shadow-md font-bold"
                                         } else {
                                             "bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:bg-[var(--bg-elevated)]"
                                         }
