@@ -291,7 +291,7 @@ install_frontend_tools() {
     # Install/Update Tailwind CSS CLI
     cd "$FRONTEND_DIR"
 
-    local tailwind_version="3.4.17"
+    local tailwind_version="4.1.18"
     local needs_install=false
 
     if [ ! -f "tailwindcss" ]; then

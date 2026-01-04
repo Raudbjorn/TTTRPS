@@ -2,3 +2,6 @@
 /dist
 /node_modules
 package-lock.json
+
+# Tailwind standalone CLI binary (downloaded at build time)
+/tailwindcss
