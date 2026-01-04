@@ -195,7 +195,8 @@ pub async fn configure_llm(
     state: State<'_, AppState>,
 ) -> Result<String, String> {
     // Validate model is not empty (except for claude-code which allows None)
-    if settings.model.trim().is_empty() && settings.provider != "claude-code" {
+    const CLAUDE_CODE_PROVIDER: &str = "claude-code";
+    if settings.model.trim().is_empty() && settings.provider != CLAUDE_CODE_PROVIDER {
         return Err("Model name is required. Please select a model.".to_string());
     }
 

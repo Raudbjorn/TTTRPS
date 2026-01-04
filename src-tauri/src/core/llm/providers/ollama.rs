@@ -230,11 +230,12 @@ impl LLMProvider for OllamaProvider {
                                     }
                                 }
                                 Err(e) => {
-<<<<<<< HEAD
-                                    eprintln!("Error: Failed to parse Ollama JSON: {} | Line: {}", e, line);
-=======
-                                    eprintln!("Ollama JSON parse error: {} for line: {}", e, line);
->>>>>>> origin/fix/ollama-streaming-stuck
+                                    eprintln!(
+                                        "Ollama JSON parse error at chunk_index {}: {} for line: {}",
+                                        chunk_index,
+                                        e,
+                                        line
+                                    );
                                 }
                             }
                         }
@@ -249,7 +250,14 @@ impl LLMProvider for OllamaProvider {
 
             // Handle any remaining buffer content (shouldn't happen with proper NDJSON)
             if !buffer.trim().is_empty() {
-                eprintln!("Ollama stream ended with incomplete buffer: {}", buffer);
+                eprintln!(
+                    "Unexpected: Ollama stream ended with an incomplete NDJSON buffer. \
+                     The response may be truncated or malformed, which can indicate a \
+                     network interruption or a server-side error. \
+                     Consider checking the Ollama server logs, your network connection, \
+                     and model configuration. Remaining buffer: {}",
+                    buffer
+                );
             }
         });
 
