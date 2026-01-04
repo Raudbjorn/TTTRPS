@@ -120,7 +120,7 @@ impl LocationType {
             "temple" | "church" | "shrine" => Self::Temple,
             "castle" | "fortress" => Self::Castle,
             "manor" | "mansion" | "estate" => Self::Manor,
-            "prison" | "jail" | "dungeon" => Self::Prison,
+            "prison" | "jail" => Self::Prison,
             "slum" | "slums" => Self::Slum,
             "market" | "bazaar" => Self::Market,
             "city" => Self::City,
@@ -1296,6 +1296,7 @@ mod tests {
     fn test_location_type_parsing() {
         assert_eq!(LocationType::from_str("tavern"), LocationType::Tavern);
         assert_eq!(LocationType::from_str("dungeon"), LocationType::Dungeon);
+        assert_eq!(LocationType::from_str("prison"), LocationType::Prison);
         assert_eq!(LocationType::from_str("forest"), LocationType::Forest);
     }
 

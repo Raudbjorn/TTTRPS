@@ -88,6 +88,13 @@ libc = "0.2"
 
 
 
+[dev-dependencies]
+proptest = "1.6"
+mockall = "0.13"
+wiremock = "0.6"
+fake = "4.1"
+rstest = "0.24"
+
 [features]
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]
