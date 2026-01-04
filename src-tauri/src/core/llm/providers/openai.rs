@@ -805,7 +805,7 @@ mod tests {
             "Look at this".to_string(),
             vec!["base64image".to_string()]
         );
-        println!("DEBUG: Test Msg: {:?}", msg);
+
 
         let request = ChatRequest {
             messages: vec![msg],
@@ -844,7 +844,7 @@ mod tests {
         let mut msg = ChatMessage::assistant("".to_string());
         msg.tool_calls = Some(vec![tool_call]);
 
-        println!("DEBUG: Tool Test Msg: {:?}", msg);
+
 
         let request = ChatRequest {
             messages: vec![msg],

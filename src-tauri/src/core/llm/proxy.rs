@@ -62,7 +62,7 @@ impl From<OpenAIMessage> for ChatMessage {
             _ => MessageRole::User,
         };
         ChatMessage {
-            role: MessageRole::User,
+            role,
             content: msg.content,
             images: None,
             name: None,

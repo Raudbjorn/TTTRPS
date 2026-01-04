@@ -695,8 +695,8 @@ pub async fn stream_chat(
 
     let request = ChatRequest {
         messages,
-        max_tokens: None,
-        temperature: None,
+        max_tokens,
+        temperature,
         system_prompt,
         provider: None,
         tools: None,
@@ -5768,7 +5768,6 @@ pub fn list_chat_providers() -> Vec<ChatProviderInfo> {
 /// 1. Starts the LLM proxy if needed (for non-native providers)
 /// 2. Registers the provider with the proxy
 /// 3. Configures the Meilisearch chat workspace
-#[tauri::command]
 #[tauri::command]
 pub async fn configure_chat_workspace(
     workspace_id: String,
