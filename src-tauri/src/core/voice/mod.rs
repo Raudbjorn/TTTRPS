@@ -6,6 +6,7 @@ pub mod profiles;
 pub mod presets;
 pub mod cache;
 pub mod queue;
+pub mod download;
 
 pub use types::*;
 pub use manager::VoiceManager;
@@ -31,4 +32,10 @@ pub use queue::{
     QueueConfig, QueueStats, QueueError, QueueResult,
     QueueWorker, VoiceSynthesizer, JobSubmittedEvent, JobStatusEvent, QueueStatsEvent,
     events as queue_events,
+};
+
+// Re-export download system
+pub use download::{
+    VoiceDownloader, AvailablePiperVoice, PiperLanguage, PiperVoiceFiles, PiperFileInfo,
+    DownloadError, DownloadResult, ProgressCallback, popular_piper_voices,
 };

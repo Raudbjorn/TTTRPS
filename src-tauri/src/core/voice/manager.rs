@@ -82,7 +82,7 @@ impl VoiceManager {
         }
 
         // Initialize Piper
-        let piper_config = config.piper.clone().unwrap_or(crate::core::voice::types::PiperConfig { models_dir: None });
+        let piper_config = config.piper.clone().unwrap_or_default();
         providers.insert("piper".to_string(), Box::new(PiperProvider::new(piper_config)));
 
         let cache_dir = config.cache_dir.clone().unwrap_or_else(|| PathBuf::from("./voice_cache"));
