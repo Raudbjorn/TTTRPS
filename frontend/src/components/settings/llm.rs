@@ -416,7 +416,7 @@ pub fn LLMSettingsView() -> impl IntoView {
                                             on:change=move |ev| model_name.set(event_target_value(&ev))
                                         >
                                             {ollama_models.get().into_iter().map(|m| {
-                                                view! { <option value=m.name.clone() class="bg-zinc-800 text-white">{m.name.clone()}</option> }
+                                                view! { <option value=m.name.clone() class="bg-[var(--bg-elevated)] text-[var(--text-primary)]">{m.name.clone()}</option> }
                                             }).collect::<Vec<_>>()}
                                         </select>
                                     }.into_any()
@@ -433,7 +433,7 @@ pub fn LLMSettingsView() -> impl IntoView {
                                                 on:change=move |ev| model_name.set(event_target_value(&ev))
                                             >
                                                 {models.into_iter().map(|m| {
-                                                    view! { <option value=m.id.clone() class="bg-zinc-800 text-white">{m.id.clone()}</option> }
+                                                    view! { <option value=m.id.clone() class="bg-[var(--bg-elevated)] text-[var(--text-primary)]">{m.id.clone()}</option> }
                                                 }).collect::<Vec<_>>()}
                                             </select>
                                         }.into_any()
