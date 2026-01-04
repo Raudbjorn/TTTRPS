@@ -203,9 +203,16 @@ run_dev() {
 run_tests() {
     print_section "Running Tests"
 
-    print_info "Testing backend..."
+    print_info "Testing backend (lib)..."
     cd "$BACKEND_DIR"
-    cargo test
+    cargo test --lib
+
+    print_info "Testing backend (integration, requires services)..."
+    if [ "$RUN_INTEGRATION" = true ]; then
+        cargo test -- --ignored
+    else
+        print_warning "Skipping integration tests (use --integration to run)"
+    fi
 
     print_info "Testing frontend..."
     cd "$FRONTEND_DIR"
@@ -258,17 +265,23 @@ show_help() {
     echo "  help        Show this help message"
     echo ""
     echo -e "${CYAN}Options:${NC}"
-    echo "  --release   Build in release mode (optimized)"
+    echo "  --release      Build in release mode (optimized)"
+    echo "  --integration  Run integration tests (requires Meilisearch)"
 }
 
 # Parse arguments
 RELEASE=false
+RUN_INTEGRATION=false
 COMMAND="build"
 
 while [[ $# -gt 0 ]]; do
     case $1 in
         --release)
             RELEASE=true
+            shift
+            ;;
+        --integration)
+            RUN_INTEGRATION=true
             shift
             ;;
         dev|build|frontend|backend|test|check|clean|help)

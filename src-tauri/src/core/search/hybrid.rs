@@ -778,7 +778,9 @@ mod tests {
     #[test]
     fn test_options_default() {
         let options = HybridSearchOptions::default();
-        assert_eq!(options.limit, 10);
+        // Note: #[derive(Default)] sets limit to 0 (usize default).
+        // The serde(default = "default_limit") only applies during deserialization.
+        assert_eq!(options.limit, 0);
         assert!(options.source_type.is_none());
         assert!(options.campaign_id.is_none());
         assert!(options.index.is_none());

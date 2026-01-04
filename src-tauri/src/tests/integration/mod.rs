@@ -1,0 +1,49 @@
+//! Integration Tests Module
+//!
+//! Comprehensive integration tests that verify component interactions
+//! and end-to-end functionality.
+//!
+//! # Test Categories
+//!
+//! ## Database Integration (`database_integration`)
+//! - Full campaign lifecycle (create, update, snapshot, rollback, delete)
+//! - Session with combat flow
+//! - NPC conversation persistence
+//! - Concurrent campaign access
+//! - Backup and restore cycle
+//!
+//! ## Meilisearch Integration (`meilisearch_integration`)
+//! - Document indexing end-to-end
+//! - Search query types (typo tolerance, filtering, facets)
+//! - Hybrid search (BM25 + semantic)
+//! - Search analytics recording
+//! - Index deletion and cleanup
+//!
+//! Note: Meilisearch tests requiring a running instance are marked `#[ignore]`
+//!
+//! ## LLM Integration (`llm_integration`)
+//! - Provider failover with mock failures
+//! - Streaming chunk assembly
+//! - Context window management
+//! - Cost tracking accumulation
+//! - Circuit breaker behavior
+//! - Health tracking and recovery
+//!
+//! # Running Tests
+//!
+//! ```bash
+//! # Run all integration tests (excluding ignored)
+//! cargo test integration
+//!
+//! # Run ignored tests (requires external services)
+//! cargo test integration -- --ignored
+//!
+//! # Run specific integration test module
+//! cargo test integration::database_integration
+//! cargo test integration::meilisearch_integration
+//! cargo test integration::llm_integration
+//! ```
+
+pub mod database_integration;
+pub mod llm_integration;
+pub mod meilisearch_integration;

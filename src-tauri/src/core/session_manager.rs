@@ -1922,6 +1922,8 @@ mod tests {
             temp_hp: Some(10),
             armor_class: Some(18),
             conditions: vec![],
+            condition_tracker: ConditionTracker::default(),
+            condition_immunities: vec![],
             is_active: true,
             notes: String::new(),
         };
