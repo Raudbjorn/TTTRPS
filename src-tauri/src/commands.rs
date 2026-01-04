@@ -189,11 +189,20 @@ pub struct HealthStatus {
 // LLM Commands
 // ============================================================================
 
+/// Providers that can auto-detect or have default models, so model selection is optional
+const PROVIDERS_WITH_OPTIONAL_MODEL: &[&str] = &["claude-code", "claude-desktop", "gemini-cli"];
+
 #[tauri::command]
 pub async fn configure_llm(
     settings: LLMSettings,
     state: State<'_, AppState>,
 ) -> Result<String, String> {
+    // Validate model is not empty (except for providers that support auto-detection)
+    let model_optional = PROVIDERS_WITH_OPTIONAL_MODEL.contains(&settings.provider.as_str());
+    if settings.model.trim().is_empty() && !model_optional {
+        return Err("Model name is required. Please select a model.".to_string());
+    }
+
     let config = match settings.provider.as_str() {
         "ollama" => LLMConfig::Ollama {
             host: settings.host.unwrap_or_else(|| "http://localhost:11434".to_string()),
@@ -735,10 +744,13 @@ pub async fn stream_chat(
                     }
                 }
                 Err(e) => {
-                    // Emit error event
+                    let error_message = format!("Error: {}", e);
+                    log::error!("Stream {} error: {}", stream_id_clone, error_message);
+
+                    // Emit error event with error message in content
                     let error_chunk = ChatChunk {
                         stream_id: stream_id_clone.clone(),
-                        content: String::new(),
+                        content: error_message,
                         provider: String::new(),
                         model: String::new(),
                         is_final: true,
@@ -747,7 +759,6 @@ pub async fn stream_chat(
                         index: 0,
                     };
                     let _ = app_handle.emit("chat-chunk", &error_chunk);
-                    eprintln!("Stream error: {}", e);
                     break;
                 }
             }

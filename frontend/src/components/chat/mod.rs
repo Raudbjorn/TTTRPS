@@ -136,10 +136,19 @@ pub fn Chat() -> impl IntoView {
 
                     // Handle stream completion
                     if chunk.is_final {
+                        // Check if this is an error response
+                        let is_error = chunk.finish_reason.as_deref() == Some("error");
+
                         messages.update(|msgs| {
                             if let Some(msg) = msgs.iter_mut().find(|m| m.id == msg_id) {
                                 msg.is_streaming = false;
                                 msg.stream_id = None;
+
+                                // Mark as error if finish_reason is "error"
+                                if is_error {
+                                    msg.role = "error".to_string();
+                                }
+
                                 // Set token usage if available
                                 if let Some(usage) = &chunk.usage {
                                     msg.tokens = Some((usage.input_tokens, usage.output_tokens));

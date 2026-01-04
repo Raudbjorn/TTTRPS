@@ -282,7 +282,7 @@ pub fn SourceManager() -> impl IntoView {
                                         class=move || format!(
                                             "px-3 py-1.5 text-xs rounded-full transition-all flex items-center gap-1 {}",
                                             if is_active() {
-                                                "bg-[var(--accent)] text-white"
+                                                "bg-[var(--accent)] text-[var(--bg-deep)]"
                                             } else {
                                                 "bg-[var(--bg-elevated)] text-[var(--text-muted)] hover:bg-[var(--bg-deep)]"
                                             }
@@ -356,7 +356,7 @@ pub fn SourceManager() -> impl IntoView {
                                                                             class=move || format!(
                                                                                 "px-2 py-1 text-xs rounded transition-colors {}",
                                                                                 if is_active() {
-                                                                                    "bg-[var(--accent)] text-white"
+                                                                                    "bg-[var(--accent)] text-[var(--bg-deep)]"
                                                                                 } else {
                                                                                     "bg-[var(--bg-deep)] text-[var(--text-muted)] hover:bg-[var(--bg-surface)]"
                                                                                 }

@@ -411,11 +411,12 @@ pub fn LLMSettingsView() -> impl IntoView {
                                     view! {
                                         <select
                                             class="w-full p-3 rounded-lg bg-[var(--bg-deep)] border border-[var(--border-subtle)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)] transition-colors"
+                                            style="color-scheme: dark;"
                                             prop:value=model_name
                                             on:change=move |ev| model_name.set(event_target_value(&ev))
                                         >
                                             {ollama_models.get().into_iter().map(|m| {
-                                                view! { <option value=m.name.clone()>{m.name.clone()}</option> }
+                                                view! { <option value=m.name.clone() class="bg-[var(--bg-elevated)] text-[var(--text-primary)]">{m.name.clone()}</option> }
                                             }).collect::<Vec<_>>()}
                                         </select>
                                     }.into_any()
@@ -427,11 +428,12 @@ pub fn LLMSettingsView() -> impl IntoView {
                                          view! {
                                             <select
                                                 class="w-full p-3 rounded-lg bg-[var(--bg-deep)] border border-[var(--border-subtle)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]"
+                                                style="color-scheme: dark;"
                                                 prop:value=model_name
                                                 on:change=move |ev| model_name.set(event_target_value(&ev))
                                             >
                                                 {models.into_iter().map(|m| {
-                                                    view! { <option value=m.id.clone()>{m.id.clone()}</option> }
+                                                    view! { <option value=m.id.clone() class="bg-[var(--bg-elevated)] text-[var(--text-primary)]">{m.id.clone()}</option> }
                                                 }).collect::<Vec<_>>()}
                                             </select>
                                         }.into_any()
@@ -484,7 +486,7 @@ pub fn LLMSettingsView() -> impl IntoView {
                                     class=move || format!(
                                         "w-full flex items-center justify-between p-3 rounded-lg text-sm transition-all {}",
                                         if is_active() {
-                                            "bg-[var(--accent-primary)] text-white shadow-md"
+                                            "bg-[var(--accent-primary)] text-[var(--bg-deep)] shadow-md font-bold"
                                         } else {
                                             "bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:bg-[var(--bg-elevated)]"
                                         }
