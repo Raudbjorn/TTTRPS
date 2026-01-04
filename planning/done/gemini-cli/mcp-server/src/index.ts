@@ -120,10 +120,21 @@ async function executeGemini(options: ExecuteOptions): Promise<GeminiResponse> {
     });
 
     child.on("error", (err) => {
-      reject(new Error(`Failed to spawn Gemini CLI: ${err.message}`));
+      // Handle spawn errors including timeouts from the spawn timeout option
+      if (err.message.includes("ETIMEDOUT") || err.message.includes("timed out")) {
+        reject(new Error(`Gemini CLI timed out after ${timeoutMs}ms`));
+      } else {
+        reject(new Error(`Failed to spawn Gemini CLI: ${err.message}`));
+      }
     });
 
-    child.on("close", (code) => {
+    child.on("close", (code, signal) => {
+      // Check if killed by timeout (SIGTERM from spawn timeout)
+      if (signal === "SIGTERM") {
+        reject(new Error(`Gemini CLI timed out after ${timeoutMs}ms`));
+        return;
+      }
+
       // Try to parse as JSON first
       try {
         const response = JSON.parse(stdout) as GeminiResponse;
@@ -149,12 +160,6 @@ async function executeGemini(options: ExecuteOptions): Promise<GeminiResponse> {
         });
       }
     });
-
-    // Handle timeout
-    setTimeout(() => {
-      child.kill("SIGTERM");
-      reject(new Error(`Gemini CLI timed out after ${timeoutMs}ms`));
-    }, timeoutMs);
   });
 }
 

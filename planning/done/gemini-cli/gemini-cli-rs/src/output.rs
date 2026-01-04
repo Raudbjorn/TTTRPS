@@ -322,6 +322,9 @@ pub fn parse_response(output: &str) -> Result<GeminiResponse, crate::error::Gemi
                 }
                 _ => {}
             }
+        } else {
+            // Log unparseable lines - may contain diagnostic info or stderr mixed with stdout
+            tracing::warn!("Failed to parse stream event line: {}", line);
         }
     }
 
