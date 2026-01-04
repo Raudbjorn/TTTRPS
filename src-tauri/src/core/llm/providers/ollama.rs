@@ -162,26 +162,27 @@ impl LLMProvider for OllamaProvider {
         tokio::spawn(async move {
             let mut stream = response.bytes_stream();
             let mut chunk_index = 0u32;
+<<<<<<< HEAD
             // Buffer to hold incomplete lines across chunks
+=======
+            // Buffer to hold incomplete lines across chunks (NDJSON may split at arbitrary byte positions)
+>>>>>>> origin/fix/ollama-streaming-stuck
             let mut buffer = String::new();
 
             while let Some(item) = stream.next().await {
                 match item {
                     Ok(bytes) => {
                         let text = String::from_utf8_lossy(&bytes);
-                        // println!("DEBUG: Ollama raw chunk: {}", text);
                         buffer.push_str(&text);
 
-                        // Process full lines from the buffer
+                        // Process complete lines from the buffer (newline-terminated)
                         while let Some(newline_pos) = buffer.find('\n') {
-                            let line = buffer[..newline_pos].to_string();
+                            let line = buffer[..newline_pos].trim().to_string();
                             buffer.drain(..newline_pos + 1);
 
-                            if line.trim().is_empty() {
+                            if line.is_empty() {
                                 continue;
                             }
-
-                            // println!("DEBUG: Ollama processing line: {}", line);
 
                             match serde_json::from_str::<serde_json::Value>(&line) {
                                 Ok(json) => {
@@ -229,7 +230,11 @@ impl LLMProvider for OllamaProvider {
                                     }
                                 }
                                 Err(e) => {
+<<<<<<< HEAD
                                     eprintln!("Error: Failed to parse Ollama JSON: {} | Line: {}", e, line);
+=======
+                                    eprintln!("Ollama JSON parse error: {} for line: {}", e, line);
+>>>>>>> origin/fix/ollama-streaming-stuck
                                 }
                             }
                         }
@@ -240,6 +245,11 @@ impl LLMProvider for OllamaProvider {
                         return;
                     }
                 }
+            }
+
+            // Handle any remaining buffer content (shouldn't happen with proper NDJSON)
+            if !buffer.trim().is_empty() {
+                eprintln!("Ollama stream ended with incomplete buffer: {}", buffer);
             }
         });
 
