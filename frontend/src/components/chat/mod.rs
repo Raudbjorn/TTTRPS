@@ -411,7 +411,7 @@ pub fn Chat() -> impl IntoView {
                         }
                     }>{move || llm_status.get()}</span>
                 </div>
-                <nav class="flex items-center gap-4">
+                <nav class="flex items-center gap-6">
                     // Usage indicator (only show if tokens used with a paid model)
                     {move || {
                         let usage = session_usage.get();
@@ -442,18 +442,18 @@ pub fn Chat() -> impl IntoView {
                             None
                         }
                     }}
-                    <A href="/campaigns" attr:class="text-theme-secondary hover:text-theme-primary px-2">
-                        "Campaigns"
-                    </A>
-                    <A href="/character" attr:class="text-theme-secondary hover:text-theme-primary px-2">
-                        "Characters"
-                    </A>
-                    <A href="/library" attr:class="text-theme-secondary hover:text-theme-primary px-2">
-                        "Library"
-                    </A>
-                    <A href="/settings" attr:class="text-theme-secondary hover:text-theme-primary px-2">
-                        "Settings"
-                    </A>
+                    <HeaderLink href="/campaigns" label="Campaigns">
+                        <FolderIcon />
+                    </HeaderLink>
+                    <HeaderLink href="/character" label="Characters">
+                        <UsersIcon />
+                    </HeaderLink>
+                    <HeaderLink href="/library" label="Library">
+                        <BookIcon />
+                    </HeaderLink>
+                    <HeaderLink href="/settings" label="Settings">
+                        <SettingsIcon />
+                    </HeaderLink>
                 </nav>
             </div>
 
@@ -573,5 +573,77 @@ pub fn Chat() -> impl IntoView {
                 </div>
             </div>
         </div>
+    }
+}
+// SVG Icon Components for Header
+#[component]
+fn FolderIcon() -> impl IntoView {
+    view! {
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+        </svg>
+    }
+}
+
+#[component]
+fn UsersIcon() -> impl IntoView {
+    view! {
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+            <circle cx="9" cy="7" r="4"></circle>
+            <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+            <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+        </svg>
+    }
+}
+
+#[component]
+fn BookIcon() -> impl IntoView {
+    view! {
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path>
+            <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path>
+        </svg>
+    }
+}
+
+#[component]
+fn SettingsIcon() -> impl IntoView {
+    view! {
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="3"></circle>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+        </svg>
+    }
+}
+
+// Navigation Link component with tooltip (dynamic text/icon mode)
+#[component]
+fn HeaderLink(
+    href: &'static str,
+    label: &'static str,
+    children: Children,
+) -> impl IntoView {
+    let layout_state = crate::services::layout_service::use_layout_state();
+    let text_mode = layout_state.text_navigation;
+
+    view! {
+        <A href=href attr:class="group relative text-theme-secondary hover:text-theme-primary transition-colors p-2 rounded hover:bg-white/5 flex items-center justify-center">
+            {move || {
+                if text_mode.get() {
+                    view! { <span class="font-medium text-sm px-2">{label}</span> }.into_any()
+                } else {
+                    view! {
+                        {children()}
+                        <div
+                            class="absolute top-full mt-2 left-1/2 -translate-x-1/2 bg-[var(--bg-elevated)] text-[var(--text-primary)] text-xs font-medium px-2 py-1 rounded shadow-lg opacity-0 group-hover:opacity-100 group-hover:translate-y-1 group-focus:opacity-100 transition-all duration-200 whitespace-nowrap border border-[var(--border-subtle)] z-[100] pointer-events-none backdrop-blur-md"
+                            role="tooltip"
+                        >
+                            {label}
+                        </div>
+                    }.into_any()
+                }
+            }}
+        </A>
     }
 }
