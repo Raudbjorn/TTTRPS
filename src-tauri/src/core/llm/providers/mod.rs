@@ -37,7 +37,7 @@ use super::router::LLMProvider;
 use std::sync::Arc;
 
 /// Configuration for creating providers
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum ProviderConfig {
     Ollama {
         host: String,

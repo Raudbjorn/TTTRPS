@@ -2,7 +2,7 @@
 //!
 //! All Tauri IPC commands exposed to the frontend.
 
-use tauri::State;
+use tauri::{State, Manager};
 use crate::core::voice::{
     VoiceManager, VoiceConfig, VoiceProviderType, ElevenLabsConfig,
     OllamaConfig, SynthesisRequest, OutputFormat, VoiceProviderDetection,
@@ -193,10 +193,38 @@ pub struct HealthStatus {
 /// Providers that can auto-detect or have default models, so model selection is optional
 const PROVIDERS_WITH_OPTIONAL_MODEL: &[&str] = &["claude-code", "claude-desktop", "gemini-cli"];
 
+
+fn get_config_path(app_handle: &tauri::AppHandle) -> PathBuf {
+    // Ensure app data dir exists
+    let dir = app_handle.path().app_data_dir().unwrap_or(PathBuf::from("."));
+    if !dir.exists() {
+        let _ = std::fs::create_dir_all(&dir);
+    }
+    dir.join("llm_config.json")
+}
+
+pub fn load_llm_config_disk(app_handle: &tauri::AppHandle) -> Option<LLMConfig> {
+    let path = get_config_path(app_handle);
+    if path.exists() {
+        if let Ok(content) = std::fs::read_to_string(path) {
+            return serde_json::from_str(&content).ok();
+        }
+    }
+    None
+}
+
+fn save_llm_config_disk(app_handle: &tauri::AppHandle, config: &LLMConfig) {
+    let path = get_config_path(app_handle);
+    if let Ok(json) = serde_json::to_string_pretty(config) {
+        let _ = std::fs::write(path, json);
+    }
+}
+
 #[tauri::command]
 pub async fn configure_llm(
     settings: LLMSettings,
     state: State<'_, AppState>,
+    app_handle: tauri::AppHandle,
 ) -> Result<String, String> {
     // Validate model is not empty (except for providers that support auto-detection)
     let model_optional = PROVIDERS_WITH_OPTIONAL_MODEL.contains(&settings.provider.as_str());
@@ -273,6 +301,9 @@ pub async fn configure_llm(
 
     *state.llm_config.write().unwrap() = Some(config.clone());
 
+    // Persist to disk
+    save_llm_config_disk(&app_handle, &config);
+
     // Update Router: remove old provider if different, then add new one
     {
         let mut router = state.llm_router.write().await;
@@ -285,6 +316,18 @@ pub async fn configure_llm(
 
         let provider = config.create_provider();
         router.add_provider(provider).await;
+    }
+
+    // Configure Meilisearch Chat (RAG)
+    // This communicates the preference to Meilisearch
+    {
+        let manager = state.llm_manager.write().await;
+        // Use default system prompt (None)
+        if let Err(e) = manager.configure_for_chat(&config, None).await {
+            log::error!("Failed to configure Meilisearch chat: {}", e);
+            // Don't fail the whole request, but log it.
+            // The UI might want to know, but partial success is better than failure.
+        }
     }
 
     Ok(format!("Configured {} provider successfully", provider_name))
@@ -763,42 +806,22 @@ pub async fn stream_chat(
 
                     chunk_count += 1;
                     total_bytes += content.len();
-                    log::debug!("[stream_chat:{}] Processing chunk #{}: {} bytes", stream_id_clone, chunk_count, content.len());
 
-                    // Create a chunk object
                     let chunk = ChatChunk {
                         stream_id: stream_id_clone.clone(),
-                        content: content.clone(),
-                        provider: String::new(), // Manager abstracts this
-                        model: String::new(),    // Manager abstracts this
+                        content,
+                        provider: String::new(),
+                        model: String::new(),
                         is_final: false,
                         finish_reason: None,
                         usage: None,
                         index: chunk_count,
                     };
-=======
-                Ok(mut chunk) => {
-                    chunk_count += 1;
-                    // Override the provider's stream ID with our generated one
-                    chunk.stream_id = stream_id_clone.clone();
-                    full_content.push_str(&chunk.content);
-
-                    log::debug!("[stream_chat:{}] Chunk #{}: {} bytes, is_final={}",
-                        stream_id_clone, chunk_count, chunk.content.len(), chunk.is_final);
->>>>>>> origin/main
 
                     // Emit the chunk event
                     if let Err(e) = app_handle.emit("chat-chunk", &chunk) {
                         log::error!("[stream_chat:{}] Failed to emit chunk: {}", stream_id_clone, e);
-<<<<<<< HEAD
-=======
-                    }
-
-                    if chunk.is_final {
-                        log::info!("[stream_chat:{}] Stream finished with {} chunks, {} bytes total",
-                            stream_id_clone, chunk_count, full_content.len());
                         break;
->>>>>>> origin/main
                     }
                 }
                 Err(e) => {
@@ -822,7 +845,6 @@ pub async fn stream_chat(
             }
         }
         log::info!("[stream_chat:{}] Receiver task exiting", stream_id_clone);
-<<<<<<< HEAD
 
         // Emit final chunk to signal completion
         let final_chunk = ChatChunk {
@@ -836,9 +858,8 @@ pub async fn stream_chat(
             index: 0,
         };
         let _ = app_handle.emit("chat-chunk", &final_chunk);
-=======
->>>>>>> origin/main
     });
+
 
     Ok(stream_id)
 }
