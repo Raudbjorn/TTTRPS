@@ -7,15 +7,14 @@ pub use personality_selector::{PersonalitySelector, PersonalityIndicator};
 use leptos::ev;
 use leptos::prelude::*;
 use leptos_router::components::A;
-use std::cell::RefCell;
-use std::rc::Rc;
 use wasm_bindgen::JsValue;
 use wasm_bindgen_futures::spawn_local;
 use std::sync::Arc;
 use crate::services::notification_service::{show_error, ToastAction};
+use crate::services::layout_service::use_layout_state;
 
 use crate::bindings::{
-    cancel_stream, chat, check_llm_health, get_session_usage, listen_chat_chunks, stream_chat,
+    cancel_stream, chat, check_llm_health, get_session_usage, listen_chat_chunks_async, stream_chat,
     ChatChunk, ChatRequestPayload, SessionUsage, StreamingChatMessage, speak,
 };
 use crate::components::design_system::{Button, ButtonVariant, Input};
@@ -36,9 +35,34 @@ pub struct Message {
 /// Main Chat component - the primary DM interface with streaming support
 #[component]
 pub fn Chat() -> impl IntoView {
+    // State signals
+    let message_input = RwSignal::new(String::new());
+    let messages = RwSignal::new(vec![Message {
+        id: 0,
+        role: "assistant".to_string(),
+        content: "Welcome to Sidecar DM! I'm your AI-powered TTRPG assistant. Configure an LLM provider in Settings to get started.".to_string(),
+        tokens: None,
+        is_streaming: false,
+        stream_id: None,
+    }]);
+    let is_loading = RwSignal::new(false);
+    let llm_status = RwSignal::new("Checking...".to_string());
+    let session_usage = RwSignal::new(SessionUsage {
+        session_input_tokens: 0,
+        session_output_tokens: 0,
+        session_requests: 0,
+        session_cost_usd: 0.0,
+    });
+    let show_usage_panel = RwSignal::new(false);
+    let next_message_id = RwSignal::new(1_usize);
+
+    // Track the current streaming message ID and stream ID
+    // Using RwSignal for UI reactivity
+    let current_stream_id = RwSignal::new(Option::<String>::None);
+    let streaming_message_id = RwSignal::new(Option::<usize>::None);
+
     // Store the unlisten handle for cleanup
     let unlisten_handle: Rc<RefCell<Option<JsValue>>> = Rc::new(RefCell::new(None));
-
 
     // Shared health check logic
     // Trigger for health check retry
@@ -88,12 +112,6 @@ pub fn Chat() -> impl IntoView {
         }
     });
 
-    // Set up streaming chunk listener on mount
-    // Wrapper to make JsValue Send + Sync (safe in single-threaded WASM)
-    // Set up streaming chunk listener on mount
-
-    // Set up streaming chunk listener on mount
-    // Set up streaming chunk listener on mount
     // Set up streaming chunk listener on mount
     {
         let unlisten_handle = unlisten_handle.clone();
@@ -326,6 +344,8 @@ pub fn Chat() -> impl IntoView {
                 message: msg,
                 system_prompt: None,
                 context: None,
+                personality_id: None,
+                use_rag: true,
             };
 
             match chat(request).await {
@@ -509,31 +529,38 @@ pub fn Chat() -> impl IntoView {
 
             // Message Area
             <div class="flex-1 p-4 overflow-y-auto space-y-4">
-                <For
-                    each=move || messages.get()
-                    key=|msg| (msg.id, msg.content.len(), msg.is_streaming)
-                    children=move |msg| {
-                        let role = msg.role.clone();
-                        let content = msg.content.clone();
-                        let tokens = msg.tokens;
-                        let is_streaming = msg.is_streaming;
-                        let on_play_handler = if role == "assistant" && !is_streaming {
-                            let content_for_play = content.clone();
-                            Some(Callback::new(move |_: ()| play_message(content_for_play.clone())))
-                        } else {
-                            None
-                        };
-                        view! {
-                            <ChatMessage
-                                role=role
-                                content=content
-                                tokens=tokens
-                                is_streaming=is_streaming
-                                on_play=on_play_handler
-                            />
-                        }
+                {
+                    let layout = use_layout_state();
+                    view! {
+                        <For
+                            each=move || messages.get()
+                            key=|msg| (msg.id, msg.content.len(), msg.is_streaming)
+                            children=move |msg| {
+                                let role = msg.role.clone();
+                                let content = msg.content.clone();
+                                let tokens = msg.tokens;
+                                let is_streaming = msg.is_streaming;
+                                let show_tokens = layout.show_token_usage.get();
+                                let on_play_handler = if role == "assistant" && !is_streaming {
+                                    let content_for_play = content.clone();
+                                    Some(Callback::new(move |_: ()| play_message(content_for_play.clone())))
+                                } else {
+                                    None
+                                };
+                                view! {
+                                    <ChatMessage
+                                        role=role
+                                        content=content
+                                        tokens=tokens
+                                        is_streaming=is_streaming
+                                        on_play=on_play_handler
+                                        show_tokens=show_tokens
+                                    />
+                                }
+                            }
+                        />
                     }
-                />
+                }
             </div>
 
             // Input Area

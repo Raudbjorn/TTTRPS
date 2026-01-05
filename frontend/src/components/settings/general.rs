@@ -129,6 +129,7 @@ pub fn GeneralSettings() -> impl IntoView {
                     }
                  }
             </Card>
+
         </div>
     }
 }

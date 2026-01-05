@@ -15,6 +15,7 @@ pub struct CoquiProvider {
     port: u16,
     server_process: Mutex<Option<Child>>,
     is_available: AtomicBool,
+    config: std::sync::RwLock<CoquiConfig>,
 }
 
 #[derive(Debug, Serialize)]
@@ -38,14 +39,44 @@ struct ServerInfo {
 
 impl CoquiProvider {
     pub fn new(config: CoquiConfig) -> Self {
+        let port = config.port;
         Self {
             client: Client::builder()
                 .timeout(Duration::from_secs(120))
                 .build()
                 .expect("Failed to create HTTP client"),
-            port: config.port,
+            port,
             server_process: Mutex::new(None),
             is_available: AtomicBool::new(false),
+            config: std::sync::RwLock::new(config),
+        }
+    }
+
+    /// Update voice adjustment settings
+    pub fn update_settings(&self, model: String, speaker: Option<String>, language: Option<String>,
+                           speed: f32, speaker_wav: Option<String>, temperature: f32,
+                           top_k: u32, top_p: f32, repetition_penalty: f32) {
+        if let Ok(mut cfg) = self.config.write() {
+            cfg.model = model;
+            cfg.speaker = speaker;
+            cfg.language = language;
+            cfg.speed = speed;
+            cfg.speaker_wav = speaker_wav;
+            cfg.temperature = temperature;
+            cfg.top_k = top_k;
+            cfg.top_p = top_p;
+            cfg.repetition_penalty = repetition_penalty;
+        }
+    }
+
+    /// Get current settings
+    pub fn settings(&self) -> CoquiConfig {
+        match self.config.read() {
+            Ok(cfg) => cfg.clone(),
+            Err(e) => {
+                warn!("CoquiProvider config RwLock poisoned when reading settings; returning default config: {}", e);
+                CoquiConfig::default()
+            }
         }
     }
 
@@ -193,15 +224,38 @@ impl VoiceProvider for CoquiProvider {
     }
 
     async fn synthesize(&self, request: &SynthesisRequest) -> Result<Vec<u8>> {
+        let cfg = self.settings();
+
         if !self.is_available() {
-            self.start_server(Some(&request.voice_id)).await?;
+            // Use model from config or request voice_id
+            let model = if request.voice_id.is_empty() { &cfg.model } else { &request.voice_id };
+            self.start_server(Some(model)).await?;
         }
 
-        debug!(text_len = request.text.len(), voice = %request.voice_id, "Synthesizing with Coqui");
+        debug!(
+            text_len = request.text.len(),
+            voice = %request.voice_id,
+            model = %cfg.model,
+            speaker = ?cfg.speaker,
+            language = ?cfg.language,
+            "Synthesizing with Coqui"
+        );
+
+        // Build query parameters using config settings
+        let mut params: Vec<(&str, String)> = vec![("text", request.text.clone())];
+
+        // Add speaker/language from config if set
+        if let Some(ref speaker) = cfg.speaker {
+            params.push(("speaker_id", speaker.clone()));
+        }
+        if let Some(ref language) = cfg.language {
+            params.push(("language_id", language.clone()));
+        }
+        if let Some(ref speaker_wav) = cfg.speaker_wav {
+            params.push(("speaker_wav", speaker_wav.clone()));
+        }
 
         let url = format!("{}/api/tts", self.base_url());
-        let params = vec![("text", request.text.clone())];
-
         let response = self
             .client
             .get(&url)

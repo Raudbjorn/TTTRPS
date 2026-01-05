@@ -6,7 +6,8 @@ use tauri::State;
 use crate::core::voice::{
     VoiceManager, VoiceConfig, VoiceProviderType, ElevenLabsConfig,
     OllamaConfig, SynthesisRequest, OutputFormat, VoiceProviderDetection,
-    detect_providers,
+    detect_providers, ProviderInstaller, InstallStatus,
+    AvailablePiperVoice, get_recommended_piper_voices,
     types::{QueuedVoice, VoiceStatus}
 };
 use crate::core::models::Campaign;
@@ -698,6 +699,8 @@ pub async fn stream_chat(
 ) -> Result<String, String> {
     use tauri::Emitter;
 
+    log::info!("[stream_chat] Starting with {} messages", messages.len());
+
     let config = state.llm_config.read().unwrap()
         .clone()
         .ok_or("LLM not configured. Please configure in Settings.")?;
@@ -723,6 +726,7 @@ pub async fn stream_chat(
     // Use provided stream ID or generate a new one
     let stream_id = provided_stream_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
     let stream_id_clone = stream_id.clone();
+    log::info!("[stream_chat] Using stream_id: {}", stream_id);
 
     // Get the Meilisearch chat manager
     let manager = state.llm_manager.clone();
@@ -772,10 +776,29 @@ pub async fn stream_chat(
                         usage: None,
                         index: chunk_count,
                     };
+=======
+                Ok(mut chunk) => {
+                    chunk_count += 1;
+                    // Override the provider's stream ID with our generated one
+                    chunk.stream_id = stream_id_clone.clone();
+                    full_content.push_str(&chunk.content);
+
+                    log::debug!("[stream_chat:{}] Chunk #{}: {} bytes, is_final={}",
+                        stream_id_clone, chunk_count, chunk.content.len(), chunk.is_final);
+>>>>>>> origin/main
 
                     // Emit the chunk event
                     if let Err(e) = app_handle.emit("chat-chunk", &chunk) {
                         log::error!("[stream_chat:{}] Failed to emit chunk: {}", stream_id_clone, e);
+<<<<<<< HEAD
+=======
+                    }
+
+                    if chunk.is_final {
+                        log::info!("[stream_chat:{}] Stream finished with {} chunks, {} bytes total",
+                            stream_id_clone, chunk_count, full_content.len());
+                        break;
+>>>>>>> origin/main
                     }
                 }
                 Err(e) => {
@@ -799,6 +822,7 @@ pub async fn stream_chat(
             }
         }
         log::info!("[stream_chat:{}] Receiver task exiting", stream_id_clone);
+<<<<<<< HEAD
 
         // Emit final chunk to signal completion
         let final_chunk = ChatChunk {
@@ -812,6 +836,8 @@ pub async fn stream_chat(
             index: 0,
         };
         let _ = app_handle.emit("chat-chunk", &final_chunk);
+=======
+>>>>>>> origin/main
     });
 
     Ok(stream_id)
@@ -1220,6 +1246,79 @@ pub async fn get_voice_config(state: State<'_, AppState>) -> Result<VoiceConfig,
 #[tauri::command]
 pub async fn detect_voice_providers() -> Result<VoiceProviderDetection, String> {
     Ok(detect_providers().await)
+}
+
+// ============================================================================
+// Voice Provider Installation Commands
+// ============================================================================
+
+/// Check installation status for all local voice providers
+#[tauri::command]
+pub async fn check_voice_provider_installations() -> Result<Vec<InstallStatus>, String> {
+    let models_dir = dirs::data_local_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join("ttrpg-assistant/voice/piper");
+
+    let installer = ProviderInstaller::new(models_dir);
+    Ok(installer.check_all_local().await)
+}
+
+/// Check installation status for a specific provider
+#[tauri::command]
+pub async fn check_voice_provider_status(provider: VoiceProviderType) -> Result<InstallStatus, String> {
+    let models_dir = dirs::data_local_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join("ttrpg-assistant/voice/piper");
+
+    let installer = ProviderInstaller::new(models_dir);
+    Ok(installer.check_status(&provider).await)
+}
+
+/// Install a voice provider (Piper or Coqui)
+#[tauri::command]
+pub async fn install_voice_provider(provider: VoiceProviderType) -> Result<InstallStatus, String> {
+    let models_dir = dirs::data_local_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join("ttrpg-assistant/voice/piper");
+
+    let installer = ProviderInstaller::new(models_dir);
+    installer.install(&provider).await.map_err(|e| e.to_string())
+}
+
+/// List available Piper voices for download from Hugging Face
+#[tauri::command]
+pub async fn list_downloadable_piper_voices() -> Result<Vec<AvailablePiperVoice>, String> {
+    let models_dir = dirs::data_local_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join("ttrpg-assistant/voice/piper");
+
+    let installer = ProviderInstaller::new(models_dir);
+    installer.list_available_piper_voices().await.map_err(|e| e.to_string())
+}
+
+/// Get recommended/popular Piper voices (quick, no network call)
+#[tauri::command]
+pub fn get_popular_piper_voices() -> Vec<(String, String, String)> {
+    get_recommended_piper_voices()
+        .into_iter()
+        .map(|(k, n, d)| (k.to_string(), n.to_string(), d.to_string()))
+        .collect()
+}
+
+/// Download a Piper voice from Hugging Face
+#[tauri::command]
+pub async fn download_piper_voice(voice_key: String, quality: Option<String>) -> Result<String, String> {
+    let models_dir = dirs::data_local_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join("ttrpg-assistant/voice/piper");
+
+    let installer = ProviderInstaller::new(models_dir);
+    let path = installer
+        .download_piper_voice(&voice_key, quality.as_deref())
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(path.to_string_lossy().to_string())
 }
 
 // ============================================================================
