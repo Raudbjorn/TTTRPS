@@ -6025,84 +6025,48 @@ pub async fn configure_meilisearch_chat(
 ) -> Result<(), String> {
     // Build ChatProviderConfig from individual parameters
     let provider_config = match provider.to_lowercase().as_str() {
-        "openai" => {
-            let key = api_key.ok_or("OpenAI requires an API key")?;
-            ChatProviderConfig::OpenAI {
-                api_key: key,
-                model,
-                organization_id: None,
-            }
-        }
-        "claude" => {
-            let key = api_key.ok_or("Claude requires an API key")?;
-            ChatProviderConfig::Claude {
-                api_key: key,
-                model,
-                max_tokens: Some(4096),
-            }
-        }
-        "mistral" => {
-            let key = api_key.ok_or("Mistral requires an API key")?;
-            ChatProviderConfig::Mistral {
-                api_key: key,
-                model,
-            }
-        }
-        "gemini" => {
-            let key = api_key.ok_or("Gemini requires an API key")?;
-            ChatProviderConfig::Gemini {
-                api_key: key,
-                model,
-            }
-        }
-        "ollama" => {
-            let ollama_host = host.unwrap_or_else(|| "http://localhost:11434".to_string());
-            let ollama_model = model.unwrap_or_else(|| "llama3:latest".to_string());
-            ChatProviderConfig::Ollama {
-                host: ollama_host,
-                model: ollama_model,
-            }
-        }
-        "openrouter" => {
-            let key = api_key.ok_or("OpenRouter requires an API key")?;
-            let or_model = model.ok_or("OpenRouter requires a model")?;
-            ChatProviderConfig::OpenRouter {
-                api_key: key,
-                model: or_model,
-            }
-        }
-        "groq" => {
-            let key = api_key.ok_or("Groq requires an API key")?;
-            let groq_model = model.ok_or("Groq requires a model")?;
-            ChatProviderConfig::Groq {
-                api_key: key,
-                model: groq_model,
-            }
-        }
-        "together" => {
-            let key = api_key.ok_or("Together requires an API key")?;
-            let together_model = model.ok_or("Together requires a model")?;
-            ChatProviderConfig::Together {
-                api_key: key,
-                model: together_model,
-            }
-        }
-        "cohere" => {
-            let key = api_key.ok_or("Cohere requires an API key")?;
-            let cohere_model = model.ok_or("Cohere requires a model")?;
-            ChatProviderConfig::Cohere {
-                api_key: key,
-                model: cohere_model,
-            }
-        }
-        "deepseek" => {
-            let key = api_key.ok_or("DeepSeek requires an API key")?;
-            let deepseek_model = model.ok_or("DeepSeek requires a model")?;
-            ChatProviderConfig::DeepSeek {
-                api_key: key,
-                model: deepseek_model,
-            }
-        }
+        "openai" => ChatProviderConfig::OpenAI {
+            api_key: api_key.ok_or("OpenAI requires an API key")?,
+            model,
+            organization_id: None,
+        },
+        "claude" => ChatProviderConfig::Claude {
+            api_key: api_key.ok_or("Claude requires an API key")?,
+            model,
+            max_tokens: Some(4096),
+        },
+        "mistral" => ChatProviderConfig::Mistral {
+            api_key: api_key.ok_or("Mistral requires an API key")?,
+            model,
+        },
+        "gemini" => ChatProviderConfig::Gemini {
+            api_key: api_key.ok_or("Gemini requires an API key")?,
+            model,
+        },
+        "ollama" => ChatProviderConfig::Ollama {
+            host: host.unwrap_or_else(|| "http://localhost:11434".to_string()),
+            model: model.unwrap_or_else(|| "llama3:latest".to_string()),
+        },
+        "openrouter" => ChatProviderConfig::OpenRouter {
+            api_key: api_key.ok_or("OpenRouter requires an API key")?,
+            model: model.ok_or("OpenRouter requires a model")?,
+        },
+        "groq" => ChatProviderConfig::Groq {
+            api_key: api_key.ok_or("Groq requires an API key")?,
+            model: model.ok_or("Groq requires a model")?,
+        },
+        "together" => ChatProviderConfig::Together {
+            api_key: api_key.ok_or("Together requires an API key")?,
+            model: model.ok_or("Together requires a model")?,
+        },
+        "cohere" => ChatProviderConfig::Cohere {
+            api_key: api_key.ok_or("Cohere requires an API key")?,
+            model: model.ok_or("Cohere requires a model")?,
+        },
+        "deepseek" => ChatProviderConfig::DeepSeek {
+            api_key: api_key.ok_or("DeepSeek requires an API key")?,
+            model: model.ok_or("DeepSeek requires a model")?,
+        },
         "claude-code" => ChatProviderConfig::ClaudeCode {
             timeout_secs: Some(300),
             model,
@@ -6120,17 +6084,9 @@ pub async fn configure_meilisearch_chat(
         ..Default::default()
     });
 
-    // Get the LLM manager
-    let manager = state.llm_manager.clone();
-
-    // Configure Meilisearch chat client
-    {
-        let manager_guard = manager.write().await;
-        manager_guard.set_chat_client(state.search_client.host(), None).await;
-    }
-
-    // Configure the workspace with the provider
-    let manager_guard = manager.read().await;
+    // Configure Meilisearch chat client and workspace under single write lock
+    let manager_guard = state.llm_manager.write().await;
+    manager_guard.set_chat_client(state.search_client.host(), None).await;
     manager_guard
         .configure_chat_workspace("dm-assistant", provider_config, custom_prompts)
         .await?;
