@@ -4098,15 +4098,17 @@ pub async fn uninstall_gemini_cli_extension() -> Result<String, String> {
 /// the local LLM proxy service.
 ///
 /// # Arguments
-/// * `provider` - The LLM provider to use (e.g., "claude", "openai", "gemini")
+/// * `provider` - The LLM provider to use (e.g., "claude", "openai", "gemini", "ollama")
 /// * `api_key` - Optional API key (if not already stored)
 /// * `model` - Optional model override (uses provider default if not specified)
 /// * `custom_system_prompt` - Optional custom system prompt for the DM
+/// * `host` - Optional host URL for Ollama (defaults to http://localhost:11434)
 pub async fn configure_meilisearch_chat(
     provider: String,
     api_key: Option<String>,
     model: Option<String>,
     custom_system_prompt: Option<String>,
+    host: Option<String>,
 ) -> Result<(), String> {
     #[derive(Serialize)]
     struct Args {
@@ -4114,6 +4116,7 @@ pub async fn configure_meilisearch_chat(
         api_key: Option<String>,
         model: Option<String>,
         custom_system_prompt: Option<String>,
+        host: Option<String>,
     }
     invoke_void(
         "configure_meilisearch_chat",
@@ -4122,6 +4125,7 @@ pub async fn configure_meilisearch_chat(
             api_key,
             model,
             custom_system_prompt,
+            host,
         },
     )
     .await

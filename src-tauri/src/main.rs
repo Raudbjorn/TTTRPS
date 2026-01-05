@@ -513,10 +513,10 @@ fn main() {
         .expect("error while building tauri application")
         .run(|app_handle, event| {
             if let RunEvent::ExitRequested { .. } = event {
-                // Gracefully stop the LLM proxy service
+                // Gracefully stop the LLM proxy service without blocking the event loop
                 if let Some(app_state) = app_handle.try_state::<commands::AppState>() {
                     let llm_manager = app_state.llm_manager.clone();
-                    tauri::async_runtime::block_on(async {
+                    tauri::async_runtime::spawn(async move {
                         log::info!("Shutting down LLM proxy service...");
                         llm_manager.write().await.stop_proxy().await;
                         log::info!("LLM proxy service stopped");
