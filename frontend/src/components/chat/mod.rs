@@ -7,8 +7,6 @@ pub use personality_selector::{PersonalitySelector, PersonalityIndicator};
 use leptos::ev;
 use leptos::prelude::*;
 use leptos_router::components::A;
-use std::cell::RefCell;
-use std::rc::Rc;
 use wasm_bindgen::JsValue;
 use wasm_bindgen_futures::spawn_local;
 use std::sync::Arc;
@@ -58,11 +56,13 @@ pub fn Chat() -> impl IntoView {
     let next_message_id = RwSignal::new(1_usize);
 
     // Track the current streaming message ID and stream ID
+    // Using RwSignal for UI reactivity
     let current_stream_id = RwSignal::new(Option::<String>::None);
     let streaming_message_id = RwSignal::new(Option::<usize>::None);
 
-    // Store the unlisten handle for cleanup
-    let unlisten_handle: Rc<RefCell<Option<JsValue>>> = Rc::new(RefCell::new(None));
+    // ALSO store in StoredValue for access from event callback (survives component disposal)
+    // StoredValue is Leptos's solution for non-reactive storage that's Copy and survives across renders
+    let stream_state = StoredValue::new((Option::<String>::None, Option::<usize>::None));
 
     // Shared health check logic
     // Trigger for health check retry
@@ -112,70 +112,97 @@ pub fn Chat() -> impl IntoView {
         }
     });
 
-    // Set up streaming chunk listener on mount
+    // Set up streaming chunk listener on mount (runs once)
     // Note: Tauri 2's listen() is async, so we spawn to await it
+    // IMPORTANT: Find streaming message by stream_id in the messages list itself,
+    // rather than relying on StoredValue which doesn't survive component remounts
     {
-        let unlisten_handle = unlisten_handle.clone();
-        Effect::new(move |_| {
-            let unlisten_handle_clone = unlisten_handle.clone();
-            spawn_local(async move {
-                let handle = listen_chat_chunks_async(move |chunk: ChatChunk| {
-                    // Only process chunks for our active stream
-                    if let Some(active_stream) = current_stream_id.get() {
-                        if chunk.stream_id != active_stream {
-                            return;
-                        }
+        spawn_local(async move {
+            let handle = listen_chat_chunks_async(move |chunk: ChatChunk| {
+                // Find the message that matches this stream_id directly in the messages list
+                // This approach works even if component was remounted
+                let result = messages.try_update(|msgs| {
+                    // Debug: show what messages we have
+                    web_sys::console::log_1(&format!(
+                        "[DEBUG] Searching {} messages for stream_id={}",
+                        msgs.len(), &chunk.stream_id
+                    ).into());
+                    for (i, m) in msgs.iter().enumerate() {
+                        web_sys::console::log_1(&format!(
+                            "[DEBUG]   msg[{}]: id={}, stream_id={:?}, is_streaming={}",
+                            i, m.id, m.stream_id, m.is_streaming
+                        ).into());
                     }
 
-                    if let Some(msg_id) = streaming_message_id.get() {
-                        // Append content to the streaming message
+                    // Find message by stream_id (set when message was created)
+                    if let Some(msg) = msgs.iter_mut().find(|m| {
+                        m.stream_id.as_ref() == Some(&chunk.stream_id) && m.is_streaming
+                    }) {
+                        web_sys::console::log_1(&format!(
+                            "[DEBUG] Found streaming message id={}, appending '{}' (len={})",
+                            msg.id, &chunk.content, chunk.content.len()
+                        ).into());
+
+                        // Append content
                         if !chunk.content.is_empty() {
-                            messages.update(|msgs| {
-                                if let Some(msg) = msgs.iter_mut().find(|m| m.id == msg_id) {
-                                    msg.content.push_str(&chunk.content);
-                                }
-                            });
+                            msg.content.push_str(&chunk.content);
                         }
 
                         // Handle stream completion
                         if chunk.is_final {
-                            // Check if this is an error response
-                            let is_error = chunk.finish_reason.as_deref() == Some("error");
+                            msg.is_streaming = false;
+                            msg.stream_id = None;
 
-                            messages.update(|msgs| {
-                                if let Some(msg) = msgs.iter_mut().find(|m| m.id == msg_id) {
-                                    msg.is_streaming = false;
-                                    msg.stream_id = None;
+                            // Mark as error if finish_reason is "error"
+                            if chunk.finish_reason.as_deref() == Some("error") {
+                                msg.role = "error".to_string();
+                            }
 
-                                    // Mark as error if finish_reason is "error"
-                                    if is_error {
-                                        msg.role = "error".to_string();
-                                    }
+                            // Set token usage if available
+                            if let Some(usage) = &chunk.usage {
+                                msg.tokens = Some((usage.input_tokens, usage.output_tokens));
+                            }
+                        }
+                        true // Found and processed
+                    } else {
+                        false // Not found
+                    }
+                });
 
-                                    // Set token usage if available
-                                    if let Some(usage) = &chunk.usage {
-                                        msg.tokens = Some((usage.input_tokens, usage.output_tokens));
-                                    }
-                                }
-                            });
+                match result {
+                    Some(true) => {
+                        // Successfully processed
+                        if chunk.is_final {
+                            // Clear loading state
+                            let _ = is_loading.try_set(false);
+                            let _ = current_stream_id.try_set(None);
+                            let _ = streaming_message_id.try_set(None);
 
                             // Update session usage
                             spawn_local(async move {
                                 if let Ok(usage) = get_session_usage().await {
-                                    session_usage.set(usage);
+                                    let _ = session_usage.try_set(usage);
                                 }
                             });
-
-                            // Clear streaming state
-                            is_loading.set(false);
-                            current_stream_id.set(None);
-                            streaming_message_id.set(None);
                         }
                     }
-                }).await;
+                    Some(false) => {
+                        // Message not found - might be for a different stream or old chunk
+                        web_sys::console::warn_1(&format!(
+                            "[DEBUG] No streaming message found for stream_id={}",
+                            &chunk.stream_id
+                        ).into());
+                    }
+                    None => {
+                        // Signal disposed
+                        web_sys::console::warn_1(&"[DEBUG] messages signal disposed".into());
+                    }
+                }
+            }).await;
 
-                *unlisten_handle_clone.borrow_mut() = Some(handle);
-            });
+            // Note: We don't store the unlisten handle since JsValue isn't Send+Sync
+            // The listener will be cleaned up when the page unloads
+            let _unlisten = handle;
         });
     }
 
@@ -276,8 +303,10 @@ pub fn Chat() -> impl IntoView {
         let stream_id_clone = stream_id.clone();
 
         // Set active stream BEFORE calling backend
+        // Update both the signals (for UI) and the StoredValue (for callback)
         current_stream_id.set(Some(stream_id.clone()));
         streaming_message_id.set(Some(assistant_msg_id));
+        stream_state.set_value((Some(stream_id.clone()), Some(assistant_msg_id)));
 
         // Update the placeholder message with the stream ID immediately
         messages.update(|msgs| {
@@ -533,7 +562,7 @@ pub fn Chat() -> impl IntoView {
             <div class="flex-1 p-4 overflow-y-auto space-y-4">
                 <For
                     each=move || messages.get()
-                    key=|msg| msg.id
+                    key=|msg| (msg.id, msg.content.len(), msg.is_streaming)
                     children=move |msg| {
                         let role = msg.role.clone();
                         let content = msg.content.clone();
