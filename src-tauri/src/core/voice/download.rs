@@ -65,6 +65,61 @@ pub struct PiperFileInfo {
 /// Download progress callback
 pub type ProgressCallback = Box<dyn Fn(u64, u64) + Send + Sync>;
 
+/// Parsed components of a Piper voice key
+#[derive(Debug, Clone)]
+struct ParsedVoiceKey {
+    lang_region: String,  // e.g., "en_US"
+    voice_name: String,   // e.g., "lessac"
+    quality: String,      // e.g., "medium"
+}
+
+impl ParsedVoiceKey {
+    /// Parse a voice key like "en_US-lessac-medium"
+    fn parse(voice_key: &str, default_quality: Option<&str>) -> Result<Self, DownloadError> {
+        let parts: Vec<&str> = voice_key.split('-').collect();
+        if parts.len() < 2 {
+            return Err(DownloadError::VoiceNotFound(voice_key.to_string()));
+        }
+
+        let quality = default_quality
+            .or_else(|| parts.get(2).filter(|s| !s.is_empty()).copied())
+            .unwrap_or("medium")
+            .to_string();
+
+        Ok(Self {
+            lang_region: parts[0].to_string(),
+            voice_name: parts[1].to_string(),
+            quality,
+        })
+    }
+
+    /// Get the language code (e.g., "en" from "en_US")
+    fn lang_code(&self) -> &str {
+        self.lang_region.split('_').next().unwrap_or("en")
+    }
+
+    /// Construct the HuggingFace path for this voice
+    fn hf_base_path(&self) -> String {
+        format!(
+            "{}/{}/{}/{}",
+            self.lang_code(),
+            self.lang_region,
+            self.voice_name,
+            self.quality
+        )
+    }
+
+    /// Get the model filename (e.g., "en_US-lessac-medium.onnx")
+    fn model_filename(&self) -> String {
+        format!("{}-{}-{}.onnx", self.lang_region, self.voice_name, self.quality)
+    }
+
+    /// Get the config filename (e.g., "en_US-lessac-medium.onnx.json")
+    fn config_filename(&self) -> String {
+        format!("{}.json", self.model_filename())
+    }
+}
+
 /// Voice downloader for Piper models from Hugging Face
 pub struct VoiceDownloader {
     client: Client,
@@ -170,31 +225,25 @@ impl VoiceDownloader {
         // Ensure models directory exists
         tokio::fs::create_dir_all(&self.models_dir).await?;
 
-        // Parse voice key to construct URLs
-        // Format: {language}_{region}-{name}-{quality}
-        // Example: en_US-lessac-medium
-        let parts: Vec<&str> = voice_key.split('-').collect();
-        if parts.len() < 2 {
-            return Err(DownloadError::VoiceNotFound(voice_key.to_string()));
-        }
+        // Parse voice key using helper struct
+        let parsed = ParsedVoiceKey::parse(voice_key, quality)?;
 
-        let lang_region = parts[0]; // e.g., "en_US"
-        let voice_name = parts[1]; // e.g., "lessac"
-        let qual = quality.unwrap_or(parts.get(2).unwrap_or(&"medium"));
+        // Construct URLs using parsed components
+        let model_url = format!(
+            "{}/{}/{}",
+            PIPER_HF_BASE,
+            parsed.hf_base_path(),
+            parsed.model_filename()
+        );
+        let config_url = format!(
+            "{}/{}/{}",
+            PIPER_HF_BASE,
+            parsed.hf_base_path(),
+            parsed.config_filename()
+        );
 
-        // Construct the path on Hugging Face
-        // Example: en/en_US/lessac/medium/en_US-lessac-medium.onnx
-        let lang_code = lang_region.split('_').next().unwrap_or("en");
-        let base_path = format!("{}/{}/{}/{}", lang_code, lang_region, voice_name, qual);
-
-        let model_filename = format!("{}-{}-{}.onnx", lang_region, voice_name, qual);
-        let config_filename = format!("{}.json", model_filename);
-
-        let model_url = format!("{}/{}/{}", PIPER_HF_BASE, base_path, model_filename);
-        let config_url = format!("{}/{}/{}", PIPER_HF_BASE, base_path, config_filename);
-
-        let model_path = self.models_dir.join(&model_filename);
-        let config_path = self.models_dir.join(&config_filename);
+        let model_path = self.models_dir.join(parsed.model_filename());
+        let config_path = self.models_dir.join(parsed.config_filename());
 
         // Download model file
         debug!(url = %model_url, "Downloading model file");
@@ -245,25 +294,22 @@ impl VoiceDownloader {
 
     /// Check if a voice is already downloaded
     pub fn is_voice_downloaded(&self, voice_key: &str) -> bool {
-        let parts: Vec<&str> = voice_key.split('-').collect();
-        if parts.len() >= 3 {
-            let filename = format!("{}.onnx", voice_key);
-            let config_filename = format!("{}.onnx.json", voice_key);
-            let model_path = self.models_dir.join(&filename);
-            let config_path = self.models_dir.join(&config_filename);
-            model_path.exists() && config_path.exists()
-        } else {
-            false
+        match ParsedVoiceKey::parse(voice_key, None) {
+            Ok(parsed) => {
+                let model_path = self.models_dir.join(parsed.model_filename());
+                let config_path = self.models_dir.join(parsed.config_filename());
+                model_path.exists() && config_path.exists()
+            }
+            Err(_) => false,
         }
     }
 
     /// Delete a downloaded voice
     pub async fn delete_voice(&self, voice_key: &str) -> DownloadResult<()> {
-        let filename = format!("{}.onnx", voice_key);
-        let config_filename = format!("{}.onnx.json", voice_key);
+        let parsed = ParsedVoiceKey::parse(voice_key, None)?;
 
-        let model_path = self.models_dir.join(&filename);
-        let config_path = self.models_dir.join(&config_filename);
+        let model_path = self.models_dir.join(parsed.model_filename());
+        let config_path = self.models_dir.join(parsed.config_filename());
 
         if model_path.exists() {
             tokio::fs::remove_file(&model_path).await?;

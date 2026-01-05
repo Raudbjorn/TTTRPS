@@ -71,7 +71,13 @@ impl CoquiProvider {
 
     /// Get current settings
     pub fn settings(&self) -> CoquiConfig {
-        self.config.read().map(|c| c.clone()).unwrap_or_default()
+        match self.config.read() {
+            Ok(cfg) => cfg.clone(),
+            Err(e) => {
+                warn!("CoquiProvider config RwLock poisoned when reading settings; returning default config: {}", e);
+                CoquiConfig::default()
+            }
+        }
     }
 
     fn base_url(&self) -> String {

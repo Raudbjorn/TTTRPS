@@ -3,7 +3,7 @@
 //! Handles checking installation status and providing installation
 //! instructions/automation for various TTS providers.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -12,6 +12,9 @@ use tracing::{info, warn};
 
 use super::download::{VoiceDownloader, DownloadError, AvailablePiperVoice};
 use super::types::VoiceProviderType;
+
+/// Maximum length for version strings to avoid excessively long output
+const MAX_VERSION_LENGTH: usize = 50;
 
 #[derive(Error, Debug)]
 pub enum InstallError {
@@ -158,24 +161,11 @@ impl ProviderInstaller {
         let mut count = 0;
 
         // Check local models dir
-        if self.models_dir.exists() {
-            if let Ok(entries) = std::fs::read_dir(&self.models_dir) {
-                count += entries
-                    .filter_map(|e| e.ok())
-                    .filter(|e| e.path().extension().map_or(false, |ext| ext == "onnx"))
-                    .count() as u32;
-            }
-        }
+        count += count_onnx_files(&self.models_dir, false);
 
-        // Check system voices
+        // Check system voices (recursive)
         let system_dir = PathBuf::from("/usr/share/piper-voices");
-        if system_dir.exists() {
-            count += walkdir::WalkDir::new(&system_dir)
-                .into_iter()
-                .filter_map(|e| e.ok())
-                .filter(|e| e.path().extension().map_or(false, |ext| ext == "onnx"))
-                .count() as u32;
-        }
+        count += count_onnx_files(&system_dir, true);
 
         count
     }
@@ -438,7 +428,7 @@ impl ProviderInstaller {
                     let stdout = String::from_utf8_lossy(&output.stdout);
                     // Extract first line, first few words
                     if let Some(line) = stdout.lines().next() {
-                        return Some(line.chars().take(50).collect());
+                        return Some(line.chars().take(MAX_VERSION_LENGTH).collect());
                     }
                 }
             }
@@ -450,4 +440,32 @@ impl ProviderInstaller {
 /// Quick helper to get popular Piper voices for the UI
 pub fn get_recommended_piper_voices() -> Vec<(&'static str, &'static str, &'static str)> {
     super::download::popular_piper_voices()
+}
+
+/// Count ONNX model files in a directory
+///
+/// # Arguments
+/// * `dir` - Directory to scan
+/// * `recursive` - Whether to scan subdirectories
+fn count_onnx_files(dir: &Path, recursive: bool) -> u32 {
+    if !dir.exists() {
+        return 0;
+    }
+
+    if recursive {
+        walkdir::WalkDir::new(dir)
+            .into_iter()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().extension().map_or(false, |ext| ext == "onnx"))
+            .count() as u32
+    } else {
+        std::fs::read_dir(dir)
+            .map(|entries| {
+                entries
+                    .filter_map(|e| e.ok())
+                    .filter(|e| e.path().extension().map_or(false, |ext| ext == "onnx"))
+                    .count() as u32
+            })
+            .unwrap_or(0)
+    }
 }
