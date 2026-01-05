@@ -37,6 +37,12 @@ pub struct Message {
 /// Main Chat component - the primary DM interface with streaming support
 #[component]
 pub fn Chat() -> impl IntoView {
+    // Wrapper to make JsValue Send + Sync (safe in single-threaded WASM)
+    #[derive(Clone, Copy)]
+    struct MySendWrapper<T>(pub T);
+    unsafe impl<T> Send for MySendWrapper<T> {}
+    unsafe impl<T> Sync for MySendWrapper<T> {}
+
     // State signals
     let message_input = RwSignal::new(String::new());
     let messages = RwSignal::new(vec![Message {
@@ -115,104 +121,96 @@ pub fn Chat() -> impl IntoView {
 
     // Set up streaming chunk listener on mount
     // Wrapper to make JsValue Send + Sync (safe in single-threaded WASM)
-    #[derive(Clone, Copy)]
-    struct SendWrapper<T>(pub T);
-    unsafe impl<T> Send for SendWrapper<T> {}
-    unsafe impl<T> Sync for SendWrapper<T> {}
+    // Set up streaming chunk listener on mount
 
     // Set up streaming chunk listener on mount
+    // Set up streaming chunk listener on mount
     Effect::new(move |_| {
-        // Use Rc<RefCell> for local state capture in closures (safe in single-threaded WASM)
-        // No SendWrapper or StoredValue needed for non-Copy JS types here
-        let unlisten_fn = std::rc::Rc::new(std::cell::RefCell::new(None::<Function>));
-        let is_cleaned_up = std::rc::Rc::new(std::cell::RefCell::new(false));
+        // Use StoredValue for state that needs to be shared between async task and cleanup
+        // MySendWrapper ensures the non-Send Function is accepted by StoredValue
+        let unlisten_fn = StoredValue::new(MySendWrapper(None::<Function>));
+        let is_cleaned_up = StoredValue::new(false);
 
-        spawn_local({
-            let unlisten_fn = unlisten_fn.clone();
-            let is_cleaned_up = is_cleaned_up.clone();
-            async move {
-                let promise_js = listen_chat_chunks(move |chunk: ChatChunk| {
-                    // Only process chunks for our active stream
-                    if let Some(active_stream) = current_stream_id.get_untracked() {
-                        if chunk.stream_id != active_stream {
-                            return;
-                        }
-                    } else {
+        spawn_local(async move {
+            let promise_js = listen_chat_chunks(move |chunk: ChatChunk| {
+                // Only process chunks for our active stream
+                if let Some(active_stream) = current_stream_id.get_untracked() {
+                    if chunk.stream_id != active_stream {
                         return;
                     }
+                } else {
+                    return;
+                }
 
-                    if let Some(msg_id) = streaming_message_id.get_untracked() {
-                        // Append content to the streaming message
-                        if !chunk.content.is_empty() {
-                            messages.update(|msgs| {
-                                if let Some(msg) = msgs.iter_mut().find(|m| m.id == msg_id) {
-                                    msg.content.push_str(&chunk.content);
-                                }
-                            });
-                        }
-
-                        // Handle stream completion
-                        if chunk.is_final {
-                            // Check if this is an error response
-                            let is_error = chunk.finish_reason.as_deref() == Some("error");
-
-                            messages.update(|msgs| {
-                                if let Some(msg) = msgs.iter_mut().find(|m| m.id == msg_id) {
-                                    msg.is_streaming = false;
-                                    msg.stream_id = None;
-
-                                    // Mark as error if finish_reason is "error"
-                                    if is_error {
-                                        msg.role = "error".to_string();
-                                    }
-
-                                    // Set token usage if available
-                                    if let Some(usage) = &chunk.usage {
-                                        msg.tokens = Some((usage.input_tokens, usage.output_tokens));
-                                    }
-                                }
-                            });
-
-                            // Update session usage
-                            spawn_local(async move {
-                                if let Ok(usage) = get_session_usage().await {
-                                    session_usage.set(usage);
-                                }
-                            });
-
-                            // Clear streaming state
-                            is_loading.set(false);
-                            current_stream_id.set(None);
-                            streaming_message_id.set(None);
-                        }
+                if let Some(msg_id) = streaming_message_id.get_untracked() {
+                    // Append content to the streaming message
+                    if !chunk.content.is_empty() {
+                        messages.update(|msgs| {
+                            if let Some(msg) = msgs.iter_mut().find(|m| m.id == msg_id) {
+                                msg.content.push_str(&chunk.content);
+                            }
+                        });
                     }
-                });
 
-                // Handle the unlisten promise
-                let promise = Promise::from(promise_js);
-                let result = JsFuture::from(promise).await;
+                    // Handle stream completion
+                    if chunk.is_final {
+                        // Check if this is an error response
+                        let is_error = chunk.finish_reason.as_deref() == Some("error");
 
-                if let Ok(func_val) = result {
-                    let func = Function::from(func_val);
-                    if *is_cleaned_up.borrow() {
-                        // We were already cleaned up while waiting, so unlisten immediately
-                        let _ = func.call0(&JsValue::NULL);
-                    } else {
-                        *unlisten_fn.borrow_mut() = Some(func);
+                        messages.update(|msgs| {
+                            if let Some(msg) = msgs.iter_mut().find(|m| m.id == msg_id) {
+                                msg.is_streaming = false;
+                                msg.stream_id = None;
+
+                                // Mark as error if finish_reason is "error"
+                                if is_error {
+                                    msg.role = "error".to_string();
+                                }
+
+                                // Set token usage if available
+                                if let Some(usage) = &chunk.usage {
+                                    msg.tokens = Some((usage.input_tokens, usage.output_tokens));
+                                }
+                            }
+                        });
+
+                        // Update session usage
+                        spawn_local(async move {
+                            if let Ok(usage) = get_session_usage().await {
+                                session_usage.set(usage);
+                            }
+                        });
+
+                        // Clear streaming state
+                        is_loading.set(false);
+                        current_stream_id.set(None);
+                        streaming_message_id.set(None);
                     }
+                }
+            });
+
+            // Handle the unlisten promise
+            let promise = Promise::from(promise_js);
+            let result = JsFuture::from(promise).await;
+
+            if let Ok(func_val) = result {
+                let func = Function::from(func_val);
+                if is_cleaned_up.get_value() {
+                    // We were already cleaned up while waiting, so unlisten immediately
+                    let _ = func.call0(&JsValue::NULL);
+                } else {
+                    unlisten_fn.set_value(MySendWrapper(Some(func)));
                 }
             }
         });
 
-        on_cleanup({
-            let is_cleaned_up = SendWrapper(is_cleaned_up);
-            let unlisten_fn = SendWrapper(unlisten_fn);
-            move || {
-                *is_cleaned_up.0.borrow_mut() = true;
-                if let Some(f) = unlisten_fn.0.borrow_mut().take() {
+        on_cleanup(move || {
+            is_cleaned_up.set_value(true);
+            unlisten_fn.update_value(|v| {
+                if let Some(f) = v.0.take() {
                     let _ = f.call0(&JsValue::NULL);
                 }
-            }
+            });
         });
     });
 
