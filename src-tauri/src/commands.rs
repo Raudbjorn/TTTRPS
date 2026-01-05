@@ -1333,31 +1333,20 @@ pub async fn play_tts(
     voice_id: String,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    let manager = state.voice_manager.read().await;
+    // Synthesize audio first, keeping the lock scope minimal.
+    let audio_data = {
+        let manager = state.voice_manager.read().await;
+        let request = SynthesisRequest {
+            text,
+            voice_id,
+            settings: None,
+            output_format: OutputFormat::Wav,
+        };
+        let result = manager.synthesize(request).await.map_err(|e| e.to_string())?;
+        std::fs::read(&result.audio_path).map_err(|e| e.to_string())?
+    }; // Read lock is released here.
 
-    let request = SynthesisRequest {
-        text,
-        voice_id,
-        settings: None,
-        output_format: OutputFormat::Wav,
-    };
-
-    let result = manager.synthesize(request).await.map_err(|e| e.to_string())?;
-
-    // Read audio data
-    let audio_data = std::fs::read(&result.audio_path).map_err(|e| e.to_string())?;
-
-    // Play in blocking task to avoid blocking async runtime
-    // We clone manager to pass to closure? No, play_audio is method on manager.
-    // Actually play_audio doesn't use self state, just rodio.
-    // But it is a method.
-    // We can't easily pass &manager across thread boundary if it's locked?
-    // Actually, play_audio doesn't use &self fields, it creates new OutputStream.
-    // So we can arguably clone audio_data and run logic standalone or modify VoiceManager to be Send/Sync friendly?
-    // VoiceManager is Send+Sync.
-    // But we hold a read lock.
-
-    // Let's just run the playback logic here directly since play_audio logic is self-contained.
+    // Play audio in a blocking task to avoid blocking async runtime
     tokio::task::spawn_blocking(move || {
         use rodio::{Decoder, OutputStream, Sink};
         use std::io::Cursor;

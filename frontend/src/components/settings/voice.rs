@@ -15,6 +15,7 @@ pub fn VoiceSettingsView() -> impl IntoView {
     // Signals
     let selected_voice_provider = RwSignal::new("Disabled".to_string());
     let voice_api_key_or_host = RwSignal::new(String::new());
+    let piper_models_dir = RwSignal::new(String::new()); // Dedicated signal for Piper models directory
     let voice_model_id = RwSignal::new(String::new());
     let selected_voice_id = RwSignal::new(String::new());
 
@@ -73,6 +74,8 @@ pub fn VoiceSettingsView() -> impl IntoView {
                     "Ollama" => "Ollama",
                     "FishAudio" => "FishAudio", // FishAudio support exists in backend
                     "OpenAI" => "OpenAI",
+                    "Piper" => "Piper",
+                    "Coqui" => "Coqui",
                     _ => "Disabled",
                 };
                 selected_voice_provider.set(provider_str.to_string());
@@ -103,15 +106,7 @@ pub fn VoiceSettingsView() -> impl IntoView {
                     }
                     "Piper" => {
                         if let Some(c) = config.piper {
-                            voice_api_key_or_host.set(c.models_dir.unwrap_or_default());
-                            // Piper doesn't strictly have a model ID field in UI, maybe reuse for something else or ignore?
-                            // Actually PiperConfig has models_dir.
-                            // We mapped voice_api_key_or_host to models_dir for now?
-                            // reusing `voice_api_key_or_host` for models_dir seems confusing.
-                            // But let's stick to using existing inputs if possible or add new ones?
-                            // The current UI uses `voice_api_key_or_host` and `voice_model_id`.
-                            // For Piper: `voice_api_key_or_host` -> models_dir. `voice_model_id` -> unused?
-                            // Let's use `voice_api_key_or_host` for models_dir path.
+                            piper_models_dir.set(c.models_dir.unwrap_or_default());
                         }
                         fetch_voices("Piper".to_string(), None);
                     }
@@ -135,6 +130,7 @@ pub fn VoiceSettingsView() -> impl IntoView {
 
         let provider = selected_voice_provider.get();
         let val = voice_api_key_or_host.get();
+        let piper_dir = piper_models_dir.get();
         let model = voice_model_id.get();
         let voice = selected_voice_id.get();
 
@@ -186,7 +182,7 @@ pub fn VoiceSettingsView() -> impl IntoView {
                     }
                     "Piper" => {
                         base.piper = Some(PiperConfig {
-                            models_dir: if val.is_empty() { None } else { Some(val) },
+                            models_dir: if piper_dir.is_empty() { None } else { Some(piper_dir) },
                             length_scale: 1.0,
                             noise_scale: 0.667,
                             noise_w: 0.8,
@@ -195,7 +191,15 @@ pub fn VoiceSettingsView() -> impl IntoView {
                         });
                     }
                     "Coqui" => {
-                         let port: u16 = val.parse().unwrap_or(5002);
+                         let port: u16 = match val.parse::<u16>() {
+                             Ok(p) => p,
+                             Err(_) => {
+                                 show_error("Invalid Port", Some("Please enter a valid port number for Coqui."), None);
+                                 is_saving.set(false);
+                                 save_status.set("Error: Invalid port number.".to_string());
+                                 return;
+                             }
+                         };
                          base.coqui = Some(CoquiConfig {
                             port,
                             model: if model.is_empty() { "tts_models/en/ljspeech/vits".to_string() } else { model },
@@ -250,7 +254,7 @@ pub fn VoiceSettingsView() -> impl IntoView {
             "Piper" => {
                 // Default models dir is usually handled by backend if empty,
                 // but we can leave it empty here to indicate "use default".
-                voice_api_key_or_host.set(String::new());
+                piper_models_dir.set(String::new());
                 voice_model_id.set(String::new()); // Unused for Piper currently (models are voice IDs)
                 fetch_voices("Piper".to_string(), None);
             }
@@ -262,6 +266,7 @@ pub fn VoiceSettingsView() -> impl IntoView {
             _ => {
                  voice_api_key_or_host.set(String::new());
                  voice_model_id.set(String::new());
+                 piper_models_dir.set(String::new());
             }
         }
     };
@@ -297,29 +302,39 @@ pub fn VoiceSettingsView() -> impl IntoView {
                             provider => {
                                 view! {
                                 <div class="space-y-4 border-t border-[var(--border-subtle)] pt-4 animate-fade-in">
-                                    // Host / API Key / Path
-                                    <div>
-                                        <label class="block text-sm font-medium text-[var(--text-secondary)] mb-2">
-                                            {match provider {
-                                                "Ollama" => "Base URL",
-                                                "ElevenLabs" | "OpenAI" => "API Key",
-                                                "Piper" => "Models Directory (Optional)",
-                                                "Coqui" => "Port",
-                                                _ => "Configuration"
-                                            }}
-                                        </label>
-                                        <Input
-                                            value=voice_api_key_or_host
-                                            r#type=if provider == "OpenAI" || provider == "ElevenLabs" { "password".to_string() } else { "text".to_string() }
-                                            placeholder=match provider {
-                                                "Ollama" => "http://localhost:11434",
-                                                "OpenAI" | "ElevenLabs" => "sk-...",
-                                                "Piper" => "/path/to/piper/models",
-                                                "Coqui" => "5002",
-                                                _ => ""
-                                            }
-                                        />
-                                    </div>
+                                    // Host / API Key / Port / Piper Models Dir
+                                    <Show when=move || provider != "Piper">
+                                        <div>
+                                            <label class="block text-sm font-medium text-[var(--text-secondary)] mb-2">
+                                                {match provider {
+                                                    "Ollama" => "Base URL",
+                                                    "ElevenLabs" | "OpenAI" => "API Key",
+                                                    "Coqui" => "Port",
+                                                    _ => "Configuration"
+                                                }}
+                                            </label>
+                                            <Input
+                                                value=voice_api_key_or_host
+                                                r#type=if provider == "OpenAI" || provider == "ElevenLabs" { "password".to_string() } else { "text".to_string() }
+                                                placeholder=match provider {
+                                                    "Ollama" => "http://localhost:11434",
+                                                    "OpenAI" | "ElevenLabs" => "sk-...",
+                                                    "Coqui" => "5002",
+                                                    _ => ""
+                                                }
+                                            />
+                                        </div>
+                                    </Show>
+
+                                    <Show when=move || provider == "Piper">
+                                        <div>
+                                            <label class="block text-sm font-medium text-[var(--text-secondary)] mb-2">"Models Directory (Optional)"</label>
+                                            <Input
+                                                value=piper_models_dir
+                                                placeholder="/path/to/piper/models"
+                                            />
+                                        </div>
+                                    </Show>
 
                                     // Model Selection
                                     <Show when=move || provider != "Piper">
@@ -354,9 +369,8 @@ pub fn VoiceSettingsView() -> impl IntoView {
                                 </div>
                             }.into_any()
                         }
-                    }}}
-
-                     <div class="pt-4">
+                    }}
+                    <div class="pt-4">
                         <Button
                             variant=ButtonVariant::Primary
                             loading=is_saving

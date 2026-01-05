@@ -224,10 +224,6 @@ impl VoiceManager {
     ///
     /// Tags can be used to group cache entries (e.g., by session_id, npc_id, campaign_id)
     /// for bulk operations like clearing all audio for a specific session.
-    /// Synthesize audio with caching support and custom tags
-    ///
-    /// Tags can be used to group cache entries (e.g., by session_id, npc_id, campaign_id)
-    /// for bulk operations like clearing all audio for a specific session.
     pub async fn synthesize_with_tags(&self, request: SynthesisRequest, tags: &[String]) -> Result<SynthesisResult> {
         // Determine provider from voice_id prefix or fallback to active provider config
         let provider_id = if request.voice_id.starts_with("piper:") {
@@ -250,6 +246,15 @@ impl VoiceManager {
         let settings = request.settings.clone().unwrap_or_default();
         // Use the selected provider_id in the cache key to prevent collisions
         let provider_type_enum = self.get_provider_type_from_id(provider_id);
+
+        // Validation: If we got Disabled but the ID wasn't "disabled", it means we have an unknown provider.
+        // We must fail fast to avoid cache collisions where multiple unknown providers map to the same Disabled key.
+        if matches!(provider_type_enum, VoiceProviderType::Disabled) && provider_id != "disabled" {
+             return Err(VoiceError::NotConfigured(format!(
+                "Unknown voice provider id '{}' when deriving cache key. Update get_provider_type_from_id.",
+                 provider_id
+             )));
+        }
 
         let cache_key_params = CacheKeyParams::new(
             &request.text,
