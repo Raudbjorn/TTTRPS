@@ -561,7 +561,7 @@ pub fn Chat() -> impl IntoView {
                         <Input
                             value=message_input
                             placeholder="Ask the DM... (Escape to cancel)"
-                            disabled=is_loading.get()
+                            disabled=is_loading
                             on_keydown=on_keydown
                         />
                     </div>
