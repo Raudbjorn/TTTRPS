@@ -62,11 +62,95 @@ pub struct VoiceConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PiperConfig {
     pub models_dir: Option<PathBuf>,
+    /// Speech rate: 1.0 = normal, >1.0 = slower, <1.0 = faster
+    #[serde(default = "default_length_scale")]
+    pub length_scale: f32,
+    /// Phoneme variability (0.0 - 1.0)
+    #[serde(default = "default_noise_scale")]
+    pub noise_scale: f32,
+    /// Phoneme width variability (0.0 - 1.0)
+    #[serde(default = "default_noise_w")]
+    pub noise_w: f32,
+    /// Pause between sentences in seconds (0.0 - 2.0)
+    #[serde(default = "default_sentence_silence")]
+    pub sentence_silence: f32,
+    /// Speaker ID for multi-speaker models (0-N)
+    #[serde(default)]
+    pub speaker_id: u32,
+}
+
+fn default_length_scale() -> f32 { 1.0 }
+fn default_noise_scale() -> f32 { 0.667 }
+fn default_noise_w() -> f32 { 0.8 }
+fn default_sentence_silence() -> f32 { 0.2 }
+
+impl Default for PiperConfig {
+    fn default() -> Self {
+        Self {
+            models_dir: None,
+            length_scale: default_length_scale(),
+            noise_scale: default_noise_scale(),
+            noise_w: default_noise_w(),
+            sentence_silence: default_sentence_silence(),
+            speaker_id: 0,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CoquiConfig {
     pub port: u16,
+    /// Model name (e.g., "tts_models/en/ljspeech/tacotron2-DDC")
+    #[serde(default = "default_coqui_model")]
+    pub model: String,
+    /// Speaker name for multi-speaker models
+    #[serde(default)]
+    pub speaker: Option<String>,
+    /// Language code for multilingual models
+    #[serde(default)]
+    pub language: Option<String>,
+    /// Speech speed factor (0.5 - 2.0)
+    #[serde(default = "default_speed")]
+    pub speed: f32,
+    /// Path to reference audio for voice cloning (XTTS)
+    #[serde(default)]
+    pub speaker_wav: Option<String>,
+    /// Generation temperature for XTTS (0.0 - 1.0)
+    #[serde(default = "default_temperature")]
+    pub temperature: f32,
+    /// Top-k sampling for XTTS (1 - 100)
+    #[serde(default = "default_top_k")]
+    pub top_k: u32,
+    /// Top-p/nucleus sampling for XTTS (0.0 - 1.0)
+    #[serde(default = "default_top_p")]
+    pub top_p: f32,
+    /// Repetition penalty for XTTS (1.0 - 3.0)
+    #[serde(default = "default_repetition_penalty")]
+    pub repetition_penalty: f32,
+}
+
+fn default_coqui_model() -> String { "tts_models/en/ljspeech/tacotron2-DDC".to_string() }
+fn default_speed() -> f32 { 1.0 }
+fn default_temperature() -> f32 { 0.65 }
+fn default_top_k() -> u32 { 50 }
+fn default_top_p() -> f32 { 0.85 }
+fn default_repetition_penalty() -> f32 { 2.0 }
+
+impl Default for CoquiConfig {
+    fn default() -> Self {
+        Self {
+            port: 5002,
+            model: default_coqui_model(),
+            speaker: None,
+            language: None,
+            speed: default_speed(),
+            speaker_wav: None,
+            temperature: default_temperature(),
+            top_k: default_top_k(),
+            top_p: default_top_p(),
+            repetition_penalty: default_repetition_penalty(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
