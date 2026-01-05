@@ -705,10 +705,11 @@ pub async fn stream_chat(
         .clone()
         .ok_or("LLM not configured. Please configure in Settings.")?;
 
-    log::info!("[stream_chat] LLM config present, provider: {}", config.provider_id());
-
-    // Determine model name from config
+    // Capture provider info for chunk metadata
+    let provider_id = config.provider_id().to_string();
     let model = config.model_name();
+    log::info!("[stream_chat] LLM config present, provider: {}", provider_id);
+
     // Use provided stream ID or generate a new one
     let stream_id = provided_stream_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
     let stream_id_clone = stream_id.clone();
@@ -728,12 +729,16 @@ pub async fn stream_chat(
 
     // Initiate the stream via Meilisearch manager (enables RAG)
     log::info!("[stream_chat] Calling manager.chat_stream...");
-    let mut rx = manager_guard.chat_stream(messages, &model).await
+    let mut rx = manager_guard.chat_stream(messages, &model, temperature, max_tokens).await
         .map_err(|e| {
             log::error!("[stream_chat] Manager error: {}", e);
             e.to_string()
         })?;
     log::info!("[stream_chat] Stream initiated successfully, spawning receiver task");
+
+    // Clone provider info for the spawned task
+    let provider_for_task = provider_id.clone();
+    let model_for_task = model.clone();
 
     // Spawn a task to handle the stream asynchronously
     tokio::spawn(async move {
@@ -758,8 +763,8 @@ pub async fn stream_chat(
                     let chunk = ChatChunk {
                         stream_id: stream_id_clone.clone(),
                         content: content.clone(),
-                        provider: String::new(), // Manager abstracts this
-                        model: String::new(),    // Manager abstracts this
+                        provider: provider_for_task.clone(),
+                        model: model_for_task.clone(),
                         is_final: false,
                         finish_reason: None,
                         usage: None,
@@ -782,8 +787,8 @@ pub async fn stream_chat(
                     let error_chunk = ChatChunk {
                         stream_id: stream_id_clone.clone(),
                         content: error_message,
-                        provider: String::new(),
-                        model: String::new(),
+                        provider: provider_for_task.clone(),
+                        model: model_for_task.clone(),
                         is_final: true,
                         finish_reason: Some("error".to_string()),
                         usage: None,
@@ -801,8 +806,8 @@ pub async fn stream_chat(
         let final_chunk = ChatChunk {
             stream_id: stream_id_clone.clone(),
             content: String::new(),
-            provider: String::new(),
-            model: String::new(),
+            provider: provider_for_task.clone(),
+            model: model_for_task.clone(),
             is_final: true,
             finish_reason: Some("stop".to_string()),
             usage: None, // Usage not available from simple stream yet
