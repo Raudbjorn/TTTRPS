@@ -23,6 +23,8 @@ pub enum LLMProvider {
     Together,
     Cohere,
     DeepSeek,
+    ClaudeCode,
+    ClaudeDesktop,
 }
 
 impl std::fmt::Display for LLMProvider {
@@ -38,6 +40,8 @@ impl std::fmt::Display for LLMProvider {
             LLMProvider::Together => write!(f, "Together"),
             LLMProvider::Cohere => write!(f, "Cohere"),
             LLMProvider::DeepSeek => write!(f, "DeepSeek"),
+            LLMProvider::ClaudeCode => write!(f, "Claude Code"),
+            LLMProvider::ClaudeDesktop => write!(f, "Claude Desktop"),
         }
     }
 }
@@ -55,6 +59,8 @@ impl LLMProvider {
             LLMProvider::Together => "together".to_string(),
             LLMProvider::Cohere => "cohere".to_string(),
             LLMProvider::DeepSeek => "deepseek".to_string(),
+            LLMProvider::ClaudeCode => "claude-code".to_string(),
+            LLMProvider::ClaudeDesktop => "claude-desktop".to_string(),
         }
     }
 
@@ -69,6 +75,8 @@ impl LLMProvider {
             "Together" | "together" => LLMProvider::Together,
             "Cohere" | "cohere" => LLMProvider::Cohere,
             "DeepSeek" | "deepseek" => LLMProvider::DeepSeek,
+            "ClaudeCode" | "claude-code" => LLMProvider::ClaudeCode,
+            "ClaudeDesktop" | "claude-desktop" => LLMProvider::ClaudeDesktop,
             _ => LLMProvider::Ollama,
         }
     }
@@ -85,12 +93,16 @@ impl LLMProvider {
             LLMProvider::Together => "API Key",
             LLMProvider::Cohere => "API Key",
             LLMProvider::DeepSeek => "sk-...",
+            LLMProvider::ClaudeCode => "Uses CLI authentication",
+            LLMProvider::ClaudeDesktop => "Uses Desktop authentication",
         }
     }
 
     fn label_text(&self) -> &'static str {
         match self {
             LLMProvider::Ollama => "Ollama Host",
+            LLMProvider::ClaudeCode => "Status",
+            LLMProvider::ClaudeDesktop => "Status",
             _ => "API Key",
         }
     }
@@ -107,6 +119,8 @@ impl LLMProvider {
             LLMProvider::Together => "meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo",
             LLMProvider::Cohere => "command-r-plus",
             LLMProvider::DeepSeek => "deepseek-chat",
+            LLMProvider::ClaudeCode => "claude-sonnet-4-20250514",
+            LLMProvider::ClaudeDesktop => "claude-sonnet-4-20250514",
         }
     }
 
@@ -122,6 +136,8 @@ impl LLMProvider {
             LLMProvider::Cohere => Some("https://dashboard.cohere.com/api-keys"),
             LLMProvider::DeepSeek => Some("https://platform.deepseek.com/api_keys"),
             LLMProvider::Ollama => Some("https://ollama.com/download"),
+            LLMProvider::ClaudeCode => None, // Uses CLI authentication
+            LLMProvider::ClaudeDesktop => None, // Uses Desktop authentication
         }
     }
 
@@ -132,6 +148,8 @@ impl LLMProvider {
             LLMProvider::OpenAI => "text-emerald-400", // OpenAI Green
             LLMProvider::Ollama => "text-white", // Ollama White
             LLMProvider::OpenRouter => "text-violet-400",
+            LLMProvider::ClaudeCode => "text-orange-400", // Anthropic Sienna
+            LLMProvider::ClaudeDesktop => "text-orange-400", // Anthropic Sienna
             _ => "text-[var(--accent-primary)]",
         }
     }
@@ -223,6 +241,10 @@ pub fn LLMSettingsView() -> impl IntoView {
                     statuses.insert(p.to_string(), false);
                 }
             }
+            // Claude Code and Claude Desktop use CLI/Desktop authentication - always mark as available
+            // The actual availability check happens at runtime when attempting to use them
+            statuses.insert("claude-code".to_string(), true);
+            statuses.insert("claude-desktop".to_string(), true);
             provider_statuses.set(statuses);
         });
     };
@@ -281,7 +303,12 @@ pub fn LLMSettingsView() -> impl IntoView {
              is_saving.set(true);
              save_status.set("Saving...".to_string());
              spawn_local(async move {
-                 let key_to_save = if provider != LLMProvider::Ollama && !key_or_host.is_empty() {
+                 // ClaudeCode and ClaudeDesktop don't need API keys - they use CLI/Desktop auth
+                 let needs_api_key = !matches!(
+                     provider,
+                     LLMProvider::Ollama | LLMProvider::ClaudeCode | LLMProvider::ClaudeDesktop
+                 );
+                 let key_to_save = if needs_api_key && !key_or_host.is_empty() {
                       match save_api_key(provider.to_string_key(), key_or_host.clone()).await {
                          Ok(_) => Some(key_or_host.clone()),
                          Err(e) => {
@@ -336,6 +363,12 @@ pub fn LLMSettingsView() -> impl IntoView {
                  model_name.set("llama3.2".to_string());
                  fetch_ollama_models("http://localhost:11434".to_string());
             },
+            LLMProvider::ClaudeCode | LLMProvider::ClaudeDesktop => {
+                 // No API key needed - uses CLI/Desktop authentication
+                 api_key_or_host.set(String::new());
+                 model_name.set(p.default_model().to_string());
+                 cloud_models.set(Vec::new());
+            },
             _ => {
                  api_key_or_host.set(String::new());
                  model_name.set(p.default_model().to_string());
@@ -353,6 +386,7 @@ pub fn LLMSettingsView() -> impl IntoView {
         LLMProvider::Ollama,
         LLMProvider::OpenAI,
         LLMProvider::Claude,
+        LLMProvider::ClaudeCode,
         LLMProvider::Gemini,
         LLMProvider::OpenRouter,
         LLMProvider::Mistral,
@@ -390,10 +424,11 @@ pub fn LLMSettingsView() -> impl IntoView {
                             </label>
                             <h2 class="text-3xl font-bold mb-1">{move || selected_provider.get().to_string()}</h2>
                             <p class="text-sm text-[var(--text-muted)]">
-                                {move || if selected_provider.get() == LLMProvider::Ollama {
-                                    "Running locally on your machine."
-                                } else {
-                                    "Cloud-based inference."
+                                {move || match selected_provider.get() {
+                                    LLMProvider::Ollama => "Running locally on your machine.",
+                                    LLMProvider::ClaudeCode => "Uses Claude Code CLI authentication.",
+                                    LLMProvider::ClaudeDesktop => "Uses Claude Desktop authentication.",
+                                    _ => "Cloud-based inference.",
                                 }}
                             </p>
                         </div>
@@ -420,7 +455,8 @@ pub fn LLMSettingsView() -> impl IntoView {
                             <Input
                                 value=api_key_or_host
                                 placeholder=Signal::derive(move || selected_provider.get().placeholder_text().to_string())
-                                r#type=Signal::derive(move || if selected_provider.get() == LLMProvider::Ollama { "text".to_string() } else { "password".to_string() })
+                                r#type=Signal::derive(move || if matches!(selected_provider.get(), LLMProvider::Ollama | LLMProvider::ClaudeCode | LLMProvider::ClaudeDesktop) { "text".to_string() } else { "password".to_string() })
+                                disabled=Signal::derive(move || matches!(selected_provider.get(), LLMProvider::ClaudeCode | LLMProvider::ClaudeDesktop))
                             />
                         </div>
 
