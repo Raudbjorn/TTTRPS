@@ -749,11 +749,7 @@ pub async fn stream_chat(
                 }
                 Err(e) => {
                     let error_message = format!("Error: {}", e);
-<<<<<<< HEAD
-                    eprintln!("Stream {} error: {}", stream_id_clone, error_message);
-=======
                     log::error!("Stream {} error: {}", stream_id_clone, error_message);
->>>>>>> origin/main
 
                     // Emit error event with error message in content
                     let error_chunk = ChatChunk {
