@@ -84,7 +84,7 @@ pub async fn invoke_void<A: Serialize>(cmd: &str, args: &A) -> Result<(), String
         if let Ok(err_str) = serde_wasm_bindgen::from_value::<String>(result.clone()) {
             if !err_str.is_empty() {
                 // This path might not be hit if backend rejects on error, but keeping for safety
-                // return Err(err_str);
+                return Err(err_str);
             }
         }
     }

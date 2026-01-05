@@ -749,22 +749,7 @@ pub async fn stream_chat(
         .ok_or("LLM not configured. Please configure in Settings.")?;
 
     // Determine model name from config (same logic as chat command)
-    let model = match &config {
-        crate::core::llm::providers::ProviderConfig::OpenAI { model, .. } => model.clone(),
-        crate::core::llm::providers::ProviderConfig::Claude { model, .. } => model.clone(),
-        crate::core::llm::providers::ProviderConfig::Mistral { model, .. } => model.clone(),
-        crate::core::llm::providers::ProviderConfig::Ollama { model, .. } => model.clone(),
-        crate::core::llm::providers::ProviderConfig::Gemini { model, .. } => model.clone(),
-        crate::core::llm::providers::ProviderConfig::OpenRouter { model, .. } => model.clone(),
-        crate::core::llm::providers::ProviderConfig::Groq { model, .. } => model.clone(),
-        crate::core::llm::providers::ProviderConfig::Together { model, .. } => model.clone(),
-        crate::core::llm::providers::ProviderConfig::Cohere { model, .. } => model.clone(),
-        crate::core::llm::providers::ProviderConfig::DeepSeek { model, .. } => model.clone(),
-        crate::core::llm::providers::ProviderConfig::ClaudeCode { model, .. } => model.clone().unwrap_or_else(|| "claude-code".to_string()),
-        crate::core::llm::providers::ProviderConfig::ClaudeDesktop { .. } => "claude-desktop".to_string(),
-        crate::core::llm::providers::ProviderConfig::GeminiCli { model, .. } => model.clone(),
-        crate::core::llm::providers::ProviderConfig::Meilisearch { model, .. } => model.clone(),
-    };
+    let model = config.model_name();
 
     // Use provided stream ID or generate a new one
     let stream_id = provided_stream_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
@@ -785,7 +770,7 @@ pub async fn stream_chat(
     let manager_guard = manager.read().await;
 
     // Initiate the stream via Meilisearch manager (enables RAG)
-    let mut rx = manager_guard.chat_stream(messages, &model).await
+    let mut rx = manager_guard.chat_stream(messages, &model, temperature, max_tokens).await
         .map_err(|e| e.to_string())?;
 
     // Spawn a task to handle the stream asynchronously
