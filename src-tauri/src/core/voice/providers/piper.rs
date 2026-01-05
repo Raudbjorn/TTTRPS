@@ -275,3 +275,92 @@ impl VoiceProvider for PiperProvider {
         Ok(UsageInfo::default())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn default_config() -> PiperConfig {
+        PiperConfig {
+            models_dir: None,
+            length_scale: 1.0,
+            noise_scale: 0.667,
+            noise_w: 0.8,
+            sentence_silence: 0.2,
+            speaker_id: 0,
+        }
+    }
+
+    #[test]
+    fn test_settings_returns_result() {
+        let provider = PiperProvider::new(default_config());
+        let result = provider.settings();
+        assert!(result.is_ok());
+        let config = result.unwrap();
+        assert_eq!(config.length_scale, 1.0);
+    }
+
+    #[test]
+    fn test_update_settings_returns_result() {
+        let provider = PiperProvider::new(default_config());
+        let result = provider.update_settings(1.5, 0.5, 0.6, 0.3, 1);
+        assert!(result.is_ok());
+
+        let config = provider.settings().unwrap();
+        assert_eq!(config.length_scale, 1.5);
+        assert_eq!(config.noise_scale, 0.5);
+        assert_eq!(config.noise_w, 0.6);
+        assert_eq!(config.sentence_silence, 0.3);
+        assert_eq!(config.speaker_id, 1);
+    }
+
+    #[test]
+    fn test_concurrent_access_is_safe() {
+        use std::sync::Arc;
+        use std::thread;
+
+        let provider = Arc::new(PiperProvider::new(default_config()));
+        let mut handles = vec![];
+
+        // Spawn multiple threads reading settings concurrently
+        for _ in 0..10 {
+            let p = Arc::clone(&provider);
+            handles.push(thread::spawn(move || {
+                for _ in 0..100 {
+                    let _ = p.settings();
+                }
+            }));
+        }
+
+        // Spawn threads writing settings concurrently
+        for i in 0..5 {
+            let p = Arc::clone(&provider);
+            handles.push(thread::spawn(move || {
+                for j in 0..20 {
+                    let _ = p.update_settings(
+                        1.0 + (i as f32 * 0.1),
+                        0.5,
+                        0.6,
+                        0.3,
+                        (j % 5) as u32,
+                    );
+                }
+            }));
+        }
+
+        // All threads should complete without deadlock or panic
+        for handle in handles {
+            handle.join().expect("Thread should not panic");
+        }
+
+        // Final state should be consistent (we can read settings)
+        let final_config = provider.settings();
+        assert!(final_config.is_ok());
+    }
+
+    #[test]
+    fn test_provider_id() {
+        let provider = PiperProvider::new(default_config());
+        assert_eq!(provider.id(), "piper");
+    }
+}

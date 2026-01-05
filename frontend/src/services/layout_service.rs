@@ -48,6 +48,9 @@ impl ViewType {
 ///
 /// This struct is designed to be provided via Leptos context and accessed
 /// throughout the component tree using `expect_context::<LayoutState>()`.
+///
+/// Note: Settings are in-memory only and reset on page reload. If persistence
+/// is needed in the future, add localStorage sync in provide_layout_state().
 #[derive(Clone, Copy)]
 pub struct LayoutState {
     /// Whether the sidebar is currently visible

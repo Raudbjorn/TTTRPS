@@ -109,13 +109,19 @@ pub fn Chat() -> impl IntoView {
         }
     });
 
-    // Set up streaming chunk listener on mount (runs once)
+    // Set up streaming chunk listener on mount
     // Note: Tauri 2's listen() is async, so we spawn to await it
     // IMPORTANT: Find streaming message by stream_id in the messages list itself,
     // rather than relying on StoredValue which doesn't survive component remounts
+    //
+    // Cleanup note: JsValue is !Send, so we can't use on_cleanup with it directly.
+    // This is safe because:
+    // 1. try_update/try_set return None when signals are disposed (no crashes)
+    // 2. Each listener matches by unique stream_id, so old listeners won't interfere
+    // 3. Tauri cleans up event listeners when the webview closes
     {
         spawn_local(async move {
-            let handle = listen_chat_chunks_async(move |chunk: ChatChunk| {
+            let _unlisten = listen_chat_chunks_async(move |chunk: ChatChunk| {
                 // Find the message that matches this stream_id directly in the messages list
                 // This approach works even if component was remounted
                 let result = messages.try_update(|msgs| {
@@ -196,16 +202,12 @@ pub fn Chat() -> impl IntoView {
                         ).into());
                     }
                     None => {
-                        // Signal disposed
+                        // Signal disposed - component unmounted, listener will be gc'd
                         #[cfg(debug_assertions)]
                         web_sys::console::warn_1(&"[DEBUG] messages signal disposed".into());
                     }
                 }
             }).await;
-
-            // Note: We don't store the unlisten handle since JsValue isn't Send+Sync
-            // The listener will be cleaned up when the page unloads
-            let _unlisten = handle;
         });
     }
 
