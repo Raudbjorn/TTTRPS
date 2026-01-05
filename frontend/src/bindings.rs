@@ -19,20 +19,24 @@ extern "C" {
     #[wasm_bindgen(js_namespace = ["window", "__TAURI__", "dialog"], js_name = "open")]
     async fn dialog_open(options: JsValue) -> JsValue;
 
-    // Event listener - for progress events
+    // Event listener - for progress events (returns Promise<UnlistenFn>)
     #[wasm_bindgen(js_namespace = ["window", "__TAURI__", "event"], js_name = "listen")]
-    fn event_listen(event: &str, handler: &js_sys::Function) -> JsValue;
+    fn event_listen(event: &str, handler: &js_sys::Function) -> js_sys::Promise;
 }
 
-/// Listen for Tauri events (returns unlisten function)
+/// Listen for Tauri events (returns unlisten function wrapped in Promise)
+/// Note: In Tauri 2, listen() is async and returns a Promise
 pub fn listen_event<F>(event_name: &str, callback: F) -> JsValue
 where
     F: Fn(JsValue) + 'static,
 {
     let closure = wasm_bindgen::closure::Closure::wrap(Box::new(callback) as Box<dyn Fn(JsValue)>);
-    let result = event_listen(event_name, closure.as_ref().unchecked_ref());
+    let promise = event_listen(event_name, closure.as_ref().unchecked_ref());
     closure.forget(); // Prevent closure from being dropped
-    result
+
+    // The promise resolves to the unlisten function
+    // We return the promise as JsValue for compatibility
+    promise.into()
 }
 
 /// Invoke a Tauri command with typed arguments and response
@@ -3293,8 +3297,8 @@ pub async fn get_active_streams() -> Result<Vec<String>, String> {
     invoke_no_args("get_active_streams").await
 }
 
-/// Listen for streaming chat chunks
-/// Returns a closure that can be called to unlisten
+/// Listen for streaming chat chunks (sync version - deprecated)
+/// Returns a Promise that resolves to the unlisten function
 /// The callback receives ChatChunk events from the backend
 pub fn listen_chat_chunks<F>(callback: F) -> JsValue
 where
@@ -3306,6 +3310,29 @@ where
             callback(wrapper.payload);
         }
     })
+}
+
+/// Listen for streaming chat chunks (async version for Tauri 2)
+/// Awaits the Promise and returns the unlisten function
+/// The callback receives ChatChunk events from the backend
+pub async fn listen_chat_chunks_async<F>(callback: F) -> JsValue
+where
+    F: Fn(ChatChunk) + 'static,
+{
+    use wasm_bindgen_futures::JsFuture;
+
+    let promise = listen_event("chat-chunk", move |event| {
+        // The event payload is wrapped in { payload: ChatChunk }
+        if let Ok(wrapper) = serde_wasm_bindgen::from_value::<StreamEventWrapper>(event) {
+            callback(wrapper.payload);
+        }
+    });
+
+    // Await the promise to get the unlisten function
+    match JsFuture::from(js_sys::Promise::from(promise)).await {
+        Ok(unlisten) => unlisten,
+        Err(_) => JsValue::NULL,
+    }
 }
 
 /// Wrapper for Tauri event payload

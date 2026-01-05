@@ -15,7 +15,7 @@ use std::sync::Arc;
 use crate::services::notification_service::{show_error, ToastAction};
 
 use crate::bindings::{
-    cancel_stream, chat, check_llm_health, get_session_usage, listen_chat_chunks, stream_chat,
+    cancel_stream, chat, check_llm_health, get_session_usage, listen_chat_chunks_async, stream_chat,
     ChatChunk, ChatRequestPayload, SessionUsage, StreamingChatMessage, speak,
 };
 use crate::components::design_system::{Button, ButtonVariant, Input};
@@ -113,65 +113,69 @@ pub fn Chat() -> impl IntoView {
     });
 
     // Set up streaming chunk listener on mount
+    // Note: Tauri 2's listen() is async, so we spawn to await it
     {
         let unlisten_handle = unlisten_handle.clone();
         Effect::new(move |_| {
-            let handle = listen_chat_chunks(move |chunk: ChatChunk| {
-                // Only process chunks for our active stream
-                if let Some(active_stream) = current_stream_id.get() {
-                    if chunk.stream_id != active_stream {
-                        return;
-                    }
-                }
-
-                if let Some(msg_id) = streaming_message_id.get() {
-                    // Append content to the streaming message
-                    if !chunk.content.is_empty() {
-                        messages.update(|msgs| {
-                            if let Some(msg) = msgs.iter_mut().find(|m| m.id == msg_id) {
-                                msg.content.push_str(&chunk.content);
-                            }
-                        });
+            let unlisten_handle_clone = unlisten_handle.clone();
+            spawn_local(async move {
+                let handle = listen_chat_chunks_async(move |chunk: ChatChunk| {
+                    // Only process chunks for our active stream
+                    if let Some(active_stream) = current_stream_id.get() {
+                        if chunk.stream_id != active_stream {
+                            return;
+                        }
                     }
 
-                    // Handle stream completion
-                    if chunk.is_final {
-                        // Check if this is an error response
-                        let is_error = chunk.finish_reason.as_deref() == Some("error");
-
-                        messages.update(|msgs| {
-                            if let Some(msg) = msgs.iter_mut().find(|m| m.id == msg_id) {
-                                msg.is_streaming = false;
-                                msg.stream_id = None;
-
-                                // Mark as error if finish_reason is "error"
-                                if is_error {
-                                    msg.role = "error".to_string();
+                    if let Some(msg_id) = streaming_message_id.get() {
+                        // Append content to the streaming message
+                        if !chunk.content.is_empty() {
+                            messages.update(|msgs| {
+                                if let Some(msg) = msgs.iter_mut().find(|m| m.id == msg_id) {
+                                    msg.content.push_str(&chunk.content);
                                 }
+                            });
+                        }
 
-                                // Set token usage if available
-                                if let Some(usage) = &chunk.usage {
-                                    msg.tokens = Some((usage.input_tokens, usage.output_tokens));
+                        // Handle stream completion
+                        if chunk.is_final {
+                            // Check if this is an error response
+                            let is_error = chunk.finish_reason.as_deref() == Some("error");
+
+                            messages.update(|msgs| {
+                                if let Some(msg) = msgs.iter_mut().find(|m| m.id == msg_id) {
+                                    msg.is_streaming = false;
+                                    msg.stream_id = None;
+
+                                    // Mark as error if finish_reason is "error"
+                                    if is_error {
+                                        msg.role = "error".to_string();
+                                    }
+
+                                    // Set token usage if available
+                                    if let Some(usage) = &chunk.usage {
+                                        msg.tokens = Some((usage.input_tokens, usage.output_tokens));
+                                    }
                                 }
-                            }
-                        });
+                            });
 
-                        // Update session usage
-                        spawn_local(async move {
-                            if let Ok(usage) = get_session_usage().await {
-                                session_usage.set(usage);
-                            }
-                        });
+                            // Update session usage
+                            spawn_local(async move {
+                                if let Ok(usage) = get_session_usage().await {
+                                    session_usage.set(usage);
+                                }
+                            });
 
-                        // Clear streaming state
-                        is_loading.set(false);
-                        current_stream_id.set(None);
-                        streaming_message_id.set(None);
+                            // Clear streaming state
+                            is_loading.set(false);
+                            current_stream_id.set(None);
+                            streaming_message_id.set(None);
+                        }
                     }
-                }
+                }).await;
+
+                *unlisten_handle_clone.borrow_mut() = Some(handle);
             });
-
-            *unlisten_handle.borrow_mut() = Some(handle);
         });
     }
 
