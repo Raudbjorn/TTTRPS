@@ -6000,3 +6000,150 @@ pub async fn list_proxy_providers(
     let manager = state.llm_manager.read().await;
     Ok(manager.list_proxy_providers().await)
 }
+
+/// Configure Meilisearch chat workspace with individual parameters.
+///
+/// This is a convenience command that builds the ChatProviderConfig from
+/// individual parameters, making it easier to call from the frontend.
+///
+/// # Arguments
+/// * `provider` - Provider type: "openai", "claude", "mistral", "gemini", "ollama",
+///                "openrouter", "groq", "together", "cohere", "deepseek",
+///                "claude-code", "claude-desktop"
+/// * `api_key` - API key for the provider (optional for ollama, claude-code, claude-desktop)
+/// * `model` - Model to use (optional, uses provider default if not specified)
+/// * `custom_system_prompt` - Custom system prompt (optional)
+/// * `host` - Host URL for ollama (optional, defaults to localhost:11434)
+#[tauri::command]
+pub async fn configure_meilisearch_chat(
+    provider: String,
+    api_key: Option<String>,
+    model: Option<String>,
+    custom_system_prompt: Option<String>,
+    host: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    // Build ChatProviderConfig from individual parameters
+    let provider_config = match provider.to_lowercase().as_str() {
+        "openai" => {
+            let key = api_key.ok_or("OpenAI requires an API key")?;
+            ChatProviderConfig::OpenAI {
+                api_key: key,
+                model,
+                organization_id: None,
+            }
+        }
+        "claude" => {
+            let key = api_key.ok_or("Claude requires an API key")?;
+            ChatProviderConfig::Claude {
+                api_key: key,
+                model,
+                max_tokens: Some(4096),
+            }
+        }
+        "mistral" => {
+            let key = api_key.ok_or("Mistral requires an API key")?;
+            ChatProviderConfig::Mistral {
+                api_key: key,
+                model,
+            }
+        }
+        "gemini" => {
+            let key = api_key.ok_or("Gemini requires an API key")?;
+            ChatProviderConfig::Gemini {
+                api_key: key,
+                model,
+            }
+        }
+        "ollama" => {
+            let ollama_host = host.unwrap_or_else(|| "http://localhost:11434".to_string());
+            let ollama_model = model.unwrap_or_else(|| "llama3:latest".to_string());
+            ChatProviderConfig::Ollama {
+                host: ollama_host,
+                model: ollama_model,
+            }
+        }
+        "openrouter" => {
+            let key = api_key.ok_or("OpenRouter requires an API key")?;
+            let or_model = model.ok_or("OpenRouter requires a model")?;
+            ChatProviderConfig::OpenRouter {
+                api_key: key,
+                model: or_model,
+            }
+        }
+        "groq" => {
+            let key = api_key.ok_or("Groq requires an API key")?;
+            let groq_model = model.ok_or("Groq requires a model")?;
+            ChatProviderConfig::Groq {
+                api_key: key,
+                model: groq_model,
+            }
+        }
+        "together" => {
+            let key = api_key.ok_or("Together requires an API key")?;
+            let together_model = model.ok_or("Together requires a model")?;
+            ChatProviderConfig::Together {
+                api_key: key,
+                model: together_model,
+            }
+        }
+        "cohere" => {
+            let key = api_key.ok_or("Cohere requires an API key")?;
+            let cohere_model = model.ok_or("Cohere requires a model")?;
+            ChatProviderConfig::Cohere {
+                api_key: key,
+                model: cohere_model,
+            }
+        }
+        "deepseek" => {
+            let key = api_key.ok_or("DeepSeek requires an API key")?;
+            let deepseek_model = model.ok_or("DeepSeek requires a model")?;
+            ChatProviderConfig::DeepSeek {
+                api_key: key,
+                model: deepseek_model,
+            }
+        }
+        "claude-code" => ChatProviderConfig::ClaudeCode {
+            timeout_secs: Some(300),
+            model,
+        },
+        "claude-desktop" => ChatProviderConfig::ClaudeDesktop {
+            port: None,
+            timeout_secs: Some(120),
+        },
+        _ => return Err(format!("Unknown provider: {}. Valid providers: openai, claude, mistral, gemini, ollama, openrouter, groq, together, cohere, deepseek, claude-code, claude-desktop", provider)),
+    };
+
+    // Build custom prompts if system prompt provided
+    let custom_prompts = custom_system_prompt.map(|prompt| ChatPrompts {
+        system: Some(prompt),
+        ..Default::default()
+    });
+
+    // Get the LLM manager
+    let manager = state.llm_manager.clone();
+
+    // Configure Meilisearch chat client
+    {
+        let manager_guard = manager.write().await;
+        manager_guard.set_chat_client(state.search_client.host(), None).await;
+    }
+
+    // Configure the workspace with the provider
+    let manager_guard = manager.read().await;
+    manager_guard
+        .configure_chat_workspace("dm-assistant", provider_config, custom_prompts)
+        .await?;
+
+    log::info!("Meilisearch chat configured with provider: {}", provider);
+    Ok(())
+}
+
+/// Get the currently active proxy provider.
+#[tauri::command]
+pub async fn get_current_proxy_provider(
+    state: State<'_, AppState>,
+) -> Result<Option<String>, String> {
+    let manager = state.llm_manager.read().await;
+    Ok(manager.current_proxy_provider().await)
+}
