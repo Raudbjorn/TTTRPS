@@ -17,8 +17,8 @@ pub fn Input(
     #[prop(into, optional)]
     on_keydown: Option<Callback<ev::KeyboardEvent>>,
     /// Whether the input is disabled
-    #[prop(default = false)]
-    disabled: bool,
+    #[prop(into, default = false.into())]
+    disabled: MaybeSignal<bool>,
     /// Input type (text, password, email, etc.)
     #[prop(into, optional)]
     r#type: MaybeSignal<String>,
@@ -58,7 +58,7 @@ pub fn Input(
             type=move || input_type.get()
             prop:value=move || value.get()
             placeholder=move || placeholder.get()
-            disabled=disabled
+            disabled=move || disabled.get()
             list=list
             on:input=handle_input
             on:keydown=handle_keydown

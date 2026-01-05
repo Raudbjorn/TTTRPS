@@ -737,10 +737,14 @@ pub async fn stream_chat(
                     chunk.stream_id = stream_id_clone.clone();
                     full_content.push_str(&chunk.content);
 
+                    // println!("DEBUG: Emitting chunk for stream {}: {}", stream_id_clone, chunk.content.len());
+
                     // Emit the chunk event
                     let _ = app_handle.emit("chat-chunk", &chunk);
 
+
                     if chunk.is_final {
+                        // println!("DEBUG: Stream {} finished", stream_id_clone);
                         break;
                     }
                 }

@@ -226,7 +226,12 @@ impl LLMProvider for OllamaProvider {
                                     }
                                 }
                                 Err(e) => {
-                                    log::error!("Failed to parse Ollama JSON: {} | Line: {}", e, line);
+                                    log::error!(
+                                        "Ollama JSON parse error at chunk_index {}: {} for line: {}",
+                                        chunk_index,
+                                        e,
+                                        line
+                                    );
                                 }
                             }
                         }
@@ -241,7 +246,14 @@ impl LLMProvider for OllamaProvider {
 
             // Handle any remaining buffer content (shouldn't happen with proper NDJSON)
             if !buffer.trim().is_empty() {
-                log::warn!("Ollama stream ended with incomplete buffer: {}", buffer);
+                log::warn!(
+                    "Unexpected: Ollama stream ended with an incomplete NDJSON buffer. \
+                     The response may be truncated or malformed, which can indicate a \
+                     network interruption or a server-side error. \
+                     Consider checking the Ollama server logs, your network connection, \
+                     and model configuration. Remaining buffer: {}",
+                    buffer
+                );
             }
         });
 
