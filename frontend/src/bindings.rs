@@ -214,7 +214,9 @@ pub async fn pick_document_file() -> Option<String> {
 pub struct ChatRequestPayload {
     pub message: String,
     pub system_prompt: Option<String>,
+    pub personality_id: Option<String>,
     pub context: Option<Vec<String>>,
+    pub use_rag: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -3311,8 +3313,16 @@ where
 {
     listen_event("chat-chunk", move |event| {
         // The event payload is wrapped in { payload: ChatChunk }
-        if let Ok(wrapper) = serde_wasm_bindgen::from_value::<StreamEventWrapper>(event) {
-            callback(wrapper.payload);
+        match serde_wasm_bindgen::from_value::<StreamEventWrapper>(event.clone()) {
+            Ok(wrapper) => callback(wrapper.payload),
+            Err(e) => {
+                let json_str = js_sys::JSON::stringify(&event).unwrap_or(js_sys::JsString::from("?"));
+                web_sys::console::error_2(
+                    &JsValue::from_str("Failed to deserialize chat-chunk event:"),
+                    &e.into()
+                );
+                web_sys::console::log_2(&JsValue::from_str("Event data:"), &json_str);
+            }
         }
     })
 }

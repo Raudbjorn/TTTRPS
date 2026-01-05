@@ -23,6 +23,7 @@ fn main() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_window_state::Builder::default().build())
         .setup(|app| {
             let handle = app.handle().clone();
 
@@ -82,7 +83,7 @@ fn main() {
 
             app.manage(commands::AppState {
                 llm_client: std::sync::RwLock::new(None),
-                llm_config: std::sync::RwLock::new(None),
+                llm_config: std::sync::RwLock::new(commands::load_llm_config_disk(&app.handle())),
                 llm_router: tokio::sync::RwLock::new(ttrpg_assistant::core::llm::router::LLMRouter::with_defaults()),
                 campaign_manager: cm,
                 session_manager: sm,
@@ -129,35 +130,64 @@ fn main() {
                 tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 
                 if let Some(app_state) = handle_clone.try_state::<commands::AppState>() {
-                    let has_providers = !app_state.llm_router.read().await.provider_ids().is_empty();
+                    // Check for persisted config
+                    let config_opt = app_state.llm_config.read().unwrap().clone();
 
-                    if !has_providers {
-                        log::info!("No LLM providers configured. Attempting to auto-discover Ollama...");
-                        let client = reqwest::Client::new();
-                        // Try localhost default port
-                        if let Ok(resp) = client.get("http://localhost:11434/api/tags").send().await {
-                             if let Ok(json) = resp.json::<serde_json::Value>().await {
-                                let mut configured_model = None;
+                    if let Some(config) = config_opt {
+                        log::info!("Applying persisted LLM configuration...");
+                        // Add to router (if not already present? Router is fresh here)
+                        // Note: create_provider creates a new instance.
+                        let provider = config.create_provider();
+                        app_state.llm_router.write().await.add_provider(provider).await;
 
-                                if let Some(models) = json.get("models").and_then(|m| m.as_array()) {
-                                    if let Some(first) = models.first() {
-                                        if let Some(name) = first.get("name").and_then(|n| n.as_str()) {
-                                            configured_model = Some(name.to_string());
+                        // Configure Meilisearch (retry loop to wait for Sidecar/Client init)
+                        let manager = app_state.llm_manager.clone();
+                        let config_clone = config.clone();
+                        tokio::spawn(async move {
+                            for i in 0..15 {
+                                let res = manager.write().await.configure_for_chat(&config_clone, None).await;
+                                if res.is_ok() {
+                                    log::info!("Meilisearch chat configured from persistence.");
+                                    break;
+                                }
+                                if i == 14 {
+                                    log::warn!("Failed to configure Meilisearch from persistence after retries: {:?}", res.err());
+                                }
+                                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                            }
+                        });
+                    } else {
+                        // Fallback: Auto-configure Ollama if no config exists
+                        let has_providers = !app_state.llm_router.read().await.provider_ids().is_empty();
+
+                        if !has_providers {
+                            log::info!("No LLM providers configured. Attempting to auto-discover Ollama...");
+                            let client = reqwest::Client::new();
+                            // Try localhost default port
+                            if let Ok(resp) = client.get("http://localhost:11434/api/tags").send().await {
+                                 if let Ok(json) = resp.json::<serde_json::Value>().await {
+                                    let mut configured_model = None;
+
+                                    if let Some(models) = json.get("models").and_then(|m| m.as_array()) {
+                                        if let Some(first) = models.first() {
+                                            if let Some(name) = first.get("name").and_then(|n| n.as_str()) {
+                                                configured_model = Some(name.to_string());
+                                            }
                                         }
                                     }
-                                }
 
-                                // Fallback if no models found but server is running
-                                let model_to_use = configured_model.unwrap_or_else(|| "llama3:latest".to_string());
+                                    // Fallback if no models found but server is running
+                                    let model_to_use = configured_model.unwrap_or_else(|| "llama3:latest".to_string());
 
-                                log::info!("Auto-configuring Ollama with model: {}", model_to_use);
-                                let provider = std::sync::Arc::new(
-                                    ttrpg_assistant::core::llm::providers::OllamaProvider::localhost(model_to_use)
-                                );
-                                app_state.llm_router.write().await.add_provider(provider).await;
-                             }
-                        } else {
-                            log::warn!("Could not connect to Ollama at localhost:11434");
+                                    log::info!("Auto-configuring Ollama with model: {}", model_to_use);
+                                    let provider = std::sync::Arc::new(
+                                        ttrpg_assistant::core::llm::providers::OllamaProvider::localhost(model_to_use)
+                                    );
+                                    app_state.llm_router.write().await.add_provider(provider).await;
+                                 }
+                            } else {
+                                log::warn!("Could not connect to Ollama at localhost:11434");
+                            }
                         }
                     }
                 }
