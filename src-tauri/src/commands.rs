@@ -702,56 +702,76 @@ pub async fn stream_chat(
         .clone()
         .ok_or("LLM not configured. Please configure in Settings.")?;
 
-    let request = ChatRequest {
-        messages,
-        max_tokens,
-        temperature,
-        system_prompt,
-        provider: None,
-        tools: None,
-        tool_choice: None,
+    // Determine model name from config (same logic as chat command)
+    let model = match &config {
+        crate::core::llm::providers::ProviderConfig::OpenAI { model, .. } => model.clone(),
+        crate::core::llm::providers::ProviderConfig::Claude { model, .. } => model.clone(),
+        crate::core::llm::providers::ProviderConfig::Mistral { model, .. } => model.clone(),
+        crate::core::llm::providers::ProviderConfig::Ollama { model, .. } => model.clone(),
+        crate::core::llm::providers::ProviderConfig::Gemini { model, .. } => model.clone(),
+        crate::core::llm::providers::ProviderConfig::OpenRouter { model, .. } => model.clone(),
+        crate::core::llm::providers::ProviderConfig::Groq { model, .. } => model.clone(),
+        crate::core::llm::providers::ProviderConfig::Together { model, .. } => model.clone(),
+        crate::core::llm::providers::ProviderConfig::Cohere { model, .. } => model.clone(),
+        crate::core::llm::providers::ProviderConfig::DeepSeek { model, .. } => model.clone(),
+        crate::core::llm::providers::ProviderConfig::ClaudeCode { model, .. } => model.clone().unwrap_or_else(|| "claude-code".to_string()),
+        crate::core::llm::providers::ProviderConfig::ClaudeDesktop { .. } => "claude-desktop".to_string(),
+        crate::core::llm::providers::ProviderConfig::GeminiCli { model, .. } => model.clone(),
+        crate::core::llm::providers::ProviderConfig::Meilisearch { model, .. } => model.clone(),
     };
-
-    let router = state.llm_router.read().await;
-    let router_clone = router.clone();
-    drop(router);
 
     // Use provided stream ID or generate a new one
     let stream_id = provided_stream_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
     let stream_id_clone = stream_id.clone();
 
-    // Initiate the stream (waits for connection/headers)
-    let mut rx = router_clone.stream_chat(request).await
+    // Get the Meilisearch chat manager
+    let manager = state.llm_manager.clone();
+
+    // Ensure properly configured for this provider (Just like chat command)
+    {
+        let manager_guard = manager.write().await;
+        // This ensures the correct provider is registered with proxy if needed
+        manager_guard.configure_for_chat(&config, system_prompt.as_deref()).await
+            .map_err(|e| format!("Failed to configure chat: {}", e))?;
+    }
+
+    let manager_guard = manager.read().await;
+
+    // Initiate the stream via Meilisearch manager (enables RAG)
+    let mut rx = manager_guard.chat_stream(messages, &model).await
         .map_err(|e| e.to_string())?;
 
-    // Spawn a task to handle the stream asynchronously so we don't block the command
+    // Spawn a task to handle the stream asynchronously
     tokio::spawn(async move {
-        let mut full_content = String::new();
-
         // Process chunks and emit events
         while let Some(chunk_result) = rx.recv().await {
             match chunk_result {
-                Ok(mut chunk) => {
-                    // Override the provider's stream ID with our generated one
-                    chunk.stream_id = stream_id_clone.clone();
-                    full_content.push_str(&chunk.content);
+                Ok(content) => {
+                     // Check for "[DONE]" marker if it wasn't handled by the client
+                    if content == "[DONE]" {
+                        break;
+                    }
 
-                    // println!("DEBUG: Emitting chunk for stream {}: {}", stream_id_clone, chunk.content.len());
+                    // Create a chunk object
+                    let chunk = ChatChunk {
+                        stream_id: stream_id_clone.clone(),
+                        content: content.clone(),
+                        provider: String::new(), // Manager abstracts this
+                        model: String::new(),    // Manager abstracts this
+                        is_final: false,
+                        finish_reason: None,
+                        usage: None,
+                        index: 0,
+                    };
 
                     // Emit the chunk event
                     let _ = app_handle.emit("chat-chunk", &chunk);
-
-
-                    if chunk.is_final {
-                        // println!("DEBUG: Stream {} finished", stream_id_clone);
-                        break;
-                    }
                 }
                 Err(e) => {
                     let error_message = format!("Error: {}", e);
                     log::error!("Stream {} error: {}", stream_id_clone, error_message);
 
-                    // Emit error event with error message in content
+                    // Emit error event
                     let error_chunk = ChatChunk {
                         stream_id: stream_id_clone.clone(),
                         content: error_message,
@@ -767,6 +787,19 @@ pub async fn stream_chat(
                 }
             }
         }
+
+        // Emit final chunk to signal completion
+        let final_chunk = ChatChunk {
+            stream_id: stream_id_clone.clone(),
+            content: String::new(),
+            provider: String::new(),
+            model: String::new(),
+            is_final: true,
+            finish_reason: Some("stop".to_string()),
+            usage: None, // Usage not available from simple stream yet
+            index: 0,
+        };
+        let _ = app_handle.emit("chat-chunk", &final_chunk);
     });
 
     Ok(stream_id)

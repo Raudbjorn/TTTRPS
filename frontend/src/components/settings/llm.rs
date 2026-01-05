@@ -460,7 +460,7 @@ pub fn LLMSettingsView() -> impl IntoView {
                         <div class="pt-4">
                             <Button
                                 variant=ButtonVariant::Primary
-                                loading=is_saving.get()
+                                loading=is_saving
                                 on_click=handle_save
                                 class="w-full md:w-auto"
                             >

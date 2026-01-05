@@ -50,15 +50,25 @@ pub struct ChatPrompts {
 
 /// Workspace settings for Meilisearch Chat
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ChatWorkspaceSettings {
     /// LLM provider source
     pub source: ChatLLMSource,
     /// API key for the LLM provider
     #[serde(skip_serializing_if = "Option::is_none")]
     pub api_key: Option<String>,
-    /// Model to use (e.g., "gpt-4o", "gpt-3.5-turbo")
+    /// Azure OpenAI deployment ID
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub model: Option<String>,
+    pub deployment_id: Option<String>,
+    /// Azure OpenAI API version
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub api_version: Option<String>,
+    /// Azure OpenAI Organization ID
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub org_id: Option<String>,
+    /// Azure OpenAI Project ID
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub project_id: Option<String>,
     /// Prompt configuration
     #[serde(skip_serializing_if = "Option::is_none")]
     pub prompts: Option<ChatPrompts>,
@@ -72,7 +82,10 @@ impl Default for ChatWorkspaceSettings {
         Self {
             source: ChatLLMSource::OpenAi,
             api_key: None,
-            model: Some("gpt-4o-mini".to_string()),
+            deployment_id: None,
+            api_version: None,
+            org_id: None,
+            project_id: None,
             prompts: Some(ChatPrompts {
                 system: Some(DEFAULT_DM_SYSTEM_PROMPT.to_string()),
                 ..Default::default()
@@ -256,30 +269,65 @@ impl ChatProviderConfig {
     pub fn to_meilisearch_settings(&self, proxy_url: &str) -> ChatWorkspaceSettings {
         match self {
             // Native providers (direct to Meilisearch)
-            ChatProviderConfig::OpenAI { api_key, model, .. } => ChatWorkspaceSettings {
+            ChatProviderConfig::OpenAI { api_key, .. } => ChatWorkspaceSettings {
                 source: ChatLLMSource::OpenAi,
                 api_key: Some(api_key.clone()),
-                model: Some(model.as_deref().unwrap_or("gpt-4o-mini").to_string()),
+                deployment_id: None,
+                api_version: None,
+                org_id: None,
+                project_id: None,
                 prompts: Some(ChatPrompts {
                     system: Some(DEFAULT_DM_SYSTEM_PROMPT.to_string()),
                     ..Default::default()
                 }),
                 base_url: None,
             },
-            ChatProviderConfig::Mistral { api_key, model } => ChatWorkspaceSettings {
+            ChatProviderConfig::Mistral { api_key, .. } => ChatWorkspaceSettings {
                 source: ChatLLMSource::Mistral,
                 api_key: Some(api_key.clone()),
-                model: Some(model.as_deref().unwrap_or("mistral-large-latest").to_string()),
+                deployment_id: None,
+                api_version: None,
+                org_id: None,
+                project_id: None,
                 prompts: Some(ChatPrompts {
                     system: Some(DEFAULT_DM_SYSTEM_PROMPT.to_string()),
                     ..Default::default()
                 }),
                 base_url: None,
             },
-            ChatProviderConfig::AzureOpenAI { api_key, base_url, .. } => ChatWorkspaceSettings {
+            ChatProviderConfig::Gemini { api_key, .. } => ChatWorkspaceSettings {
+                source: ChatLLMSource::Gemini,
+                api_key: Some(api_key.clone()),
+                deployment_id: None,
+                api_version: None,
+                org_id: None,
+                project_id: None,
+                prompts: Some(ChatPrompts {
+                    system: Some(DEFAULT_DM_SYSTEM_PROMPT.to_string()),
+                    ..Default::default()
+                }),
+                base_url: None,
+            },
+            ChatProviderConfig::Ollama { host, .. } => ChatWorkspaceSettings {
+                source: ChatLLMSource::VLlm,
+                api_key: Some("ollama".to_string()), // Placeholder key required by Meilisearch for vLLM source
+                deployment_id: None,
+                api_version: None,
+                org_id: None,
+                project_id: None,
+                prompts: Some(ChatPrompts {
+                    system: Some(DEFAULT_DM_SYSTEM_PROMPT.to_string()),
+                    ..Default::default()
+                }),
+                base_url: Some(format!("{}/v1", host.trim_end_matches('/'))),
+            },
+            ChatProviderConfig::AzureOpenAI { api_key, base_url, deployment_id, api_version, .. } => ChatWorkspaceSettings {
                 source: ChatLLMSource::AzureOpenAi,
                 api_key: Some(api_key.clone()),
-                model: None, // Azure uses deployment_id
+                deployment_id: Some(deployment_id.clone()),
+                api_version: Some(api_version.clone()),
+                org_id: None, // Not currently stored in config
+                project_id: None, // Not currently stored in config
                 prompts: Some(ChatPrompts {
                     system: Some(DEFAULT_DM_SYSTEM_PROMPT.to_string()),
                     ..Default::default()
@@ -290,7 +338,10 @@ impl ChatProviderConfig {
             _ => ChatWorkspaceSettings {
                 source: ChatLLMSource::VLlm,
                 api_key: None, // Proxy handles auth
-                model: Some(self.proxy_model_id()),
+                deployment_id: None,
+                api_version: None,
+                org_id: None,
+                project_id: None,
                 prompts: Some(ChatPrompts {
                     system: Some(DEFAULT_DM_SYSTEM_PROMPT.to_string()),
                     ..Default::default()
@@ -583,7 +634,7 @@ impl MeilisearchChatClient {
         let mut request = self.http_client
             .patch(&url)
             .json(&serde_json::json!({
-                "chat": true
+                "chatCompletions": true
             }));
 
         if let Some(key) = &self.api_key {
@@ -951,7 +1002,10 @@ impl DMChatManager {
         let settings = ChatWorkspaceSettings {
             source: ChatLLMSource::OpenAi,
             api_key: Some(llm_api_key.to_string()),
-            model: Some(model.unwrap_or("gpt-4o-mini").to_string()),
+            deployment_id: None,
+            api_version: None,
+            org_id: None,
+            project_id: None,
             prompts: Some(ChatPrompts {
                 system: Some(
                     custom_system_prompt
@@ -986,7 +1040,10 @@ impl DMChatManager {
         let settings = ChatWorkspaceSettings {
             source: ChatLLMSource::VLlm, // vLLM compatible with Ollama API
             api_key: None,
-            model: Some(model.to_string()),
+            deployment_id: None,
+            api_version: None,
+            org_id: None,
+            project_id: None,
             prompts: Some(ChatPrompts {
                 system: Some(
                     custom_system_prompt
@@ -1032,6 +1089,25 @@ impl DMChatManager {
         let request = ChatCompletionRequest {
             model: model.to_string(),
             messages: vec![ChatMessage::user(user_message)],
+            stream: true,
+            temperature: Some(0.7),
+            max_tokens: Some(2048),
+        };
+
+        self.chat_client
+            .chat_completion_stream(&self.default_workspace, request)
+            .await
+    }
+
+    /// Get streaming response with conversation history
+    pub async fn chat_stream_with_history(
+        &self,
+        messages: Vec<ChatMessage>,
+        model: &str,
+    ) -> Result<mpsc::Receiver<Result<String, String>>, String> {
+        let request = ChatCompletionRequest {
+            model: model.to_string(),
+            messages,
             stream: true,
             temperature: Some(0.7),
             max_tokens: Some(2048),

@@ -89,7 +89,7 @@ fn main() {
                 npc_store: ns,
                 credentials: creds,
                 voice_manager: vm,
-                sidecar_manager,
+                sidecar_manager: sidecar_manager.clone(),
                 search_client,
                 personality_store,
                 personality_manager,
@@ -100,7 +100,26 @@ fn main() {
                 relationship_manager,
                 location_manager,
                 claude_desktop_manager,
-                llm_manager,
+                llm_manager: llm_manager.clone(), // Clone for auto-configure block
+            });
+
+            // Initialize Meilisearch Chat Client (fixes "Meilisearch chat client not configured" error)
+            let sidecar_config = sidecar_manager.config().clone();
+            let llm_manager_clone = llm_manager.clone();
+            tauri::async_runtime::spawn(async move {
+                // Wait for Meilisearch to start by polling health endpoint
+                // Wait up to 30 seconds
+                for _ in 0..30 {
+                    if sidecar_manager.health_check().await {
+                        break;
+                    }
+                    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                }
+
+                llm_manager_clone.write().await.set_chat_client(
+                    &sidecar_config.url(),
+                    Some(&sidecar_config.master_key),
+                ).await;
             });
 
             // Auto-configure Ollama if no providers are present (User Request)
