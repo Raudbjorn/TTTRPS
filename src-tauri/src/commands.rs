@@ -743,14 +743,23 @@ pub async fn stream_chat(
 
     // Spawn a task to handle the stream asynchronously
     tokio::spawn(async move {
+        log::info!("[stream_chat:{}] Receiver task started", stream_id_clone);
+        let mut chunk_count = 0;
+        let mut total_bytes = 0;
+
         // Process chunks and emit events
         while let Some(chunk_result) = rx.recv().await {
             match chunk_result {
                 Ok(content) => {
                      // Check for "[DONE]" marker if it wasn't handled by the client
                     if content == "[DONE]" {
+                        log::info!("[stream_chat:{}] Received [DONE], stream finished. Total chunks: {}, Total bytes: {}", stream_id_clone, chunk_count, total_bytes);
                         break;
                     }
+
+                    chunk_count += 1;
+                    total_bytes += content.len();
+                    log::debug!("[stream_chat:{}] Processing chunk #{}: {} bytes", stream_id_clone, chunk_count, content.len());
 
                     // Create a chunk object
                     let chunk = ChatChunk {
@@ -761,15 +770,17 @@ pub async fn stream_chat(
                         is_final: false,
                         finish_reason: None,
                         usage: None,
-                        index: 0,
+                        index: chunk_count,
                     };
 
                     // Emit the chunk event
-                    let _ = app_handle.emit("chat-chunk", &chunk);
+                    if let Err(e) = app_handle.emit("chat-chunk", &chunk) {
+                        log::error!("[stream_chat:{}] Failed to emit chunk: {}", stream_id_clone, e);
+                    }
                 }
                 Err(e) => {
                     let error_message = format!("Error: {}", e);
-                    log::error!("Stream {} error: {}", stream_id_clone, error_message);
+                    log::error!("[stream_chat:{}] Stream error: {}", stream_id_clone, error_message);
 
                     // Emit error event
                     let error_chunk = ChatChunk {
@@ -780,13 +791,14 @@ pub async fn stream_chat(
                         is_final: true,
                         finish_reason: Some("error".to_string()),
                         usage: None,
-                        index: 0,
+                        index: chunk_count + 1,
                     };
                     let _ = app_handle.emit("chat-chunk", &error_chunk);
                     break;
                 }
             }
         }
+        log::info!("[stream_chat:{}] Receiver task exiting", stream_id_clone);
 
         // Emit final chunk to signal completion
         let final_chunk = ChatChunk {

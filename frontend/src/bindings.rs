@@ -3269,7 +3269,7 @@ pub async fn stream_chat(
     provided_stream_id: Option<String>,
 ) -> Result<String, String> {
     #[derive(Serialize)]
-    #[serde(rename_all = "snake_case")]
+    #[serde(rename_all = "camelCase")]
     struct Args {
         messages: Vec<StreamingChatMessage>,
         system_prompt: Option<String>,
@@ -3309,8 +3309,16 @@ where
 {
     listen_event("chat-chunk", move |event| {
         // The event payload is wrapped in { payload: ChatChunk }
-        if let Ok(wrapper) = serde_wasm_bindgen::from_value::<StreamEventWrapper>(event) {
-            callback(wrapper.payload);
+        match serde_wasm_bindgen::from_value::<StreamEventWrapper>(event.clone()) {
+            Ok(wrapper) => callback(wrapper.payload),
+            Err(e) => {
+                let json_str = js_sys::JSON::stringify(&event).unwrap_or(JsValue::from_str("?"));
+                web_sys::console::error_2(
+                    &JsValue::from_str("Failed to deserialize chat-chunk event:"),
+                    &e.into()
+                );
+                web_sys::console::log_2(&JsValue::from_str("Event data:"), &json_str);
+            }
         }
     })
 }

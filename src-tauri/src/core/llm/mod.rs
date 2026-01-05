@@ -300,6 +300,22 @@ impl LLMManager {
             stream: true,
             temperature: Some(0.7),
             max_tokens: Some(4096),
+            tools: Some(vec![
+                serde_json::json!({
+                    "type": "function",
+                    "function": {
+                        "name": "_meiliSearchProgress",
+                        "description": "Reports real-time search progress to the user"
+                    }
+                }),
+                serde_json::json!({
+                    "type": "function",
+                    "function": {
+                        "name": "_meiliSearchSources",
+                        "description": "Provides sources and references for the information"
+                    }
+                })
+            ]),
         };
 
         client.chat_completion_stream("dm-assistant", request).await

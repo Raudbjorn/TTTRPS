@@ -10,8 +10,7 @@ use leptos_router::components::A;
 use std::cell::RefCell;
 use std::rc::Rc;
 use wasm_bindgen::JsValue;
-use wasm_bindgen_futures::{spawn_local, JsFuture};
-use js_sys::{Function, Promise};
+use wasm_bindgen_futures::spawn_local;
 use std::sync::Arc;
 use crate::services::notification_service::{show_error, ToastAction};
 
@@ -37,38 +36,8 @@ pub struct Message {
 /// Main Chat component - the primary DM interface with streaming support
 #[component]
 pub fn Chat() -> impl IntoView {
-    // Wrapper to make JsValue Send + Sync (safe in single-threaded WASM)
-    #[derive(Clone, Copy)]
-    struct MySendWrapper<T>(pub T);
-    unsafe impl<T> Send for MySendWrapper<T> {}
-    unsafe impl<T> Sync for MySendWrapper<T> {}
-
-    // State signals
-    let message_input = RwSignal::new(String::new());
-    let messages = RwSignal::new(vec![Message {
-        id: 0,
-        role: "assistant".to_string(),
-        content: "Welcome to Sidecar DM! I'm your AI-powered TTRPG assistant. Configure an LLM provider in Settings to get started.".to_string(),
-        tokens: None,
-        is_streaming: false,
-        stream_id: None,
-    }]);
-    let is_loading = RwSignal::new(false);
-    let llm_status = RwSignal::new("Checking...".to_string());
-    let session_usage = RwSignal::new(SessionUsage {
-        session_input_tokens: 0,
-        session_output_tokens: 0,
-        session_requests: 0,
-        session_cost_usd: 0.0,
-    });
-    let show_usage_panel = RwSignal::new(false);
-    let next_message_id = RwSignal::new(1_usize);
-
-    // Track the current streaming message ID and stream ID
-    let current_stream_id = RwSignal::new(Option::<String>::None);
-    let streaming_message_id = RwSignal::new(Option::<usize>::None);
-
     // Store the unlisten handle for cleanup
+    let unlisten_handle: Rc<RefCell<Option<JsValue>>> = Rc::new(RefCell::new(None));
 
 
     // Shared health check logic
@@ -125,24 +94,19 @@ pub fn Chat() -> impl IntoView {
 
     // Set up streaming chunk listener on mount
     // Set up streaming chunk listener on mount
-    Effect::new(move |_| {
-        // Use StoredValue for state that needs to be shared between async task and cleanup
-        // MySendWrapper ensures the non-Send Function is accepted by StoredValue
-        let unlisten_fn = StoredValue::new(MySendWrapper(None::<Function>));
-        let is_cleaned_up = StoredValue::new(false);
-
-        spawn_local(async move {
-            let promise_js = listen_chat_chunks(move |chunk: ChatChunk| {
+    // Set up streaming chunk listener on mount
+    {
+        let unlisten_handle = unlisten_handle.clone();
+        Effect::new(move |_| {
+            let handle = listen_chat_chunks(move |chunk: ChatChunk| {
                 // Only process chunks for our active stream
-                if let Some(active_stream) = current_stream_id.get_untracked() {
+                if let Some(active_stream) = current_stream_id.get() {
                     if chunk.stream_id != active_stream {
                         return;
                     }
-                } else {
-                    return;
                 }
 
-                if let Some(msg_id) = streaming_message_id.get_untracked() {
+                if let Some(msg_id) = streaming_message_id.get() {
                     // Append content to the streaming message
                     if !chunk.content.is_empty() {
                         messages.update(|msgs| {
@@ -189,30 +153,9 @@ pub fn Chat() -> impl IntoView {
                 }
             });
 
-            // Handle the unlisten promise
-            let promise = Promise::from(promise_js);
-            let result = JsFuture::from(promise).await;
-
-            if let Ok(func_val) = result {
-                let func = Function::from(func_val);
-                if is_cleaned_up.get_value() {
-                    // We were already cleaned up while waiting, so unlisten immediately
-                    let _ = func.call0(&JsValue::NULL);
-                } else {
-                    unlisten_fn.set_value(MySendWrapper(Some(func)));
-                }
-            }
+            *unlisten_handle.borrow_mut() = Some(handle);
         });
-
-        on_cleanup(move || {
-            is_cleaned_up.set_value(true);
-            unlisten_fn.update_value(|v| {
-                if let Some(f) = v.0.take() {
-                    let _ = f.call0(&JsValue::NULL);
-                }
-            });
-        });
-    });
+    }
 
     // Play message via TTS
     let play_message = move |text: String| {
@@ -568,7 +511,7 @@ pub fn Chat() -> impl IntoView {
             <div class="flex-1 p-4 overflow-y-auto space-y-4">
                 <For
                     each=move || messages.get()
-                    key=|msg| msg.id
+                    key=|msg| (msg.id, msg.content.len(), msg.is_streaming)
                     children=move |msg| {
                         let role = msg.role.clone();
                         let content = msg.content.clone();
