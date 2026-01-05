@@ -8,3 +8,6 @@ fns.txt
 src-tauri/bin/
 frontend/tailwindcss
 src-tauri/proptest-regressions/
+
+# Planning/scratch directories
+planning/audaio/

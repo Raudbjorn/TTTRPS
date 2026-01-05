@@ -61,10 +61,6 @@ pub fn Chat() -> impl IntoView {
     let current_stream_id = RwSignal::new(Option::<String>::None);
     let streaming_message_id = RwSignal::new(Option::<usize>::None);
 
-    // ALSO store in StoredValue for access from event callback (survives component disposal)
-    // StoredValue is Leptos's solution for non-reactive storage that's Copy and survives across renders
-    let stream_state = StoredValue::new((Option::<String>::None, Option::<usize>::None));
-
     // Shared health check logic
     // Trigger for health check retry
     let health_trigger = Trigger::new();
@@ -124,21 +120,25 @@ pub fn Chat() -> impl IntoView {
                 // This approach works even if component was remounted
                 let result = messages.try_update(|msgs| {
                     // Debug: show what messages we have
-                    web_sys::console::log_1(&format!(
-                        "[DEBUG] Searching {} messages for stream_id={}",
-                        msgs.len(), &chunk.stream_id
-                    ).into());
-                    for (i, m) in msgs.iter().enumerate() {
+                    #[cfg(debug_assertions)]
+                    {
                         web_sys::console::log_1(&format!(
-                            "[DEBUG]   msg[{}]: id={}, stream_id={:?}, is_streaming={}",
-                            i, m.id, m.stream_id, m.is_streaming
+                            "[DEBUG] Searching {} messages for stream_id={}",
+                            msgs.len(), &chunk.stream_id
                         ).into());
+                        for (i, m) in msgs.iter().enumerate() {
+                            web_sys::console::log_1(&format!(
+                                "[DEBUG]   msg[{}]: id={}, stream_id={:?}, is_streaming={}",
+                                i, m.id, m.stream_id, m.is_streaming
+                            ).into());
+                        }
                     }
 
                     // Find message by stream_id (set when message was created)
                     if let Some(msg) = msgs.iter_mut().find(|m| {
                         m.stream_id.as_ref() == Some(&chunk.stream_id) && m.is_streaming
                     }) {
+                        #[cfg(debug_assertions)]
                         web_sys::console::log_1(&format!(
                             "[DEBUG] Found streaming message id={}, appending '{}' (len={})",
                             msg.id, &chunk.content, chunk.content.len()
@@ -189,6 +189,7 @@ pub fn Chat() -> impl IntoView {
                     }
                     Some(false) => {
                         // Message not found - might be for a different stream or old chunk
+                        #[cfg(debug_assertions)]
                         web_sys::console::warn_1(&format!(
                             "[DEBUG] No streaming message found for stream_id={}",
                             &chunk.stream_id
@@ -196,6 +197,7 @@ pub fn Chat() -> impl IntoView {
                     }
                     None => {
                         // Signal disposed
+                        #[cfg(debug_assertions)]
                         web_sys::console::warn_1(&"[DEBUG] messages signal disposed".into());
                     }
                 }
@@ -304,10 +306,8 @@ pub fn Chat() -> impl IntoView {
         let stream_id_clone = stream_id.clone();
 
         // Set active stream BEFORE calling backend
-        // Update both the signals (for UI) and the StoredValue (for callback)
         current_stream_id.set(Some(stream_id.clone()));
         streaming_message_id.set(Some(assistant_msg_id));
-        stream_state.set_value((Some(stream_id.clone()), Some(assistant_msg_id)));
 
         // Update the placeholder message with the stream ID immediately
         messages.update(|msgs| {

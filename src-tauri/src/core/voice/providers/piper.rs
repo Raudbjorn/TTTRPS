@@ -48,19 +48,22 @@ impl PiperProvider {
     }
 
     /// Update voice adjustment settings (thread-safe)
-    pub fn update_settings(&self, length_scale: f32, noise_scale: f32, noise_w: f32, sentence_silence: f32, speaker_id: u32) {
-        if let Ok(mut config) = self.config.write() {
-            config.length_scale = length_scale;
-            config.noise_scale = noise_scale;
-            config.noise_w = noise_w;
-            config.sentence_silence = sentence_silence;
-            config.speaker_id = speaker_id;
-        }
+    pub fn update_settings(&self, length_scale: f32, noise_scale: f32, noise_w: f32, sentence_silence: f32, speaker_id: u32) -> Result<()> {
+        let mut config = self.config.write()
+            .map_err(|_| VoiceError::NotConfigured("Config lock poisoned".to_string()))?;
+        config.length_scale = length_scale;
+        config.noise_scale = noise_scale;
+        config.noise_w = noise_w;
+        config.sentence_silence = sentence_silence;
+        config.speaker_id = speaker_id;
+        Ok(())
     }
 
     /// Get current settings (returns a clone for thread safety)
-    pub fn settings(&self) -> PiperConfig {
-        self.config.read().map(|c| c.clone()).unwrap_or_default()
+    pub fn settings(&self) -> Result<PiperConfig> {
+        self.config.read()
+            .map(|c| c.clone())
+            .map_err(|_| VoiceError::NotConfigured("Config lock poisoned".to_string()))
     }
 
     fn check_command(cmd: &str) -> bool {

@@ -3321,20 +3321,17 @@ where
 {
     use wasm_bindgen_futures::JsFuture;
 
+    #[cfg(debug_assertions)]
     web_sys::console::log_1(&"[DEBUG] listen_chat_chunks_async: Setting up listener...".into());
 
     let promise = listen_event("chat-chunk", move |event| {
-        web_sys::console::log_1(&"[DEBUG] Received chat-chunk event!".into());
         // The event payload is wrapped in { payload: ChatChunk }
         match serde_wasm_bindgen::from_value::<StreamEventWrapper>(event.clone()) {
             Ok(wrapper) => {
-                web_sys::console::log_1(&format!("[DEBUG] Parsed chunk: stream_id={}, content_len={}, is_final={}",
-                    wrapper.payload.stream_id, wrapper.payload.content.len(), wrapper.payload.is_final).into());
                 callback(wrapper.payload);
             }
             Err(e) => {
-                web_sys::console::error_1(&format!("[DEBUG] Failed to parse event: {:?}", e).into());
-                web_sys::console::log_1(&format!("[DEBUG] Raw event: {:?}", event).into());
+                web_sys::console::error_1(&format!("Failed to parse chat-chunk event: {:?}", e).into());
             }
         }
     });
@@ -3342,11 +3339,12 @@ where
     // Await the promise to get the unlisten function
     match JsFuture::from(js_sys::Promise::from(promise)).await {
         Ok(unlisten) => {
+            #[cfg(debug_assertions)]
             web_sys::console::log_1(&"[DEBUG] Listener registered successfully!".into());
             unlisten
         }
         Err(e) => {
-            web_sys::console::error_1(&format!("[DEBUG] Failed to register listener: {:?}", e).into());
+            web_sys::console::error_1(&format!("Failed to register chat listener: {:?}", e).into());
             JsValue::NULL
         }
     }
