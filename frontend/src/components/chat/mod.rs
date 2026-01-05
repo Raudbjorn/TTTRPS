@@ -11,6 +11,7 @@ use wasm_bindgen::JsValue;
 use wasm_bindgen_futures::spawn_local;
 use std::sync::Arc;
 use crate::services::notification_service::{show_error, ToastAction};
+use crate::services::layout_service::use_layout_state;
 
 use crate::bindings::{
     cancel_stream, chat, check_llm_health, get_session_usage, listen_chat_chunks_async, stream_chat,
@@ -560,31 +561,38 @@ pub fn Chat() -> impl IntoView {
 
             // Message Area
             <div class="flex-1 p-4 overflow-y-auto space-y-4">
-                <For
-                    each=move || messages.get()
-                    key=|msg| (msg.id, msg.content.len(), msg.is_streaming)
-                    children=move |msg| {
-                        let role = msg.role.clone();
-                        let content = msg.content.clone();
-                        let tokens = msg.tokens;
-                        let is_streaming = msg.is_streaming;
-                        let on_play_handler = if role == "assistant" && !is_streaming {
-                            let content_for_play = content.clone();
-                            Some(Callback::new(move |_: ()| play_message(content_for_play.clone())))
-                        } else {
-                            None
-                        };
-                        view! {
-                            <ChatMessage
-                                role=role
-                                content=content
-                                tokens=tokens
-                                is_streaming=is_streaming
-                                on_play=on_play_handler
-                            />
-                        }
+                {
+                    let layout = use_layout_state();
+                    view! {
+                        <For
+                            each=move || messages.get()
+                            key=|msg| (msg.id, msg.content.len(), msg.is_streaming)
+                            children=move |msg| {
+                                let role = msg.role.clone();
+                                let content = msg.content.clone();
+                                let tokens = msg.tokens;
+                                let is_streaming = msg.is_streaming;
+                                let show_tokens = layout.show_token_usage.get();
+                                let on_play_handler = if role == "assistant" && !is_streaming {
+                                    let content_for_play = content.clone();
+                                    Some(Callback::new(move |_: ()| play_message(content_for_play.clone())))
+                                } else {
+                                    None
+                                };
+                                view! {
+                                    <ChatMessage
+                                        role=role
+                                        content=content
+                                        tokens=tokens
+                                        is_streaming=is_streaming
+                                        on_play=on_play_handler
+                                        show_tokens=show_tokens
+                                    />
+                                }
+                            }
+                        />
                     }
-                />
+                }
             </div>
 
             // Input Area

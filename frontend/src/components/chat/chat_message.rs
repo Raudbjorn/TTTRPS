@@ -22,6 +22,9 @@ pub fn ChatMessage(
     /// Optional callback to play the message via TTS
     #[prop(default = None)]
     on_play: Option<Callback<()>>,
+    /// Whether to show token usage (as tooltip)
+    #[prop(default = false)]
+    show_tokens: bool,
 ) -> impl IntoView {
     let is_assistant = role == "assistant";
     let is_error = role == "error";
@@ -126,16 +129,9 @@ pub fn ChatMessage(
         .into_any()
     };
 
-    // Build token display (only show when not streaming)
-    let token_display = if !is_streaming {
-        tokens.map(|(input, output)| {
-            view! {
-                <div class="text-[10px] text-zinc-500 mt-2 font-mono flex gap-2">
-                    <span>"IN: " {input}</span>
-                    <span>"OUT: " {output}</span>
-                </div>
-            }
-        })
+    // Build token tooltip (only when show_tokens is enabled and not streaming)
+    let token_tooltip = if show_tokens && !is_streaming {
+        tokens.map(|(input, output)| format!("Tokens: {} in / {} out", input, output))
     } else {
         None
     };
@@ -156,13 +152,12 @@ pub fn ChatMessage(
     };
 
     view! {
-        <div class=container_class>
+        <div class=container_class title=token_tooltip>
             {action_buttons}
             <div class="min-w-0 break-words prose prose-invert max-w-none text-sm leading-relaxed">
                 {message_content}
             </div>
             {streaming_indicator}
-            {token_display}
         </div>
     }
 }

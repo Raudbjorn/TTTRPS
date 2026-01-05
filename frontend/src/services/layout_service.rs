@@ -62,6 +62,8 @@ pub struct LayoutState {
     pub active_view: RwSignal<ViewType>,
     /// Whether to use text labels instead of icons for navigation
     pub text_navigation: RwSignal<bool>,
+    /// Whether to show token usage on chat messages (as tooltip)
+    pub show_token_usage: RwSignal<bool>,
 }
 
 impl LayoutState {
@@ -74,6 +76,7 @@ impl LayoutState {
             infopanel_width: RwSignal::new(320),
             active_view: RwSignal::new(ViewType::default()),
             text_navigation: RwSignal::new(false),
+            show_token_usage: RwSignal::new(false), // Off by default
         }
     }
 
