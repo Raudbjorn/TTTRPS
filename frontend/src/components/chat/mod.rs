@@ -7,15 +7,14 @@ pub use personality_selector::{PersonalitySelector, PersonalityIndicator};
 use leptos::ev;
 use leptos::prelude::*;
 use leptos_router::components::A;
-use std::cell::RefCell;
-use std::rc::Rc;
 use wasm_bindgen::JsValue;
 use wasm_bindgen_futures::spawn_local;
 use std::sync::Arc;
 use crate::services::notification_service::{show_error, ToastAction};
+use crate::services::layout_service::use_layout_state;
 
 use crate::bindings::{
-    cancel_stream, chat, check_llm_health, get_session_usage, listen_chat_chunks, stream_chat,
+    cancel_stream, chat, check_llm_health, get_session_usage, listen_chat_chunks_async, stream_chat,
     ChatChunk, ChatRequestPayload, SessionUsage, StreamingChatMessage, speak,
 };
 use crate::components::design_system::{Button, ButtonVariant, Input};
@@ -58,11 +57,9 @@ pub fn Chat() -> impl IntoView {
     let next_message_id = RwSignal::new(1_usize);
 
     // Track the current streaming message ID and stream ID
+    // Using RwSignal for UI reactivity
     let current_stream_id = RwSignal::new(Option::<String>::None);
     let streaming_message_id = RwSignal::new(Option::<usize>::None);
-
-    // Store the unlisten handle for cleanup
-    let unlisten_handle: Rc<RefCell<Option<JsValue>>> = Rc::new(RefCell::new(None));
 
     // Shared health check logic
     // Trigger for health check retry
@@ -113,65 +110,104 @@ pub fn Chat() -> impl IntoView {
     });
 
     // Set up streaming chunk listener on mount
+    // Note: Tauri 2's listen() is async, so we spawn to await it
+    // IMPORTANT: Find streaming message by stream_id in the messages list itself,
+    // rather than relying on StoredValue which doesn't survive component remounts
+    //
+    // Cleanup note: JsValue is !Send, so we can't use on_cleanup with it directly.
+    // This is safe because:
+    // 1. try_update/try_set return None when signals are disposed (no crashes)
+    // 2. Each listener matches by unique stream_id, so old listeners won't interfere
+    // 3. Tauri cleans up event listeners when the webview closes
     {
-        let unlisten_handle = unlisten_handle.clone();
-        Effect::new(move |_| {
-            let handle = listen_chat_chunks(move |chunk: ChatChunk| {
-                // Only process chunks for our active stream
-                if let Some(active_stream) = current_stream_id.get() {
-                    if chunk.stream_id != active_stream {
-                        return;
+        spawn_local(async move {
+            let _unlisten = listen_chat_chunks_async(move |chunk: ChatChunk| {
+                // Find the message that matches this stream_id directly in the messages list
+                // This approach works even if component was remounted
+                let result = messages.try_update(|msgs| {
+                    // Debug: show what messages we have
+                    #[cfg(debug_assertions)]
+                    {
+                        web_sys::console::log_1(&format!(
+                            "[DEBUG] Searching {} messages for stream_id={}",
+                            msgs.len(), &chunk.stream_id
+                        ).into());
+                        for (i, m) in msgs.iter().enumerate() {
+                            web_sys::console::log_1(&format!(
+                                "[DEBUG]   msg[{}]: id={}, stream_id={:?}, is_streaming={}",
+                                i, m.id, m.stream_id, m.is_streaming
+                            ).into());
+                        }
+                    }
+
+                    // Find message by stream_id (set when message was created)
+                    if let Some(msg) = msgs.iter_mut().find(|m| {
+                        m.stream_id.as_ref() == Some(&chunk.stream_id) && m.is_streaming
+                    }) {
+                        #[cfg(debug_assertions)]
+                        web_sys::console::log_1(&format!(
+                            "[DEBUG] Found streaming message id={}, appending '{}' (len={})",
+                            msg.id, &chunk.content, chunk.content.len()
+                        ).into());
+
+                        // Append content
+                        if !chunk.content.is_empty() {
+                            msg.content.push_str(&chunk.content);
+                        }
+
+                        // Handle stream completion
+                        if chunk.is_final {
+                            msg.is_streaming = false;
+                            msg.stream_id = None;
+
+                            // Mark as error if finish_reason is "error"
+                            if chunk.finish_reason.as_deref() == Some("error") {
+                                msg.role = "error".to_string();
+                            }
+
+                            // Set token usage if available
+                            if let Some(usage) = &chunk.usage {
+                                msg.tokens = Some((usage.input_tokens, usage.output_tokens));
+                            }
+                        }
+                        true // Found and processed
+                    } else {
+                        false // Not found
+                    }
+                });
+
+                match result {
+                    Some(true) => {
+                        // Successfully processed
+                        if chunk.is_final {
+                            // Clear loading state
+                            let _ = is_loading.try_set(false);
+                            let _ = current_stream_id.try_set(None);
+                            let _ = streaming_message_id.try_set(None);
+
+                            // Update session usage
+                            spawn_local(async move {
+                                if let Ok(usage) = get_session_usage().await {
+                                    let _ = session_usage.try_set(usage);
+                                }
+                            });
+                        }
+                    }
+                    Some(false) => {
+                        // Message not found - might be for a different stream or old chunk
+                        #[cfg(debug_assertions)]
+                        web_sys::console::warn_1(&format!(
+                            "[DEBUG] No streaming message found for stream_id={}",
+                            &chunk.stream_id
+                        ).into());
+                    }
+                    None => {
+                        // Signal disposed - component unmounted, listener will be gc'd
+                        #[cfg(debug_assertions)]
+                        web_sys::console::warn_1(&"[DEBUG] messages signal disposed".into());
                     }
                 }
-
-                if let Some(msg_id) = streaming_message_id.get() {
-                    // Append content to the streaming message
-                    if !chunk.content.is_empty() {
-                        messages.update(|msgs| {
-                            if let Some(msg) = msgs.iter_mut().find(|m| m.id == msg_id) {
-                                msg.content.push_str(&chunk.content);
-                            }
-                        });
-                    }
-
-                    // Handle stream completion
-                    if chunk.is_final {
-                        // Check if this is an error response
-                        let is_error = chunk.finish_reason.as_deref() == Some("error");
-
-                        messages.update(|msgs| {
-                            if let Some(msg) = msgs.iter_mut().find(|m| m.id == msg_id) {
-                                msg.is_streaming = false;
-                                msg.stream_id = None;
-
-                                // Mark as error if finish_reason is "error"
-                                if is_error {
-                                    msg.role = "error".to_string();
-                                }
-
-                                // Set token usage if available
-                                if let Some(usage) = &chunk.usage {
-                                    msg.tokens = Some((usage.input_tokens, usage.output_tokens));
-                                }
-                            }
-                        });
-
-                        // Update session usage
-                        spawn_local(async move {
-                            if let Ok(usage) = get_session_usage().await {
-                                session_usage.set(usage);
-                            }
-                        });
-
-                        // Clear streaming state
-                        is_loading.set(false);
-                        current_stream_id.set(None);
-                        streaming_message_id.set(None);
-                    }
-                }
-            });
-
-            *unlisten_handle.borrow_mut() = Some(handle);
+            }).await;
         });
     }
 
@@ -527,31 +563,38 @@ pub fn Chat() -> impl IntoView {
 
             // Message Area
             <div class="flex-1 p-4 overflow-y-auto space-y-4">
-                <For
-                    each=move || messages.get()
-                    key=|msg| msg.id
-                    children=move |msg| {
-                        let role = msg.role.clone();
-                        let content = msg.content.clone();
-                        let tokens = msg.tokens;
-                        let is_streaming = msg.is_streaming;
-                        let on_play_handler = if role == "assistant" && !is_streaming {
-                            let content_for_play = content.clone();
-                            Some(Callback::new(move |_: ()| play_message(content_for_play.clone())))
-                        } else {
-                            None
-                        };
-                        view! {
-                            <ChatMessage
-                                role=role
-                                content=content
-                                tokens=tokens
-                                is_streaming=is_streaming
-                                on_play=on_play_handler
-                            />
-                        }
+                {
+                    let layout = use_layout_state();
+                    view! {
+                        <For
+                            each=move || messages.get()
+                            key=|msg| (msg.id, msg.content.len(), msg.is_streaming)
+                            children=move |msg| {
+                                let role = msg.role.clone();
+                                let content = msg.content.clone();
+                                let tokens = msg.tokens;
+                                let is_streaming = msg.is_streaming;
+                                let show_tokens = layout.show_token_usage.get();
+                                let on_play_handler = if role == "assistant" && !is_streaming {
+                                    let content_for_play = content.clone();
+                                    Some(Callback::new(move |_: ()| play_message(content_for_play.clone())))
+                                } else {
+                                    None
+                                };
+                                view! {
+                                    <ChatMessage
+                                        role=role
+                                        content=content
+                                        tokens=tokens
+                                        is_streaming=is_streaming
+                                        on_play=on_play_handler
+                                        show_tokens=show_tokens
+                                    />
+                                }
+                            }
+                        />
                     }
-                />
+                }
             </div>
 
             // Input Area

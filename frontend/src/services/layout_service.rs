@@ -48,6 +48,9 @@ impl ViewType {
 ///
 /// This struct is designed to be provided via Leptos context and accessed
 /// throughout the component tree using `expect_context::<LayoutState>()`.
+///
+/// Note: Settings are in-memory only and reset on page reload. If persistence
+/// is needed in the future, add localStorage sync in provide_layout_state().
 #[derive(Clone, Copy)]
 pub struct LayoutState {
     /// Whether the sidebar is currently visible
@@ -62,6 +65,8 @@ pub struct LayoutState {
     pub active_view: RwSignal<ViewType>,
     /// Whether to use text labels instead of icons for navigation
     pub text_navigation: RwSignal<bool>,
+    /// Whether to show token usage on chat messages (as tooltip)
+    pub show_token_usage: RwSignal<bool>,
 }
 
 impl LayoutState {
@@ -74,6 +79,7 @@ impl LayoutState {
             infopanel_width: RwSignal::new(320),
             active_view: RwSignal::new(ViewType::default()),
             text_navigation: RwSignal::new(false),
+            show_token_usage: RwSignal::new(false), // Off by default
         }
     }
 

@@ -699,9 +699,13 @@ pub async fn stream_chat(
 ) -> Result<String, String> {
     use tauri::Emitter;
 
+    log::info!("[stream_chat] Starting with {} messages", messages.len());
+
     let config = state.llm_config.read().unwrap()
         .clone()
         .ok_or("LLM not configured. Please configure in Settings.")?;
+
+    log::info!("[stream_chat] LLM config present, provider: {}", config.provider_id());
 
     let request = ChatRequest {
         messages,
@@ -714,43 +718,58 @@ pub async fn stream_chat(
     };
 
     let router = state.llm_router.read().await;
+    let provider_ids = router.provider_ids();
+    log::info!("[stream_chat] Router has {} providers: {:?}", provider_ids.len(), provider_ids);
     let router_clone = router.clone();
     drop(router);
 
     // Use provided stream ID or generate a new one
     let stream_id = provided_stream_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
     let stream_id_clone = stream_id.clone();
+    log::info!("[stream_chat] Using stream_id: {}", stream_id);
 
     // Initiate the stream (waits for connection/headers)
+    log::info!("[stream_chat] Calling router.stream_chat...");
     let mut rx = router_clone.stream_chat(request).await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| {
+            log::error!("[stream_chat] Router error: {}", e);
+            e.to_string()
+        })?;
+    log::info!("[stream_chat] Stream initiated successfully, spawning receiver task");
 
     // Spawn a task to handle the stream asynchronously so we don't block the command
     tokio::spawn(async move {
         let mut full_content = String::new();
+        let mut chunk_count = 0u32;
+
+        log::info!("[stream_chat:{}] Receiver task started", stream_id_clone);
 
         // Process chunks and emit events
         while let Some(chunk_result) = rx.recv().await {
             match chunk_result {
                 Ok(mut chunk) => {
+                    chunk_count += 1;
                     // Override the provider's stream ID with our generated one
                     chunk.stream_id = stream_id_clone.clone();
                     full_content.push_str(&chunk.content);
 
-                    // println!("DEBUG: Emitting chunk for stream {}: {}", stream_id_clone, chunk.content.len());
+                    log::debug!("[stream_chat:{}] Chunk #{}: {} bytes, is_final={}",
+                        stream_id_clone, chunk_count, chunk.content.len(), chunk.is_final);
 
                     // Emit the chunk event
-                    let _ = app_handle.emit("chat-chunk", &chunk);
-
+                    if let Err(e) = app_handle.emit("chat-chunk", &chunk) {
+                        log::error!("[stream_chat:{}] Failed to emit chunk: {}", stream_id_clone, e);
+                    }
 
                     if chunk.is_final {
-                        // println!("DEBUG: Stream {} finished", stream_id_clone);
+                        log::info!("[stream_chat:{}] Stream finished with {} chunks, {} bytes total",
+                            stream_id_clone, chunk_count, full_content.len());
                         break;
                     }
                 }
                 Err(e) => {
                     let error_message = format!("Error: {}", e);
-                    log::error!("Stream {} error: {}", stream_id_clone, error_message);
+                    log::error!("[stream_chat:{}] Stream error: {}", stream_id_clone, error_message);
 
                     // Emit error event with error message in content
                     let error_chunk = ChatChunk {
@@ -768,6 +787,7 @@ pub async fn stream_chat(
                 }
             }
         }
+        log::info!("[stream_chat:{}] Receiver task exiting", stream_id_clone);
     });
 
     Ok(stream_id)

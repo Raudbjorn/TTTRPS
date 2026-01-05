@@ -504,6 +504,43 @@ pub fn LLMSettingsView() -> impl IntoView {
                         }).collect::<Vec<_>>()}
                     </div>
                 </div>
+
+                // Token Usage Toggle
+                <div class="mt-6 pt-6 border-t border-[var(--border-subtle)]">
+                    {
+                        let layout_state = crate::services::layout_service::use_layout_state();
+                        let show_tokens = layout_state.show_token_usage;
+
+                        view! {
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <h4 class="font-semibold text-[var(--text-secondary)]">"Show Token Usage"</h4>
+                                    <p class="text-sm text-[var(--text-muted)]">"Display token counts as a tooltip when hovering over chat messages."</p>
+                                </div>
+                                <button
+                                    class=move || format!(
+                                        "h-6 w-11 rounded-full border transition-colors duration-200 relative focus:outline-none focus:ring-2 focus:ring-[var(--accent-primary)] {}",
+                                        if show_tokens.get() {
+                                            "bg-[var(--accent-primary)] border-[var(--accent-primary)]"
+                                        } else {
+                                            "bg-[var(--bg-surface)] border-[var(--border-subtle)]"
+                                        }
+                                    )
+                                    on:click=move |_| show_tokens.update(|v| *v = !*v)
+                                    role="switch"
+                                    aria-checked=move || show_tokens.get().to_string()
+                                >
+                                    <div
+                                        class=move || format!(
+                                            "absolute top-1 left-1 h-4 w-4 rounded-full bg-white shadow-sm transition-transform duration-200 {}",
+                                            if show_tokens.get() { "translate-x-5" } else { "translate-x-0" }
+                                        )
+                                    />
+                                </button>
+                            </div>
+                        }
+                    }
+                </div>
             </Card>
         </div>
     }
