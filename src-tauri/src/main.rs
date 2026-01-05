@@ -165,6 +165,7 @@ fn main() {
             // LLM Commands
             commands::configure_llm,
             commands::chat,
+            commands::stream_chat,
             commands::check_llm_health,
             commands::get_llm_config,
             commands::get_router_stats,
