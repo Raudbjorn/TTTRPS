@@ -469,3 +469,342 @@ fn count_onnx_files(dir: &Path, recursive: bool) -> u32 {
             .unwrap_or(0)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    // =========================================================================
+    // Unit Tests: count_onnx_files
+    // =========================================================================
+
+    mod count_onnx_files_tests {
+        use super::*;
+
+        #[test]
+        fn returns_zero_for_nonexistent_dir() {
+            let count = count_onnx_files(Path::new("/nonexistent/path"), false);
+            assert_eq!(count, 0);
+        }
+
+        #[test]
+        fn returns_zero_for_empty_dir() {
+            let temp_dir = TempDir::new().unwrap();
+            let count = count_onnx_files(temp_dir.path(), false);
+            assert_eq!(count, 0);
+        }
+
+        #[test]
+        fn counts_onnx_files_non_recursive() {
+            let temp_dir = TempDir::new().unwrap();
+
+            // Create some .onnx files
+            std::fs::write(temp_dir.path().join("model1.onnx"), b"").unwrap();
+            std::fs::write(temp_dir.path().join("model2.onnx"), b"").unwrap();
+            std::fs::write(temp_dir.path().join("config.json"), b"").unwrap();
+
+            let count = count_onnx_files(temp_dir.path(), false);
+            assert_eq!(count, 2);
+        }
+
+        #[test]
+        fn ignores_subdirs_when_non_recursive() {
+            let temp_dir = TempDir::new().unwrap();
+
+            std::fs::write(temp_dir.path().join("model1.onnx"), b"").unwrap();
+
+            // Create subdir with more onnx files
+            let subdir = temp_dir.path().join("subdir");
+            std::fs::create_dir(&subdir).unwrap();
+            std::fs::write(subdir.join("model2.onnx"), b"").unwrap();
+
+            let count = count_onnx_files(temp_dir.path(), false);
+            assert_eq!(count, 1); // Only counts top-level
+        }
+
+        #[test]
+        fn counts_subdirs_when_recursive() {
+            let temp_dir = TempDir::new().unwrap();
+
+            std::fs::write(temp_dir.path().join("model1.onnx"), b"").unwrap();
+
+            // Create subdir with more onnx files
+            let subdir = temp_dir.path().join("subdir");
+            std::fs::create_dir(&subdir).unwrap();
+            std::fs::write(subdir.join("model2.onnx"), b"").unwrap();
+
+            // Nested subdir
+            let nested = subdir.join("nested");
+            std::fs::create_dir(&nested).unwrap();
+            std::fs::write(nested.join("model3.onnx"), b"").unwrap();
+
+            let count = count_onnx_files(temp_dir.path(), true);
+            assert_eq!(count, 3);
+        }
+
+        #[test]
+        fn ignores_non_onnx_files() {
+            let temp_dir = TempDir::new().unwrap();
+
+            std::fs::write(temp_dir.path().join("model.onnx"), b"").unwrap();
+            std::fs::write(temp_dir.path().join("model.onnx.json"), b"").unwrap();
+            std::fs::write(temp_dir.path().join("readme.txt"), b"").unwrap();
+            std::fs::write(temp_dir.path().join("model.bin"), b"").unwrap();
+
+            let count = count_onnx_files(temp_dir.path(), false);
+            assert_eq!(count, 1);
+        }
+    }
+
+    // =========================================================================
+    // Unit Tests: InstallStatus
+    // =========================================================================
+
+    mod install_status_tests {
+        use super::*;
+
+        #[test]
+        fn install_status_serializes_correctly() {
+            let status = InstallStatus {
+                provider: VoiceProviderType::Piper,
+                installed: true,
+                version: Some("1.0.0".to_string()),
+                binary_path: Some("/usr/bin/piper".to_string()),
+                voices_available: 5,
+                install_method: InstallMethod::PackageManager("paru -S piper".to_string()),
+                install_instructions: Some("Test instructions".to_string()),
+            };
+
+            let json = serde_json::to_string(&status).unwrap();
+            assert!(json.contains("\"installed\":true"));
+            assert!(json.contains("\"voices_available\":5"));
+        }
+
+        #[test]
+        fn install_method_variants_serialize() {
+            let methods = vec![
+                InstallMethod::PackageManager("apt install foo".to_string()),
+                InstallMethod::Python("pip install bar".to_string()),
+                InstallMethod::Binary("https://example.com".to_string()),
+                InstallMethod::Docker("docker run foo".to_string()),
+                InstallMethod::Manual("Do it yourself".to_string()),
+                InstallMethod::AppManaged,
+            ];
+
+            for method in methods {
+                let json = serde_json::to_string(&method).unwrap();
+                assert!(!json.is_empty());
+            }
+        }
+    }
+
+    // =========================================================================
+    // Unit Tests: ProviderInstaller
+    // =========================================================================
+
+    mod provider_installer_tests {
+        use super::*;
+
+        #[test]
+        fn new_creates_installer_with_correct_path() {
+            let dir = PathBuf::from("/tmp/test-models");
+            let installer = ProviderInstaller::new(dir.clone());
+            assert_eq!(installer.models_dir, dir);
+        }
+
+        #[tokio::test]
+        async fn check_status_returns_status_for_all_providers() {
+            let temp_dir = TempDir::new().unwrap();
+            let installer = ProviderInstaller::new(temp_dir.path().to_path_buf());
+
+            let providers = vec![
+                VoiceProviderType::Piper,
+                VoiceProviderType::Coqui,
+                VoiceProviderType::Ollama,
+                VoiceProviderType::Chatterbox,
+                VoiceProviderType::GptSoVits,
+                VoiceProviderType::XttsV2,
+                VoiceProviderType::FishSpeech,
+                VoiceProviderType::Dia,
+            ];
+
+            for provider in providers {
+                let status = installer.check_status(&provider).await;
+                assert_eq!(status.provider, provider);
+                assert!(status.install_instructions.is_some());
+            }
+        }
+
+        #[tokio::test]
+        async fn check_all_local_returns_all_local_providers() {
+            let temp_dir = TempDir::new().unwrap();
+            let installer = ProviderInstaller::new(temp_dir.path().to_path_buf());
+
+            let statuses = installer.check_all_local().await;
+
+            // Should have at least 8 local providers
+            assert!(statuses.len() >= 8);
+
+            // All should have install instructions
+            for status in &statuses {
+                assert!(status.install_instructions.is_some());
+            }
+        }
+
+        #[tokio::test]
+        async fn cloud_providers_return_api_key_instructions() {
+            let temp_dir = TempDir::new().unwrap();
+            let installer = ProviderInstaller::new(temp_dir.path().to_path_buf());
+
+            let cloud_providers = vec![
+                VoiceProviderType::ElevenLabs,
+                VoiceProviderType::FishAudio,
+                VoiceProviderType::OpenAI,
+            ];
+
+            for provider in cloud_providers {
+                let status = installer.check_status(&provider).await;
+                let instructions = status.install_instructions.unwrap();
+                assert!(
+                    instructions.contains("API key"),
+                    "Cloud provider {:?} should mention API key",
+                    provider
+                );
+            }
+        }
+
+        #[test]
+        fn count_piper_voices_with_mock_files() {
+            let temp_dir = TempDir::new().unwrap();
+            let installer = ProviderInstaller::new(temp_dir.path().to_path_buf());
+
+            // Get baseline count (may include system voices from /usr/share/piper-voices)
+            let baseline = installer.count_piper_voices();
+
+            // Create mock onnx files
+            std::fs::write(temp_dir.path().join("voice1.onnx"), b"").unwrap();
+            std::fs::write(temp_dir.path().join("voice2.onnx"), b"").unwrap();
+
+            let count = installer.count_piper_voices();
+            assert_eq!(count, baseline + 2, "Should have 2 more voices after adding files");
+        }
+    }
+
+    // =========================================================================
+    // Unit Tests: get_recommended_piper_voices
+    // =========================================================================
+
+    mod recommended_voices_tests {
+        use super::*;
+
+        #[test]
+        fn returns_non_empty_list() {
+            let voices = get_recommended_piper_voices();
+            assert!(!voices.is_empty());
+        }
+
+        #[test]
+        fn all_entries_are_valid_tuples() {
+            let voices = get_recommended_piper_voices();
+            for (key, name, desc) in voices {
+                assert!(!key.is_empty());
+                assert!(!name.is_empty());
+                assert!(!desc.is_empty());
+                // Key should contain hyphens (valid voice key format)
+                assert!(key.contains('-'), "Key {} should contain hyphens", key);
+            }
+        }
+    }
+
+    // =========================================================================
+    // Integration Tests
+    // =========================================================================
+
+    mod integration {
+        use super::*;
+
+        #[tokio::test]
+        async fn install_unsupported_provider_returns_error() {
+            let temp_dir = TempDir::new().unwrap();
+            let installer = ProviderInstaller::new(temp_dir.path().to_path_buf());
+
+            // GptSoVits doesn't support auto-install
+            let result = installer.install(&VoiceProviderType::GptSoVits).await;
+            assert!(result.is_err());
+            assert!(matches!(result.unwrap_err(), InstallError::NotSupported(_)));
+        }
+
+        #[tokio::test]
+        async fn download_piper_voice_integration() {
+            let temp_dir = TempDir::new().unwrap();
+            let installer = ProviderInstaller::new(temp_dir.path().to_path_buf());
+
+            // Get baseline count (may include system voices from /usr/share/piper-voices)
+            let baseline = installer.count_piper_voices();
+
+            // Create mock voice files to simulate already downloaded
+            let model_path = temp_dir.path().join("en_US-lessac-medium.onnx");
+            let config_path = temp_dir.path().join("en_US-lessac-medium.onnx.json");
+            std::fs::write(&model_path, b"mock").unwrap();
+            std::fs::write(&config_path, b"{}").unwrap();
+
+            // Verify count increases by 1
+            let count = installer.count_piper_voices();
+            assert_eq!(count, baseline + 1, "Should have 1 more voice after adding file");
+        }
+
+        #[tokio::test]
+        #[ignore = "requires system binaries"]
+        async fn check_piper_detects_installed_binary() {
+            let temp_dir = TempDir::new().unwrap();
+            let installer = ProviderInstaller::new(temp_dir.path().to_path_buf());
+
+            let status = installer.check_status(&VoiceProviderType::Piper).await;
+
+            // If piper is installed, should be detected
+            if status.installed {
+                assert!(status.binary_path.is_some());
+            }
+        }
+    }
+}
+
+// =========================================================================
+// Property-Based Tests
+// =========================================================================
+
+#[cfg(test)]
+mod proptests {
+    use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        /// count_onnx_files should never panic regardless of path
+        #[test]
+        fn count_onnx_never_panics(path in ".*") {
+            let _ = count_onnx_files(Path::new(&path), false);
+            let _ = count_onnx_files(Path::new(&path), true);
+        }
+
+        /// InstallStatus should always serialize successfully
+        #[test]
+        fn install_status_always_serializes(
+            installed in any::<bool>(),
+            voices in 0u32..1000,
+        ) {
+            let status = InstallStatus {
+                provider: VoiceProviderType::Piper,
+                installed,
+                version: None,
+                binary_path: None,
+                voices_available: voices,
+                install_method: InstallMethod::AppManaged,
+                install_instructions: None,
+            };
+
+            let result = serde_json::to_string(&status);
+            prop_assert!(result.is_ok());
+        }
+    }
+}
