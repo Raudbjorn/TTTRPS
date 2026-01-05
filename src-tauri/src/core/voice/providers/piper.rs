@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
+use std::sync::RwLock;
 use tokio::process::Command;
 use tempfile::NamedTempFile;
 use tokio::io::AsyncWriteExt;
@@ -15,11 +16,12 @@ const SYSTEM_VOICES_DIR: &str = "/usr/share/piper-voices";
 pub struct PiperProvider {
     models_dir: PathBuf,
     executable: Option<String>,
+    config: RwLock<PiperConfig>,
 }
 
 impl PiperProvider {
     pub fn new(config: PiperConfig) -> Self {
-        let models_dir = config.models_dir.unwrap_or_else(|| {
+        let models_dir = config.models_dir.clone().unwrap_or_else(|| {
              dirs::data_local_dir()
                 .unwrap_or(PathBuf::from("."))
                 .join("ttrpg-assistant/voice/piper")
@@ -41,7 +43,27 @@ impl PiperProvider {
         Self {
             models_dir,
             executable,
+            config: RwLock::new(config),
         }
+    }
+
+    /// Update voice adjustment settings (thread-safe)
+    pub fn update_settings(&self, length_scale: f32, noise_scale: f32, noise_w: f32, sentence_silence: f32, speaker_id: u32) -> Result<()> {
+        let mut config = self.config.write()
+            .map_err(|_| VoiceError::NotConfigured("Config lock poisoned".to_string()))?;
+        config.length_scale = length_scale;
+        config.noise_scale = noise_scale;
+        config.noise_w = noise_w;
+        config.sentence_silence = sentence_silence;
+        config.speaker_id = speaker_id;
+        Ok(())
+    }
+
+    /// Get current settings (returns a clone for thread safety)
+    pub fn settings(&self) -> Result<PiperConfig> {
+        self.config.read()
+            .map(|c| c.clone())
+            .map_err(|_| VoiceError::NotConfigured("Config lock poisoned".to_string()))
     }
 
     fn check_command(cmd: &str) -> bool {
@@ -170,16 +192,13 @@ impl VoiceProvider for PiperProvider {
 
         let model_path = self.get_model_path(&request.voice_id)?;
 
-        // Piper settings logic mirroring audaio logic
-        // default settings
-        let length_scale = 1.0;
-        let noise_scale = 0.667;
-        let noise_w = 0.8;
-        let sentence_silence = 0.2;
-
-        // If settings are present in request, we could override them.
-        // Currently VoiceSettings has stability/similarity, not directly mapping to length/noise.
-        // We'll stick to defaults.
+        // Use settings from config (thread-safe read, extracted before async)
+        let (length_scale, noise_scale, noise_w, sentence_silence, speaker_id) = {
+            let config = self.config.read()
+                .map_err(|_| VoiceError::NotConfigured("Config lock poisoned".to_string()))?;
+            (config.length_scale, config.noise_scale, config.noise_w,
+             config.sentence_silence, config.speaker_id)
+        };
 
         let output_file = NamedTempFile::with_suffix(".wav")
             .map_err(|e| VoiceError::IoError(e))?;
@@ -188,6 +207,9 @@ impl VoiceProvider for PiperProvider {
         debug!(
             model = ?model_path,
             text_len = request.text.len(),
+            length_scale = length_scale,
+            noise_scale = noise_scale,
+            speaker_id = speaker_id,
             "Synthesizing with Piper CLI"
         );
 
@@ -199,7 +221,10 @@ impl VoiceProvider for PiperProvider {
            .arg("--noise_w").arg(noise_w.to_string())
            .arg("--sentence_silence").arg(sentence_silence.to_string());
 
-        // Potentially handle speaker ID if we ever parse multi-speaker models correctly into request.voice_id format
+        // Add speaker ID if multi-speaker model
+        if speaker_id > 0 {
+            cmd.arg("--speaker").arg(speaker_id.to_string());
+        }
 
         cmd.stdin(Stdio::piped())
            .stdout(Stdio::piped())
@@ -248,5 +273,94 @@ impl VoiceProvider for PiperProvider {
 
     async fn check_usage(&self) -> Result<UsageInfo> {
         Ok(UsageInfo::default())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn default_config() -> PiperConfig {
+        PiperConfig {
+            models_dir: None,
+            length_scale: 1.0,
+            noise_scale: 0.667,
+            noise_w: 0.8,
+            sentence_silence: 0.2,
+            speaker_id: 0,
+        }
+    }
+
+    #[test]
+    fn test_settings_returns_result() {
+        let provider = PiperProvider::new(default_config());
+        let result = provider.settings();
+        assert!(result.is_ok());
+        let config = result.unwrap();
+        assert_eq!(config.length_scale, 1.0);
+    }
+
+    #[test]
+    fn test_update_settings_returns_result() {
+        let provider = PiperProvider::new(default_config());
+        let result = provider.update_settings(1.5, 0.5, 0.6, 0.3, 1);
+        assert!(result.is_ok());
+
+        let config = provider.settings().unwrap();
+        assert_eq!(config.length_scale, 1.5);
+        assert_eq!(config.noise_scale, 0.5);
+        assert_eq!(config.noise_w, 0.6);
+        assert_eq!(config.sentence_silence, 0.3);
+        assert_eq!(config.speaker_id, 1);
+    }
+
+    #[test]
+    fn test_concurrent_access_is_safe() {
+        use std::sync::Arc;
+        use std::thread;
+
+        let provider = Arc::new(PiperProvider::new(default_config()));
+        let mut handles = vec![];
+
+        // Spawn multiple threads reading settings concurrently
+        for _ in 0..10 {
+            let p = Arc::clone(&provider);
+            handles.push(thread::spawn(move || {
+                for _ in 0..100 {
+                    let _ = p.settings();
+                }
+            }));
+        }
+
+        // Spawn threads writing settings concurrently
+        for i in 0..5 {
+            let p = Arc::clone(&provider);
+            handles.push(thread::spawn(move || {
+                for j in 0..20 {
+                    let _ = p.update_settings(
+                        1.0 + (i as f32 * 0.1),
+                        0.5,
+                        0.6,
+                        0.3,
+                        (j % 5) as u32,
+                    );
+                }
+            }));
+        }
+
+        // All threads should complete without deadlock or panic
+        for handle in handles {
+            handle.join().expect("Thread should not panic");
+        }
+
+        // Final state should be consistent (we can read settings)
+        let final_config = provider.settings();
+        assert!(final_config.is_ok());
+    }
+
+    #[test]
+    fn test_provider_id() {
+        let provider = PiperProvider::new(default_config());
+        assert_eq!(provider.id(), "piper");
     }
 }
