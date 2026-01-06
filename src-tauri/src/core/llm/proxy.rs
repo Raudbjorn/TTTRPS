@@ -205,9 +205,9 @@ impl LLMProxyService {
         }
     }
 
-    /// Create with default port (8787)
+    /// Create with default port (18787)
     pub fn with_defaults() -> Self {
-        Self::new(8787)
+        Self::new(18787)
     }
 
     /// Get the proxy URL
@@ -444,7 +444,7 @@ async fn handle_streaming(
     request: ChatRequest,
     model: String,
 ) -> Response {
-    match provider.stream_chat(request).await {
+    match provider.stream_chat(request.clone()).await {
         Ok(mut rx) => {
             let stream_id = format!("chatcmpl-{}", uuid::Uuid::new_v4());
             let now = std::time::SystemTime::now()
@@ -507,7 +507,86 @@ async fn handle_streaming(
                 .keep_alive(axum::response::sse::KeepAlive::new())
                 .into_response()
         }
+        Err(LLMError::StreamingNotSupported(_)) => {
+            // Fall back to non-streaming for providers that don't support it
+            log::info!("Provider doesn't support streaming, falling back to non-streaming");
+            handle_streaming_fallback(provider, request, model).await
+        }
         Err(e) => error_response(e),
+    }
+}
+
+/// Fallback for providers that don't support streaming - emit full response as SSE
+async fn handle_streaming_fallback(
+    provider: Arc<dyn LLMProvider>,
+    request: ChatRequest,
+    model: String,
+) -> Response {
+    let stream_id = format!("chatcmpl-{}", uuid::Uuid::new_v4());
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+
+    // Call non-streaming chat
+    match provider.chat(request).await {
+        Ok(response) => {
+            // Emit the full response as a single SSE chunk
+            let stream = async_stream::stream! {
+                // First chunk with role
+                let delta = OpenAIDelta {
+                    role: Some("assistant".to_string()),
+                    content: Some(response.content),
+                };
+
+                let stream_chunk = OpenAIStreamChunk {
+                    id: stream_id.clone(),
+                    object: "chat.completion.chunk".to_string(),
+                    created: now,
+                    model: model.clone(),
+                    choices: vec![OpenAIStreamChoice {
+                        index: 0,
+                        delta,
+                        finish_reason: Some("stop".to_string()),
+                    }],
+                };
+
+                let json = serde_json::to_string(&stream_chunk).unwrap();
+                yield Ok::<_, Infallible>(Event::default().data(json));
+                yield Ok(Event::default().data("[DONE]"));
+            };
+
+            Sse::new(stream)
+                .keep_alive(axum::response::sse::KeepAlive::new())
+                .into_response()
+        }
+        Err(e) => {
+            // Return error as SSE event so client can handle it properly
+            let stream = async_stream::stream! {
+                let error_chunk = OpenAIStreamChunk {
+                    id: stream_id.clone(),
+                    object: "chat.completion.chunk".to_string(),
+                    created: now,
+                    model: model.clone(),
+                    choices: vec![OpenAIStreamChoice {
+                        index: 0,
+                        delta: OpenAIDelta {
+                            role: Some("assistant".to_string()),
+                            content: Some(format!("Error: {}", e)),
+                        },
+                        finish_reason: Some("error".to_string()),
+                    }],
+                };
+
+                let json = serde_json::to_string(&error_chunk).unwrap();
+                yield Ok::<_, Infallible>(Event::default().data(json));
+                yield Ok(Event::default().data("[DONE]"));
+            };
+
+            Sse::new(stream)
+                .keep_alive(axum::response::sse::KeepAlive::new())
+                .into_response()
+        }
     }
 }
 

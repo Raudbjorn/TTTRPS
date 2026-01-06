@@ -90,7 +90,7 @@ impl LLMManager {
             router: LLMRouter::with_defaults(),
             proxy: RwLock::new(None),
             chat_client: RwLock::new(None),
-            proxy_port: 8787,
+            proxy_port: 18787,
             current_proxy_provider: RwLock::new(None),
         }
     }

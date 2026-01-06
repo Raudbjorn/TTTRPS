@@ -5989,7 +5989,7 @@ pub async fn is_llm_proxy_running(
 /// Get the LLM proxy URL.
 #[tauri::command]
 pub fn get_llm_proxy_url() -> String {
-    "http://127.0.0.1:8787".to_string()
+    "http://127.0.0.1:18787".to_string()
 }
 
 /// List providers currently registered with the LLM proxy.
