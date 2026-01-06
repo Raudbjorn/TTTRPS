@@ -477,6 +477,69 @@ pub async fn get_voice_config() -> Result<VoiceConfig, String> {
     invoke_no_args("get_voice_config").await
 }
 
+// ============================================================================
+// Piper Voice Download
+// ============================================================================
+
+/// Available Piper voice from Hugging Face repository
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AvailablePiperVoice {
+    pub key: String,
+    pub name: String,
+    pub language: PiperLanguage,
+    pub quality: String,
+    pub num_speakers: u32,
+    pub sample_rate: u32,
+    pub files: PiperVoiceFiles,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PiperLanguage {
+    pub code: String,
+    pub family: String,
+    pub region: String,
+    pub name_native: String,
+    pub name_english: String,
+    pub country_english: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PiperVoiceFiles {
+    pub model: PiperFileInfo,
+    pub config: PiperFileInfo,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PiperFileInfo {
+    pub size_bytes: u64,
+    pub md5_digest: String,
+}
+
+/// Popular/recommended Piper voice entry (key, name, description)
+pub type PopularPiperVoice = (String, String, String);
+
+/// List all downloadable Piper voices from Hugging Face (requires network)
+pub async fn list_downloadable_piper_voices() -> Result<Vec<AvailablePiperVoice>, String> {
+    invoke_no_args("list_downloadable_piper_voices").await
+}
+
+/// Get popular/recommended Piper voices (no network call, instant)
+pub async fn get_popular_piper_voices() -> Result<Vec<PopularPiperVoice>, String> {
+    invoke_no_args("get_popular_piper_voices").await
+}
+
+/// Download a Piper voice by key (e.g., "en_US-lessac-medium")
+/// Returns the path to the downloaded model file
+pub async fn download_piper_voice(voice_key: String, quality: Option<String>) -> Result<String, String> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Args {
+        voice_key: String,
+        quality: Option<String>,
+    }
+    invoke("download_piper_voice", &Args { voice_key, quality }).await
+}
+
 pub async fn get_vector_store_status() -> Result<String, String> {
     invoke("get_vector_store_status", &()).await
 }

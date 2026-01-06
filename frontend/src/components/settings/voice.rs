@@ -4,11 +4,11 @@ use wasm_bindgen_futures::spawn_local;
 use gloo_timers::callback::Timeout;
 use crate::bindings::{
     configure_voice, get_voice_config, list_elevenlabs_voices, list_openai_tts_models,
-    list_openai_voices, list_all_voices,
+    list_openai_voices, list_all_voices, get_popular_piper_voices, download_piper_voice,
     ElevenLabsConfig, OllamaConfig, OpenAIVoiceConfig, Voice, VoiceConfig,
-    PiperConfig, CoquiConfig,
+    PiperConfig, CoquiConfig, PopularPiperVoice,
 };
-use crate::components::design_system::{Card, Input, Select, SelectOption, SELECT_CLASS, OPTION_CLASS};
+use crate::components::design_system::{Card, Input, Select, SelectOption, Button, ButtonVariant};
 use crate::services::notification_service::{show_error, show_success};
 
 #[component]
@@ -28,6 +28,11 @@ pub fn VoiceSettingsView() -> impl IntoView {
     let is_saving = RwSignal::new(false);
     let initial_load = RwSignal::new(true);
     let timeout_handle = StoredValue::new_local(None::<Timeout>);
+
+    // Piper voice download
+    let popular_voices = RwSignal::new(Vec::<PopularPiperVoice>::new());
+    let downloading_voice = RwSignal::new(Option::<String>::None);
+    let download_error = RwSignal::new(Option::<String>::None);
 
     // Helpers
     let fetch_voices = move |provider: String, api_key: Option<String>| {
@@ -111,6 +116,10 @@ pub fn VoiceSettingsView() -> impl IntoView {
                             piper_models_dir.set(c.models_dir.unwrap_or_default());
                         }
                         fetch_voices("Piper".to_string(), None);
+                        // Load popular voices for download
+                        if let Ok(voices) = get_popular_piper_voices().await {
+                            popular_voices.set(voices);
+                        }
                     }
                     "Coqui" => {
                         if let Some(c) = config.coqui {
@@ -266,6 +275,12 @@ pub fn VoiceSettingsView() -> impl IntoView {
                 piper_models_dir.set(String::new());
                 voice_model_id.set(String::new());
                 fetch_voices("Piper".to_string(), None);
+                // Load popular voices for download
+                spawn_local(async move {
+                    if let Ok(voices) = get_popular_piper_voices().await {
+                        popular_voices.set(voices);
+                    }
+                });
             }
             "Coqui" => {
                 voice_api_key_or_host.set("5002".to_string());
@@ -399,6 +414,115 @@ pub fn VoiceSettingsView() -> impl IntoView {
                     }}
                 </div>
             </Card>
+
+            // Piper Voice Download Section
+            <Show when=move || selected_voice_provider.get() == "Piper">
+                <Card class="p-6">
+                    <div class="space-y-4">
+                        <div class="flex items-center justify-between">
+                            <div>
+                                <h4 class="text-lg font-semibold text-[var(--text-primary)]">"Download Voices"</h4>
+                                <p class="text-sm text-[var(--text-muted)]">"Download high-quality Piper voices from Hugging Face"</p>
+                            </div>
+                        </div>
+
+                        // Download error
+                        {move || download_error.get().map(|err| view! {
+                            <div class="p-3 rounded-lg bg-red-900/30 border border-red-700 text-red-300 text-sm">
+                                {err}
+                            </div>
+                        })}
+
+                        // Popular voices list
+                        <div class="space-y-2">
+                            {move || {
+                                let voices = popular_voices.get();
+                                let installed = available_voices.get();
+                                let installed_ids: Vec<String> = installed.iter()
+                                    .map(|v| v.id.clone())
+                                    .collect();
+
+                                if voices.is_empty() {
+                                    view! {
+                                        <div class="text-[var(--text-muted)] text-sm italic">
+                                            "Loading available voices..."
+                                        </div>
+                                    }.into_any()
+                                } else {
+                                    view! {
+                                        <div class="grid gap-2">
+                                            {voices.into_iter().map(|(key, name, desc)| {
+                                                let key_clone = key.clone();
+                                                let key_for_check = key.clone();
+                                                let key_for_download = key.clone();
+                                                let is_installed = installed_ids.iter().any(|id| id.contains(&key_for_check));
+                                                let is_downloading = downloading_voice.get().as_ref() == Some(&key_clone);
+
+                                                view! {
+                                                    <div class="flex items-center justify-between p-3 rounded-lg bg-[var(--bg-surface)] border border-[var(--border-subtle)]">
+                                                        <div class="flex-1 min-w-0">
+                                                            <div class="font-medium text-[var(--text-primary)]">{name}</div>
+                                                            <div class="text-xs text-[var(--text-muted)] truncate">{desc}</div>
+                                                        </div>
+                                                        <div class="ml-3 flex-shrink-0">
+                                                            {if is_installed {
+                                                                view! {
+                                                                    <span class="px-2 py-1 text-xs rounded bg-green-900/30 text-green-400 border border-green-700">
+                                                                        "Installed"
+                                                                    </span>
+                                                                }.into_any()
+                                                            } else if is_downloading {
+                                                                view! {
+                                                                    <span class="px-2 py-1 text-xs rounded bg-blue-900/30 text-blue-400 border border-blue-700 animate-pulse">
+                                                                        "Downloading..."
+                                                                    </span>
+                                                                }.into_any()
+                                                            } else {
+                                                                view! {
+                                                                    <Button
+                                                                        variant=ButtonVariant::Secondary
+                                                                        on_click=move |_: ev::MouseEvent| {
+                                                                            let voice_key = key_for_download.clone();
+                                                                            downloading_voice.set(Some(voice_key.clone()));
+                                                                            download_error.set(None);
+
+                                                                            spawn_local(async move {
+                                                                                match download_piper_voice(voice_key.clone(), None).await {
+                                                                                    Ok(_path) => {
+                                                                                        show_success("Voice Downloaded", Some(&format!("Downloaded {}", voice_key)));
+                                                                                        // Refresh voice list
+                                                                                        if let Ok(voices) = list_all_voices().await {
+                                                                                            let filtered: Vec<Voice> = voices.into_iter()
+                                                                                                .filter(|v| v.provider.eq_ignore_ascii_case("piper"))
+                                                                                                .collect();
+                                                                                            available_voices.set(filtered);
+                                                                                        }
+                                                                                    }
+                                                                                    Err(e) => {
+                                                                                        download_error.set(Some(format!("Failed to download: {}", e)));
+                                                                                        show_error("Download Failed", Some(&e), None);
+                                                                                    }
+                                                                                }
+                                                                                downloading_voice.set(None);
+                                                                            });
+                                                                        }
+                                                                    >
+                                                                        "Download"
+                                                                    </Button>
+                                                                }.into_any()
+                                                            }}
+                                                        </div>
+                                                    </div>
+                                                }
+                                            }).collect::<Vec<_>>()}
+                                        </div>
+                                    }.into_any()
+                                }
+                            }}
+                        </div>
+                    </div>
+                </Card>
+            </Show>
         </div>
     }
 }
