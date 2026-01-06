@@ -76,14 +76,12 @@ pub async fn invoke_void<A: Serialize>(cmd: &str, args: &A) -> Result<(), String
                 .unwrap_or_else(|_| "Unknown invoke error".to_string())
         })?;
 
-    // For void commands, null/undefined means success
-    // Only check for error object with __TAURI_ERROR__ or similar patterns if we needed to,
-    // but the catch above handles the rejection case.
+    // For void commands, null/undefined means success.
+    // The .map_err above handles backend rejections. Check for string error payloads
+    // returned as success (legacy backend behavior).
     if !result.is_null() && !result.is_undefined() {
-        // Double check if it's a success value that looks like an error string (unlikely for void but safe)
         if let Ok(err_str) = serde_wasm_bindgen::from_value::<String>(result.clone()) {
             if !err_str.is_empty() {
-                // This path might not be hit if backend rejects on error, but keeping for safety
                 return Err(err_str);
             }
         }

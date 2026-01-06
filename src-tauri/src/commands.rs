@@ -748,8 +748,10 @@ pub async fn stream_chat(
         .clone()
         .ok_or("LLM not configured. Please configure in Settings.")?;
 
-    // Determine model name from config (same logic as chat command)
+    // Capture provider info for chunk metadata
+    let provider_id = config.provider_id().to_string();
     let model = config.model_name();
+    log::info!("[stream_chat] LLM config present, provider: {}", provider_id);
 
     // Use provided stream ID or generate a new one
     let stream_id = provided_stream_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
@@ -759,10 +761,9 @@ pub async fn stream_chat(
     // Get the Meilisearch chat manager
     let manager = state.llm_manager.clone();
 
-    // Ensure properly configured for this provider (Just like chat command)
+    // Ensure properly configured for this provider
     {
         let manager_guard = manager.write().await;
-        // This ensures the correct provider is registered with proxy if needed
         manager_guard.configure_for_chat(&config, system_prompt.as_deref()).await
             .map_err(|e| format!("Failed to configure chat: {}", e))?;
     }
@@ -770,20 +771,29 @@ pub async fn stream_chat(
     let manager_guard = manager.read().await;
 
     // Initiate the stream via Meilisearch manager (enables RAG)
+    log::info!("[stream_chat] Calling manager.chat_stream...");
     let mut rx = manager_guard.chat_stream(messages, &model, temperature, max_tokens).await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| {
+            log::error!("[stream_chat] Manager error: {}", e);
+            e.to_string()
+        })?;
+    log::info!("[stream_chat] Stream initiated successfully, spawning receiver task");
+
+    // Clone provider info for the spawned task
+    let provider_for_task = provider_id.clone();
+    let model_for_task = model.clone();
 
     // Spawn a task to handle the stream asynchronously
     tokio::spawn(async move {
         log::info!("[stream_chat:{}] Receiver task started", stream_id_clone);
-        let mut chunk_count = 0;
-        let mut total_bytes = 0;
+        let mut chunk_count = 0u32;
+        let mut total_bytes = 0usize;
 
         // Process chunks and emit events
         while let Some(chunk_result) = rx.recv().await {
             match chunk_result {
                 Ok(content) => {
-                     // Check for "[DONE]" marker if it wasn't handled by the client
+                    // Check for "[DONE]" marker if it wasn't handled by the client
                     if content == "[DONE]" {
                         log::info!("[stream_chat:{}] Received [DONE], stream finished. Total chunks: {}, Total bytes: {}", stream_id_clone, chunk_count, total_bytes);
                         break;
@@ -795,8 +805,8 @@ pub async fn stream_chat(
                     let chunk = ChatChunk {
                         stream_id: stream_id_clone.clone(),
                         content,
-                        provider: String::new(),
-                        model: String::new(),
+                        provider: provider_for_task.clone(),
+                        model: model_for_task.clone(),
                         is_final: false,
                         finish_reason: None,
                         usage: None,
@@ -817,8 +827,8 @@ pub async fn stream_chat(
                     let error_chunk = ChatChunk {
                         stream_id: stream_id_clone.clone(),
                         content: error_message,
-                        provider: String::new(),
-                        model: String::new(),
+                        provider: provider_for_task.clone(),
+                        model: model_for_task.clone(),
                         is_final: true,
                         finish_reason: Some("error".to_string()),
                         usage: None,
@@ -829,22 +839,23 @@ pub async fn stream_chat(
                 }
             }
         }
-        log::info!("[stream_chat:{}] Receiver task exiting", stream_id_clone);
 
         // Emit final chunk to signal completion
+        log::info!("[stream_chat:{}] Stream finished with {} chunks, {} bytes total",
+            stream_id_clone, chunk_count, total_bytes);
         let final_chunk = ChatChunk {
             stream_id: stream_id_clone.clone(),
             content: String::new(),
-            provider: String::new(),
-            model: String::new(),
+            provider: provider_for_task.clone(),
+            model: model_for_task.clone(),
             is_final: true,
             finish_reason: Some("stop".to_string()),
-            usage: None, // Usage not available from simple stream yet
+            usage: None,
             index: 0,
         };
         let _ = app_handle.emit("chat-chunk", &final_chunk);
+        log::info!("[stream_chat:{}] Receiver task exiting", stream_id_clone);
     });
-
 
     Ok(stream_id)
 }

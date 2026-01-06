@@ -477,17 +477,17 @@ pub fn LLMSettingsView() -> impl IntoView {
                             view! { <span/> }.into_any()
                         }}
 
-                         <div class="pt-4 h-10 flex items-center">
-                             <div class="text-sm text-[var(--accent-primary)] font-medium italic animate-pulse">
-                                 {move || {
-                                      if is_saving.get() {
-                                          "Saving changes...".to_string()
-                                      } else {
-                                          save_status.get()
-                                      }
-                                 }}
-                             </div>
-                         </div>
+                        <div class="pt-4 h-10 flex items-center">
+                            <div class="text-sm text-[var(--accent-primary)] font-medium italic animate-pulse">
+                                {move || {
+                                     if is_saving.get() {
+                                         "Saving changes...".to_string()
+                                     } else {
+                                         save_status.get()
+                                     }
+                                }}
+                            </div>
+                        </div>
                     </div>
 
                     // Right Column: Provider Switcher

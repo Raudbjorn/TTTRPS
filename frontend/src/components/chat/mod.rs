@@ -7,7 +7,6 @@ pub use personality_selector::{PersonalitySelector, PersonalityIndicator};
 use leptos::ev;
 use leptos::prelude::*;
 use leptos_router::components::A;
-use wasm_bindgen::JsValue;
 use wasm_bindgen_futures::spawn_local;
 use std::sync::Arc;
 use crate::services::notification_service::{show_error, ToastAction};

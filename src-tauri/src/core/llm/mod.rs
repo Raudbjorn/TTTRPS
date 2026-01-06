@@ -275,7 +275,6 @@ impl LLMManager {
     }
 
     /// Stream chat response (using default DM workspace)
-    /// Stream chat response (using default DM workspace)
     pub async fn chat_stream(
         &self,
         messages: Vec<ChatMessage>,
