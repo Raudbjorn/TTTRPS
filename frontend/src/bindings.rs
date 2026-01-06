@@ -488,6 +488,11 @@ pub async fn claude_code_install_skill() -> Result<(), String> {
     invoke_void_no_args("claude_code_install_skill").await
 }
 
+/// Install Claude Code CLI via npm (opens terminal)
+pub async fn claude_code_install_cli() -> Result<(), String> {
+    invoke_void_no_args("claude_code_install_cli").await
+}
+
 // ============================================================================
 // Credential Commands
 // ============================================================================

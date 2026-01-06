@@ -18,6 +18,7 @@ pub mod cost;
 pub mod health;
 pub mod proxy;
 pub mod router;
+pub mod session;
 pub mod providers;
 
 // Re-export commonly used types
@@ -37,6 +38,12 @@ pub use providers::*;
 
 // Re-export proxy types
 pub use proxy::LLMProxyService;
+
+// Re-export session types
+pub use session::{
+    ProviderSession, SessionError, SessionId, SessionInfo, SessionManager, SessionStore,
+    SessionResult, SessionChatRequest, SessionChatResponse, ClaudeStreamEvent,
+};
 
 // Note: LLMManager is defined below and re-exported automatically
 
