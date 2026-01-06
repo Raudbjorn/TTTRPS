@@ -408,12 +408,10 @@ build_desktop() {
 
     print_info "Creating application bundle..."
 
-    # NO_STRIP=1 prevents linuxdeploy from trying to strip libraries with newer
-    # .relr.dyn ELF sections that the bundled strip tool doesn't understand
     if [ "$RELEASE" = true ]; then
-        NO_STRIP=1 cargo tauri build
+        cargo tauri build
     else
-        NO_STRIP=1 cargo tauri build --debug
+        cargo tauri build --debug
     fi
 
     if [ $? -eq 0 ]; then
