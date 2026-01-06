@@ -22,6 +22,39 @@ use crate::core::voice::cache::{AudioCache, CacheKeyParams, CacheConfig, CacheSt
 use rodio::{Decoder, OutputStream, Sink};
 use std::io::Cursor;
 
+/// Known provider prefixes for voice IDs
+const PROVIDER_PREFIXES: &[(&str, &str)] = &[
+    ("piper:", "piper"),
+    ("coqui:", "coqui"),
+    ("elevenlabs:", "elevenlabs"),
+    ("openai:", "openai"),
+    ("ollama:", "ollama"),
+    ("fish_audio:", "fish_audio"),
+];
+
+/// Result of parsing a voice ID with optional provider prefix
+pub struct ParsedVoiceId<'a> {
+    /// The provider ID (e.g., "piper", "elevenlabs")
+    pub provider_id: &'a str,
+    /// The voice ID with prefix stripped (if present)
+    pub voice_id: &'a str,
+}
+
+/// Parse a voice ID that may contain a provider prefix (e.g., "piper:en_US-amy-medium")
+/// Returns the provider ID and the normalized voice ID (with prefix stripped).
+/// If no known prefix is found, returns None.
+fn parse_prefixed_voice_id(voice_id: &str) -> Option<ParsedVoiceId<'_>> {
+    for (prefix, provider_id) in PROVIDER_PREFIXES {
+        if let Some(stripped) = voice_id.strip_prefix(prefix) {
+            return Some(ParsedVoiceId {
+                provider_id,
+                voice_id: stripped,
+            });
+        }
+    }
+    None
+}
+
 /// Voice Manager with integrated audio caching
 pub struct VoiceManager {
     config: VoiceConfig,
@@ -226,17 +259,9 @@ impl VoiceManager {
     /// for bulk operations like clearing all audio for a specific session.
     pub async fn synthesize_with_tags(&self, request: SynthesisRequest, tags: &[String]) -> Result<SynthesisResult> {
         // Determine provider from voice_id prefix or fallback to active provider config
-        let provider_id = if request.voice_id.starts_with("piper:") {
-            "piper"
-        } else if request.voice_id.starts_with("coqui:") {
-            "coqui"
-        } else if request.voice_id.starts_with("elevenlabs:") {
-            "elevenlabs"
-        } else if request.voice_id.starts_with("openai:") {
-            "openai"
-        } else {
-             // Fallback to legacy config-based selection
-             self.get_active_provider_id()?
+        let provider_id = match parse_prefixed_voice_id(&request.voice_id) {
+            Some(parsed) => parsed.provider_id,
+            None => self.get_active_provider_id()?,
         };
 
         let provider = self.providers.get(provider_id)

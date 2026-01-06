@@ -1334,7 +1334,7 @@ pub async fn play_tts(
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     // Synthesize audio first, keeping the lock scope minimal.
-    let audio_data = {
+    let audio_path = {
         let manager = state.voice_manager.read().await;
         let request = SynthesisRequest {
             text,
@@ -1343,8 +1343,14 @@ pub async fn play_tts(
             output_format: OutputFormat::Wav,
         };
         let result = manager.synthesize(request).await.map_err(|e| e.to_string())?;
-        std::fs::read(&result.audio_path).map_err(|e| e.to_string())?
+        result.audio_path
     }; // Read lock is released here.
+
+    // Read audio data in a blocking task to avoid blocking async runtime
+    let audio_data = tokio::task::spawn_blocking(move || std::fs::read(&audio_path))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())?;
 
     // Play audio in a blocking task to avoid blocking async runtime
     tokio::task::spawn_blocking(move || {

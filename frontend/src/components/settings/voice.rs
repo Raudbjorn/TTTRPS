@@ -296,37 +296,41 @@ pub fn VoiceSettingsView() -> impl IntoView {
                     </div>
 
                     {move || {
-                        let provider_str = selected_voice_provider.get();
-                        match provider_str.as_str() {
+                        let provider = selected_voice_provider.get();
+                        match provider.as_str() {
                             "Disabled" => view! { <div class="text-[var(--text-muted)] italic">"Voice disabled."</div> }.into_any(),
-                            provider => {
+                            _ => {
+                                let provider = provider.clone();
+                                let is_piper = provider == "Piper";
+                                let is_password = provider == "OpenAI" || provider == "ElevenLabs";
+                                let label = match provider.as_str() {
+                                    "Ollama" => "Base URL",
+                                    "ElevenLabs" | "OpenAI" => "API Key",
+                                    "Coqui" => "Port",
+                                    _ => "Configuration"
+                                };
+                                let placeholder = match provider.as_str() {
+                                    "Ollama" => "http://localhost:11434",
+                                    "OpenAI" | "ElevenLabs" => "sk-...",
+                                    "Coqui" => "5002",
+                                    _ => ""
+                                };
                                 view! {
                                 <div class="space-y-4 border-t border-[var(--border-subtle)] pt-4 animate-fade-in">
-                                    // Host / API Key / Port / Piper Models Dir
-                                    <Show when=move || provider != "Piper">
+                                    <Show when=move || !is_piper>
                                         <div>
                                             <label class="block text-sm font-medium text-[var(--text-secondary)] mb-2">
-                                                {match provider {
-                                                    "Ollama" => "Base URL",
-                                                    "ElevenLabs" | "OpenAI" => "API Key",
-                                                    "Coqui" => "Port",
-                                                    _ => "Configuration"
-                                                }}
+                                                {label}
                                             </label>
                                             <Input
                                                 value=voice_api_key_or_host
-                                                r#type=if provider == "OpenAI" || provider == "ElevenLabs" { "password".to_string() } else { "text".to_string() }
-                                                placeholder=match provider {
-                                                    "Ollama" => "http://localhost:11434",
-                                                    "OpenAI" | "ElevenLabs" => "sk-...",
-                                                    "Coqui" => "5002",
-                                                    _ => ""
-                                                }
+                                                r#type=if is_password { "password".to_string() } else { "text".to_string() }
+                                                placeholder=placeholder
                                             />
                                         </div>
                                     </Show>
 
-                                    <Show when=move || provider == "Piper">
+                                    <Show when=move || is_piper>
                                         <div>
                                             <label class="block text-sm font-medium text-[var(--text-secondary)] mb-2">"Models Directory (Optional)"</label>
                                             <Input
@@ -336,15 +340,13 @@ pub fn VoiceSettingsView() -> impl IntoView {
                                         </div>
                                     </Show>
 
-                                    // Model Selection
-                                    <Show when=move || provider != "Piper">
+                                    <Show when=move || !is_piper>
                                         <div>
                                             <label class="block text-sm font-medium text-[var(--text-secondary)] mb-2">"Model ID"</label>
                                             <Input value=voice_model_id />
                                         </div>
                                     </Show>
 
-                                    // Voice Selection (if loaded)
                                     {
                                         let voices = available_voices.get();
                                         if !voices.is_empty() {
@@ -369,7 +371,7 @@ pub fn VoiceSettingsView() -> impl IntoView {
                                 </div>
                             }.into_any()
                         }
-                    }}
+                    }}}
                     <div class="pt-4">
                         <Button
                             variant=ButtonVariant::Primary
