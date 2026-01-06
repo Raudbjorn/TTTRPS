@@ -8,7 +8,7 @@ use crate::bindings::{
     ElevenLabsConfig, OllamaConfig, OpenAIVoiceConfig, Voice, VoiceConfig,
     PiperConfig, CoquiConfig,
 };
-use crate::components::design_system::{Card, Input};
+use crate::components::design_system::{Card, Input, Select, SelectOption, SELECT_CLASS, OPTION_CLASS};
 use crate::services::notification_service::{show_error, show_success};
 
 #[component]
@@ -293,15 +293,14 @@ pub fn VoiceSettingsView() -> impl IntoView {
                 <div class="grid grid-cols-1 gap-6">
                     <div>
                         <label class="block text-sm font-medium text-[var(--text-secondary)] mb-2">"Provider"</label>
-                        <select
-                            class="w-full p-3 rounded-lg bg-[var(--bg-deep)] border border-[var(--border-subtle)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]"
-                            prop:value=selected_voice_provider
-                            on:change=move |ev| handle_provider_change(event_target_value(&ev))
+                        <Select
+                            value=selected_voice_provider.get()
+                            on_change=Callback::new(move |val: String| handle_provider_change(val))
                         >
                             {providers.into_iter().map(|p| {
-                                view! { <option class="bg-zinc-800 text-white" value=p.to_string()>{p}</option> }
+                                view! { <SelectOption value=p.to_string() /> }
                             }).collect::<Vec<_>>()}
-                        </select>
+                        </Select>
                     </div>
 
                     {move || {
@@ -362,15 +361,14 @@ pub fn VoiceSettingsView() -> impl IntoView {
                                             view! {
                                                 <div>
                                                     <label class="block text-sm font-medium text-[var(--text-secondary)] mb-2">"Voice Persona"</label>
-                                                    <select
-                                                        class="w-full p-3 rounded-lg bg-[var(--bg-deep)] border border-[var(--border-subtle)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)]"
-                                                        prop:value=selected_voice_id
-                                                        on:change=move |ev| selected_voice_id.set(event_target_value(&ev))
+                                                    <Select
+                                                        value=selected_voice_id.get()
+                                                        on_change=Callback::new(move |val: String| selected_voice_id.set(val))
                                                     >
                                                         {voices.into_iter().map(|v| {
-                                                            view! { <option class="bg-zinc-800 text-white" value=v.id.clone()>{v.name}</option> }
+                                                            view! { <SelectOption value=v.id.clone() label=v.name /> }
                                                         }).collect::<Vec<_>>()}
-                                                    </select>
+                                                    </Select>
                                                 </div>
                                             }.into_any()
                                         } else {
