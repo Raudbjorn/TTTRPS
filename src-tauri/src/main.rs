@@ -490,6 +490,7 @@ fn main() {
             commands::claude_code_login,
             commands::claude_code_logout,
             commands::claude_code_install_skill,
+            commands::claude_code_install_cli,
 
             // Gemini CLI Status & Extension Commands
             commands::check_gemini_cli_status,

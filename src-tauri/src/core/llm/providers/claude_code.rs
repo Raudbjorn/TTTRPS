@@ -295,41 +295,41 @@ impl ClaudeCodeProvider {
             _ => None,
         };
 
-        // Check auth status using `claude auth status`
-        let auth_result = Command::new(&binary)
-            .args(["auth", "status"])
-            .output()
-            .await;
+        // Check auth by attempting a minimal prompt
+        // If it succeeds, we're authenticated
+        let auth_result = tokio::time::timeout(
+            tokio::time::Duration::from_secs(30),
+            Command::new(&binary)
+                .args(["-p", "hi", "--output-format", "json"])
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .output()
+        )
+        .await;
 
         match auth_result {
-            Ok(output) => {
+            Ok(Ok(output)) => {
                 let stdout = String::from_utf8_lossy(&output.stdout);
                 let stderr = String::from_utf8_lossy(&output.stderr);
 
-                // Try to parse JSON output, or check for success indicators
                 if output.status.success() {
-                    // Try to parse as JSON for user email
-                    let user_email = serde_json::from_str::<serde_json::Value>(&stdout)
-                        .ok()
-                        .and_then(|v| v.get("email").and_then(|e| e.as_str()).map(String::from));
-
                     ClaudeCodeStatus {
                         installed: true,
                         logged_in: true,
                         skill_installed,
                         version,
-                        user_email,
+                        user_email: None,
                         error: None,
                     }
                 } else {
-                    // Not logged in
-                    let error_msg = if !stderr.is_empty() {
-                        stderr.trim().to_string()
-                    } else if !stdout.is_empty() {
-                        stdout.trim().to_string()
-                    } else {
-                        "Not authenticated".to_string()
-                    };
+                    // Check for auth-related errors
+                    let combined = format!("{} {}", stdout, stderr);
+                    let is_auth_error = combined.contains("login")
+                        || combined.contains("authenticate")
+                        || combined.contains("unauthorized")
+                        || combined.contains("session")
+                        || combined.contains("token");
 
                     ClaudeCodeStatus {
                         installed: true,
@@ -337,17 +337,29 @@ impl ClaudeCodeProvider {
                         skill_installed,
                         version,
                         user_email: None,
-                        error: Some(error_msg),
+                        error: if is_auth_error {
+                            Some("Not logged in - run 'claude' to authenticate".to_string())
+                        } else {
+                            Some(stderr.trim().to_string())
+                        },
                     }
                 }
             }
-            Err(e) => ClaudeCodeStatus {
+            Ok(Err(e)) => ClaudeCodeStatus {
                 installed: true,
                 logged_in: false,
                 skill_installed,
                 version,
                 user_email: None,
-                error: Some(format!("Failed to check auth status: {}", e)),
+                error: Some(format!("Failed to check auth: {}", e)),
+            },
+            Err(_) => ClaudeCodeStatus {
+                installed: true,
+                logged_in: false,
+                skill_installed,
+                version,
+                user_email: None,
+                error: Some("Auth check timed out".to_string()),
             },
         }
     }
@@ -357,41 +369,81 @@ impl ClaudeCodeProvider {
         dirs::home_dir().map(|h| h.join(".claude").join("commands").join("claude-code-bridge.md"))
     }
 
-    /// Spawn the Claude Code login flow (opens browser)
+    /// Spawn the Claude Code login flow
+    /// Opens a terminal for user to run 'claude' and authenticate interactively
     pub async fn login() -> std::result::Result<(), String> {
         let binary = which::which("claude")
             .map_err(|_| "Claude Code CLI not installed")?;
 
-        // Run `claude auth login` which opens browser for OAuth
-        let status = Command::new(binary)
-            .args(["auth", "login"])
-            .status()
-            .await
-            .map_err(|e| format!("Failed to spawn login: {}", e))?;
+        // Try to open a terminal with claude for interactive login
+        // This allows the user to complete the OAuth flow
+        #[cfg(target_os = "linux")]
+        {
+            // Try common terminal emulators
+            let terminals = [
+                ("kitty", vec!["-e"]),
+                ("gnome-terminal", vec!["--"]),
+                ("konsole", vec!["-e"]),
+                ("xterm", vec!["-e"]),
+                ("alacritty", vec!["-e"]),
+            ];
 
-        if status.success() {
-            Ok(())
-        } else {
-            Err("Login process failed or was cancelled".to_string())
+            for (term, args) in terminals {
+                if which::which(term).is_ok() {
+                    let mut cmd = Command::new(term);
+                    for arg in &args {
+                        cmd.arg(arg);
+                    }
+                    cmd.arg(&binary);
+
+                    if cmd.spawn().is_ok() {
+                        return Ok(());
+                    }
+                }
+            }
+            Err("Could not open terminal. Please run 'claude' manually to login.".to_string())
         }
+
+        #[cfg(target_os = "macos")]
+        {
+            // Use open with Terminal.app
+            Command::new("open")
+                .args(["-a", "Terminal", binary.to_str().unwrap_or("claude")])
+                .spawn()
+                .map_err(|e| format!("Failed to open Terminal: {}", e))?;
+            Ok(())
+        }
+
+        #[cfg(target_os = "windows")]
+        {
+            // Open cmd with claude
+            Command::new("cmd")
+                .args(["/c", "start", "cmd", "/k", binary.to_str().unwrap_or("claude")])
+                .spawn()
+                .map_err(|e| format!("Failed to open terminal: {}", e))?;
+            Ok(())
+        }
+
+        #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+        Err("Unsupported platform for automatic login. Please run 'claude' manually.".to_string())
     }
 
     /// Logout from Claude Code
+    /// Note: Claude Code doesn't have a direct logout command
     pub async fn logout() -> std::result::Result<(), String> {
-        let binary = which::which("claude")
-            .map_err(|_| "Claude Code CLI not installed")?;
-
-        let status = Command::new(binary)
-            .args(["auth", "logout"])
-            .status()
-            .await
-            .map_err(|e| format!("Failed to logout: {}", e))?;
-
-        if status.success() {
-            Ok(())
-        } else {
-            Err("Logout failed".to_string())
+        // Claude Code stores auth in ~/.claude/credentials.json
+        // Removing or renaming it effectively logs out
+        if let Some(home) = dirs::home_dir() {
+            let creds_path = home.join(".claude").join("credentials.json");
+            if creds_path.exists() {
+                tokio::fs::remove_file(&creds_path)
+                    .await
+                    .map_err(|e| format!("Failed to remove credentials: {}", e))?;
+                info!("Removed Claude Code credentials");
+                return Ok(());
+            }
         }
+        Ok(()) // Already logged out
     }
 
     /// Install the claude-code-bridge skill to ~/.claude/commands/
@@ -413,6 +465,73 @@ impl ClaudeCodeProvider {
 
         info!("Installed claude-code-bridge skill to {:?}", skill_path);
         Ok(())
+    }
+
+    /// Install Claude Code CLI via npm
+    /// Opens a terminal to run: npm install -g @anthropic-ai/claude-code
+    pub async fn install_cli() -> std::result::Result<(), String> {
+        // Check if npm is available
+        let npm = which::which("npm")
+            .or_else(|_| which::which("pnpm"))
+            .or_else(|_| which::which("bun"))
+            .map_err(|_| "No package manager found. Please install npm, pnpm, or bun.")?;
+
+        let pkg_manager = npm.file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("npm");
+
+        let install_cmd = format!("{} install -g @anthropic-ai/claude-code", pkg_manager);
+
+        #[cfg(target_os = "linux")]
+        {
+            let terminals = [
+                ("kitty", vec!["-e", "bash", "-c"]),
+                ("gnome-terminal", vec!["--", "bash", "-c"]),
+                ("konsole", vec!["-e", "bash", "-c"]),
+                ("xterm", vec!["-e", "bash", "-c"]),
+                ("alacritty", vec!["-e", "bash", "-c"]),
+            ];
+
+            for (term, args) in terminals {
+                if which::which(term).is_ok() {
+                    let mut cmd = Command::new(term);
+                    for arg in &args {
+                        cmd.arg(arg);
+                    }
+                    // Run install then pause so user can see result
+                    cmd.arg(format!("{}; echo ''; echo 'Press Enter to close...'; read", install_cmd));
+
+                    if cmd.spawn().is_ok() {
+                        return Ok(());
+                    }
+                }
+            }
+            Err(format!("Could not open terminal. Please run manually: {}", install_cmd))
+        }
+
+        #[cfg(target_os = "macos")]
+        {
+            Command::new("osascript")
+                .args([
+                    "-e",
+                    &format!(r#"tell application "Terminal" to do script "{}""#, install_cmd),
+                ])
+                .spawn()
+                .map_err(|e| format!("Failed to open Terminal: {}", e))?;
+            Ok(())
+        }
+
+        #[cfg(target_os = "windows")]
+        {
+            Command::new("cmd")
+                .args(["/c", "start", "cmd", "/k", &install_cmd])
+                .spawn()
+                .map_err(|e| format!("Failed to open terminal: {}", e))?;
+            Ok(())
+        }
+
+        #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+        Err(format!("Unsupported platform. Please run manually: {}", install_cmd))
     }
 }
 

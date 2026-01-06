@@ -5834,6 +5834,12 @@ pub async fn claude_code_install_skill() -> Result<(), String> {
     crate::core::llm::providers::ClaudeCodeProvider::install_skill().await
 }
 
+/// Install Claude Code CLI via npm (opens terminal).
+#[tauri::command]
+pub async fn claude_code_install_cli() -> Result<(), String> {
+    crate::core::llm::providers::ClaudeCodeProvider::install_cli().await
+}
+
 // ============================================================================
 // Gemini CLI Status and Extension Commands
 // ============================================================================
