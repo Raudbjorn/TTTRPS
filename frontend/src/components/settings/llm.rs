@@ -10,6 +10,8 @@ use crate::bindings::{
     // Claude Code CLI
     get_claude_code_status, claude_code_login, claude_code_logout,
     claude_code_install_cli, claude_code_install_skill, ClaudeCodeStatus,
+    // LLM Proxy
+    is_llm_proxy_running, get_llm_proxy_url, list_proxy_providers,
 };
 use crate::components::design_system::{Badge, BadgeVariant, Button, ButtonVariant, Card, Input};
 use crate::services::notification_service::{show_error, show_success};
@@ -181,6 +183,11 @@ pub fn LLMSettingsView() -> impl IntoView {
     let claude_code_status = RwSignal::new(ClaudeCodeStatus::default());
     let claude_code_loading = RwSignal::new(false);
 
+    // Proxy status
+    let proxy_running = RwSignal::new(false);
+    let proxy_url = RwSignal::new(String::new());
+    let proxy_providers = RwSignal::new(Vec::<String>::new());
+
     // --- Helpers ---
 
     let fetch_ollama_models = move |host: String| {
@@ -313,6 +320,21 @@ pub fn LLMSettingsView() -> impl IntoView {
 
             if let Ok(status) = check_llm_health().await {
                 health_status.set(Some(status));
+            }
+        });
+    });
+
+    // Check proxy status
+    Effect::new(move |_| {
+        spawn_local(async move {
+            if let Ok(running) = is_llm_proxy_running().await {
+                proxy_running.set(running);
+            }
+            if let Ok(url) = get_llm_proxy_url().await {
+                proxy_url.set(url);
+            }
+            if let Ok(providers) = list_proxy_providers().await {
+                proxy_providers.set(providers);
             }
         });
     });
@@ -752,6 +774,45 @@ pub fn LLMSettingsView() -> impl IntoView {
                         }
                     }
                 </div>
+            </Card>
+
+            // Proxy Status Card
+            <Card class="p-4 mt-4">
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center gap-3">
+                        <div class=move || {
+                            if proxy_running.get() {
+                                "w-2 h-2 rounded-full bg-green-500"
+                            } else {
+                                "w-2 h-2 rounded-full bg-red-500"
+                            }
+                        }></div>
+                        <div>
+                            <span class="text-sm font-medium text-[var(--text-primary)]">"LLM Proxy"</span>
+                            <span class="text-xs text-[var(--text-muted)] ml-2">
+                                {move || if proxy_running.get() { "Running" } else { "Stopped" }}
+                            </span>
+                        </div>
+                    </div>
+                    <div class="text-xs text-[var(--text-muted)]">
+                        {move || proxy_url.get()}
+                    </div>
+                </div>
+                {move || {
+                    let providers = proxy_providers.get();
+                    if !providers.is_empty() {
+                        view! {
+                            <div class="mt-2 pt-2 border-t border-[var(--border-subtle)]">
+                                <span class="text-xs text-[var(--text-muted)]">"Registered: "</span>
+                                <span class="text-xs text-[var(--text-secondary)]">
+                                    {providers.join(", ")}
+                                </span>
+                            </div>
+                        }.into_any()
+                    } else {
+                        view! { <span/> }.into_any()
+                    }
+                }}
             </Card>
         </div>
     }

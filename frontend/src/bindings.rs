@@ -4150,3 +4150,17 @@ pub async fn get_llm_proxy_url() -> Result<String, String> {
 pub async fn get_llm_proxy_status() -> Result<bool, String> {
     invoke_no_args("get_llm_proxy_status").await
 }
+
+/// Check if the LLM proxy is running
+///
+/// Returns `true` if the proxy server is active.
+pub async fn is_llm_proxy_running() -> Result<bool, String> {
+    invoke_no_args("is_llm_proxy_running").await
+}
+
+/// List providers registered with the LLM proxy
+///
+/// Returns a list of provider names that are currently registered with the proxy.
+pub async fn list_proxy_providers() -> Result<Vec<String>, String> {
+    invoke_no_args("list_proxy_providers").await
+}
