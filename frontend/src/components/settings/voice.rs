@@ -309,7 +309,7 @@ pub fn VoiceSettingsView() -> impl IntoView {
                     <div>
                         <label class="block text-sm font-medium text-[var(--text-secondary)] mb-2">"Provider"</label>
                         <Select
-                            value=selected_voice_provider.get()
+                            value=Signal::from(selected_voice_provider)
                             on_change=Callback::new(move |val: String| handle_provider_change(val))
                         >
                             {providers.into_iter().map(|p| {
@@ -377,7 +377,7 @@ pub fn VoiceSettingsView() -> impl IntoView {
                                                 <div>
                                                     <label class="block text-sm font-medium text-[var(--text-secondary)] mb-2">"Voice Persona"</label>
                                                     <Select
-                                                        value=selected_voice_id.get()
+                                                        value=Signal::from(selected_voice_id)
                                                         on_change=Callback::new(move |val: String| selected_voice_id.set(val))
                                                     >
                                                         {voices.into_iter().map(|v| {

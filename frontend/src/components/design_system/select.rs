@@ -10,9 +10,9 @@ pub const OPTION_CLASS: &str = "bg-[var(--bg-elevated)] text-[var(--text-primary
 /// A styled select dropdown component
 #[component]
 pub fn Select(
-    /// Current selected value
+    /// Current selected value (reactive - accepts signals or static strings)
     #[prop(into)]
-    value: String,
+    value: MaybeSignal<String>,
     /// Change handler
     #[prop(into, optional)]
     on_change: Option<Callback<String>>,
@@ -40,7 +40,7 @@ pub fn Select(
             style="color-scheme: dark;"
             disabled=disabled
             on:change=handle_change
-            prop:value=value
+            prop:value=move || value.get()
         >
             {children()}
         </select>
