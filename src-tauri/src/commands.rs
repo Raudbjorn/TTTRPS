@@ -1829,6 +1829,7 @@ pub async fn add_chat_message(
 }
 
 /// Update a chat message (e.g., after streaming completes)
+/// Fetches existing record and merges fields to preserve existing tokens/metadata
 #[tauri::command]
 pub async fn update_chat_message(
     message_id: String,
@@ -1837,16 +1838,22 @@ pub async fn update_chat_message(
     is_streaming: bool,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    let mut message = crate::database::ChatMessageRecord::new(
-        String::new(), // Will be ignored in update
-        String::new(),
-        content,
-    );
-    message.id = message_id;
+    // Fetch existing message to preserve fields not being updated
+    let mut message = state.database.get_chat_message(&message_id)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Message not found: {}", message_id))?;
+
+    // Update only the fields that are being changed
+    message.content = content;
     message.is_streaming = if is_streaming { 1 } else { 0 };
+
+    // Only update tokens if provided, otherwise preserve existing
     if let Some((input, output)) = tokens {
-        message = message.with_tokens(input, output);
+        message.tokens_input = Some(input);
+        message.tokens_output = Some(output);
     }
+
     state.database.update_chat_message(&message)
         .await
         .map_err(|e| e.to_string())
@@ -1901,7 +1908,7 @@ pub async fn clear_chat_messages(
         .map_err(|e| e.to_string())
 }
 
-/// List archived chat sessions
+/// List recent chat sessions (all statuses, ordered by most recent)
 #[tauri::command]
 pub async fn list_chat_sessions(
     limit: Option<i32>,

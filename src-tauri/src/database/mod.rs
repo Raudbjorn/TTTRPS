@@ -1655,6 +1655,16 @@ impl Database {
         })
     }
 
+    /// Get a single chat message by ID
+    pub async fn get_chat_message(&self, id: &str) -> Result<Option<ChatMessageRecord>, sqlx::Error> {
+        sqlx::query_as::<_, ChatMessageRecord>(
+            "SELECT * FROM chat_messages WHERE id = ?"
+        )
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await
+    }
+
     /// Update message (e.g., when streaming completes)
     pub async fn update_chat_message(&self, message: &ChatMessageRecord) -> Result<(), sqlx::Error> {
         sqlx::query(

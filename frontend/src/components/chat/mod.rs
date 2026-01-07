@@ -271,21 +271,22 @@ pub fn Chat() -> impl IntoView {
                             let _ = streaming_message_id.try_set(None);
 
                             // Persist final message content to database
-                            if let Some(persistent_id) = streaming_persistent_id.try_get() {
-                                // Get the final content from the message
+                            if let Some(Some(pid)) = streaming_persistent_id.try_get() {
+                                // Get the final content - find the last assistant message that just
+                                // finished streaming (is_streaming was just set to false)
                                 let final_content = messages.try_with(|msgs| {
                                     msgs.iter()
-                                        .find(|m| m.stream_id.as_ref() == Some(&chunk.stream_id) || !m.is_streaming)
+                                        .rev()
+                                        .find(|m| m.role == "assistant" && !m.is_streaming)
                                         .map(|m| m.content.clone())
                                 });
 
                                 if let Some(Some(content)) = final_content {
                                     let tokens = chunk.usage.as_ref().map(|u| (u.input_tokens as i32, u.output_tokens as i32));
+                                    let pid_clone = pid.clone();
                                     spawn_local(async move {
-                                        if let Some(pid) = persistent_id {
-                                            if let Err(e) = update_chat_message(pid, content, tokens, false).await {
-                                                log::error!("Failed to persist final message: {}", e);
-                                            }
+                                        if let Err(e) = update_chat_message(pid_clone, content, tokens, false).await {
+                                            log::error!("Failed to persist final message: {}", e);
                                         }
                                     });
                                 }
