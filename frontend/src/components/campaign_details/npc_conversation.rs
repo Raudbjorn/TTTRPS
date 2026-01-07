@@ -3,9 +3,10 @@ use leptos::ev;
 use wasm_bindgen_futures::spawn_local;
 use crate::bindings::{
     get_npc_conversation, add_npc_message, mark_npc_read, reply_as_npc,
-    ConversationMessage,
+    speak_as_npc, ConversationMessage,
 };
 use crate::components::design_system::Markdown;
+use crate::services::notification_service::show_error;
 
 /// NPC Conversation component for chat-style messaging with NPCs
 #[component]
@@ -14,6 +15,9 @@ pub fn NpcConversation(
     npc_id: String,
     /// NPC name for display
     npc_name: String,
+    /// Optional campaign ID for campaign-specific voice
+    #[prop(default = None)]
+    campaign_id: Option<String>,
     /// Callback when the conversation is closed
     on_close: Callback<()>,
 ) -> impl IntoView {
@@ -25,6 +29,8 @@ pub fn NpcConversation(
     let error_msg = RwSignal::new(Option::<String>::None);
 
     let npc_id_signal = RwSignal::new(npc_id.clone());
+    let npc_id_for_messages = npc_id.clone();
+    let campaign_id_for_messages = campaign_id.clone();
     let npc_name_display = npc_name.clone();
     let npc_name_input = npc_name.clone();
     let npc_initial = npc_name.chars().next().unwrap_or('?');
@@ -107,6 +113,8 @@ pub fn NpcConversation(
                 is_typing=is_typing
                 error_msg=error_msg
                 npc_name=npc_name.clone()
+                npc_id=npc_id_for_messages.clone()
+                campaign_id=campaign_id_for_messages.clone()
             />
             <InputArea
                 input_text=input_text
@@ -154,10 +162,17 @@ fn MessagesArea(
     is_typing: RwSignal<bool>,
     error_msg: RwSignal<Option<String>>,
     npc_name: String,
+    npc_id: String,
+    campaign_id: Option<String>,
 ) -> impl IntoView {
+    let npc_id_signal = RwSignal::new(npc_id);
+    let campaign_id_signal = RwSignal::new(campaign_id);
+
     view! {
         <div class="flex-1 overflow-y-auto p-4 space-y-4">
             {move || {
+                let npc_id = npc_id_signal.get();
+                let campaign_id = campaign_id_signal.get();
                 if is_loading.get() {
                     view! {
                         <div class="flex items-center justify-center h-full text-zinc-500">
@@ -183,8 +198,18 @@ fn MessagesArea(
                         <For
                             each=move || messages.get()
                             key=|msg| msg.id.clone()
-                            children=move |msg| {
-                                view! { <MessageBubble msg=msg /> }
+                            children={
+                                let npc_id = npc_id.clone();
+                                let campaign_id = campaign_id.clone();
+                                move |msg| {
+                                    view! {
+                                        <MessageBubble
+                                            msg=msg
+                                            npc_id=npc_id.clone()
+                                            campaign_id=campaign_id.clone()
+                                        />
+                                    }
+                                }
                             }
                         />
                     }.into_any()
@@ -202,16 +227,85 @@ fn MessagesArea(
 }
 
 #[component]
-fn MessageBubble(msg: ConversationMessage) -> impl IntoView {
+fn MessageBubble(
+    msg: ConversationMessage,
+    npc_id: String,
+    campaign_id: Option<String>,
+) -> impl IntoView {
     let is_user = msg.role == "user";
     let msg_content = msg.content.clone();
+    let msg_content_for_play = msg.content.clone();
     let timestamp = msg.created_at.clone();
+    let is_playing = RwSignal::new(false);
 
     let outer_class = if is_user { "flex justify-end" } else { "flex justify-start" };
     let bubble_class = if is_user {
         "max-w-[80%] bg-[var(--accent)]/20 border border-[var(--accent)]/30 rounded-lg p-3"
     } else {
-        "max-w-[80%] bg-zinc-800 border border-zinc-700 rounded-lg p-3"
+        "max-w-[80%] bg-zinc-800 border border-zinc-700 rounded-lg p-3 group"
+    };
+
+    // Play button handler for NPC messages
+    let play_handler = {
+        let npc_id = npc_id.clone();
+        let campaign_id = campaign_id.clone();
+        let content = msg_content_for_play.clone();
+        move |_: ev::MouseEvent| {
+            if is_playing.get() {
+                return;
+            }
+            let npc_id = npc_id.clone();
+            let campaign_id = campaign_id.clone();
+            let content = content.clone();
+            is_playing.set(true);
+
+            spawn_local(async move {
+                match speak_as_npc(content, npc_id, campaign_id).await {
+                    Ok(Some(result)) => {
+                        // Play the audio using browser audio API
+                        if let Err(e) = play_audio_base64(&result.audio_data, &result.format) {
+                            show_error("Voice Error", Some(&format!("Failed to play audio: {}", e)), None);
+                        }
+                    }
+                    Ok(None) => {
+                        // Voice is disabled, silently ignore
+                    }
+                    Err(e) => {
+                        show_error("Voice Error", Some(&e), None);
+                    }
+                }
+                is_playing.set(false);
+            });
+        }
+    };
+
+    // Play button only for NPC messages (not user messages)
+    let play_button = if !is_user {
+        Some(view! {
+            <button
+                class="p-1 rounded hover:bg-zinc-700 text-zinc-500 hover:text-green-400 transition-colors opacity-0 group-hover:opacity-100"
+                title="Read aloud"
+                disabled=move || is_playing.get()
+                on:click=play_handler
+            >
+                {move || if is_playing.get() {
+                    view! {
+                        <svg class="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="10" stroke-opacity="0.25" />
+                            <path d="M12 2a10 10 0 0 1 10 10" stroke-linecap="round" />
+                        </svg>
+                    }.into_any()
+                } else {
+                    view! {
+                        <svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+                            <path d="M8 5v14l11-7z" />
+                        </svg>
+                    }.into_any()
+                }}
+            </button>
+        })
+    } else {
+        None
     };
 
     view! {
@@ -222,10 +316,42 @@ fn MessageBubble(msg: ConversationMessage) -> impl IntoView {
                 } else {
                     view! { <Markdown content=msg_content /> }.into_any()
                 }}
-                <p class="text-xs text-zinc-500 mt-2">{format_timestamp(&timestamp)}</p>
+                <div class="flex items-center justify-between mt-2">
+                    <p class="text-xs text-zinc-500">{format_timestamp(&timestamp)}</p>
+                    {play_button}
+                </div>
             </div>
         </div>
     }
+}
+
+/// Play base64-encoded audio using the browser's Audio API
+fn play_audio_base64(audio_data: &str, format: &str) -> Result<(), String> {
+    use wasm_bindgen::JsCast;
+
+    let window = web_sys::window().ok_or("No window object")?;
+    let document = window.document().ok_or("No document object")?;
+
+    // Create data URL
+    let mime_type = match format {
+        "wav" => "audio/wav",
+        "mp3" => "audio/mpeg",
+        "ogg" => "audio/ogg",
+        _ => "audio/wav",
+    };
+    let data_url = format!("data:{};base64,{}", mime_type, audio_data);
+
+    // Create and play audio element
+    let audio: web_sys::HtmlAudioElement = document
+        .create_element("audio")
+        .map_err(|e| format!("Failed to create audio element: {:?}", e))?
+        .dyn_into()
+        .map_err(|_| "Failed to cast to HtmlAudioElement")?;
+
+    audio.set_src(&data_url);
+    let _ = audio.play().map_err(|e| format!("Failed to play: {:?}", e))?;
+
+    Ok(())
 }
 
 #[component]

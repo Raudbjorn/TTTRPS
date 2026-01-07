@@ -3838,6 +3838,142 @@ pub async fn get_voice_profiles_by_age(age_range: String) -> Result<Vec<VoicePro
 }
 
 // ============================================================================
+// Campaign-NPC Management Commands (Multi-Campaign NPC Support)
+// ============================================================================
+
+/// Information about an NPC's appearance in a campaign
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NpcCampaignInfo {
+    pub campaign_id: String,
+    pub campaign_name: String,
+    pub joined_at: String,
+    pub is_active: bool,
+    pub state_json: String,
+    pub voice_profile_override: Option<String>,
+}
+
+/// Voice profile information for display
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VoiceProfileInfo {
+    pub id: String,
+    pub name: String,
+    pub provider: String,
+    pub voice_id: String,
+    pub gender: Option<String>,
+    pub age_range: Option<String>,
+}
+
+/// Add an existing NPC to a campaign
+pub async fn add_npc_to_campaign(
+    npc_id: String,
+    campaign_id: String,
+    copy_state_from_campaign: Option<String>,
+) -> Result<(), String> {
+    #[derive(Serialize)]
+    struct Args {
+        npc_id: String,
+        campaign_id: String,
+        copy_state_from_campaign: Option<String>,
+    }
+    invoke_void("add_npc_to_campaign", &Args { npc_id, campaign_id, copy_state_from_campaign }).await
+}
+
+/// Remove an NPC from a campaign (soft delete)
+pub async fn remove_npc_from_campaign(npc_id: String, campaign_id: String) -> Result<(), String> {
+    #[derive(Serialize)]
+    struct Args {
+        npc_id: String,
+        campaign_id: String,
+    }
+    invoke_void("remove_npc_from_campaign", &Args { npc_id, campaign_id }).await
+}
+
+/// List all campaigns an NPC appears in
+pub async fn list_npc_campaigns(npc_id: String) -> Result<Vec<NpcCampaignInfo>, String> {
+    #[derive(Serialize)]
+    struct Args {
+        npc_id: String,
+    }
+    invoke("list_npc_campaigns", &Args { npc_id }).await
+}
+
+/// Get NPCs available to add to a campaign (not already in it)
+pub async fn get_available_npcs_for_campaign(campaign_id: String) -> Result<Vec<NPC>, String> {
+    #[derive(Serialize)]
+    struct Args {
+        campaign_id: String,
+    }
+    invoke("get_available_npcs_for_campaign", &Args { campaign_id }).await
+}
+
+/// Update campaign-specific NPC state
+pub async fn update_campaign_npc_state(
+    npc_id: String,
+    campaign_id: String,
+    state_json: String,
+    notes: Option<String>,
+    voice_profile_override: Option<String>,
+) -> Result<(), String> {
+    #[derive(Serialize)]
+    struct Args {
+        npc_id: String,
+        campaign_id: String,
+        state_json: String,
+        notes: Option<String>,
+        voice_profile_override: Option<String>,
+    }
+    invoke_void("update_campaign_npc_state", &Args { npc_id, campaign_id, state_json, notes, voice_profile_override }).await
+}
+
+/// Set voice profile for an NPC in a specific campaign
+pub async fn set_campaign_npc_voice(
+    npc_id: String,
+    campaign_id: String,
+    voice_profile_id: Option<String>,
+) -> Result<(), String> {
+    #[derive(Serialize)]
+    struct Args {
+        npc_id: String,
+        campaign_id: String,
+        voice_profile_id: Option<String>,
+    }
+    invoke_void("set_campaign_npc_voice", &Args { npc_id, campaign_id, voice_profile_id }).await
+}
+
+// ============================================================================
+// NPC Voice Synthesis Commands
+// ============================================================================
+
+/// Speak text using an NPC's voice profile
+/// Uses campaign-specific voice override if available, otherwise falls back to NPC's default
+pub async fn speak_as_npc(
+    text: String,
+    npc_id: String,
+    campaign_id: Option<String>,
+) -> Result<Option<SpeakResult>, String> {
+    #[derive(Serialize)]
+    struct Args {
+        text: String,
+        npc_id: String,
+        campaign_id: Option<String>,
+    }
+    invoke("speak_as_npc", &Args { text, npc_id, campaign_id }).await
+}
+
+/// Get the effective voice profile for an NPC (considering campaign override)
+pub async fn get_effective_npc_voice_profile(
+    npc_id: String,
+    campaign_id: Option<String>,
+) -> Result<Option<VoiceProfileInfo>, String> {
+    #[derive(Serialize)]
+    struct Args {
+        npc_id: String,
+        campaign_id: Option<String>,
+    }
+    invoke("get_effective_npc_voice_profile", &Args { npc_id, campaign_id }).await
+}
+
+// ============================================================================
 // Audio Cache Commands (TASK-005)
 // ============================================================================
 

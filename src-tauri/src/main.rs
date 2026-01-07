@@ -355,6 +355,18 @@ fn main() {
             commands::delete_npc,
             commands::search_npcs,
 
+            // Campaign-NPC Management Commands (Multi-Campaign Support)
+            commands::add_npc_to_campaign,
+            commands::remove_npc_from_campaign,
+            commands::list_npc_campaigns,
+            commands::get_available_npcs_for_campaign,
+            commands::update_campaign_npc_state,
+            commands::set_campaign_npc_voice,
+
+            // NPC Voice Commands
+            commands::speak_as_npc,
+            commands::get_effective_npc_voice_profile,
+
             // NPC Conversation Commands
             commands::list_npc_conversations,
             commands::get_npc_conversation,

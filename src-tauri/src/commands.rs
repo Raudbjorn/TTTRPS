@@ -2071,6 +2071,7 @@ pub async fn generate_npc(
     let record = crate::database::NpcRecord {
         id: npc.id.clone(),
         campaign_id: campaign_id.clone(),
+        origin_campaign_id: campaign_id.clone(),  // Origin is where NPC was first created
         name: npc.name.clone(),
         role: role_str,
         personality_id: None,
@@ -2081,10 +2082,21 @@ pub async fn generate_npc(
         location_id: None,
         voice_profile_id: None,
         quest_hooks: None,
+        is_template: false,
         created_at: chrono::Utc::now().to_rfc3339(),
     };
 
     state.database.save_npc(&record).await.map_err(|e| e.to_string())?;
+
+    // If created in a campaign, also create a junction table entry
+    if let Some(cid) = &campaign_id {
+        let campaign_npc = crate::database::CampaignNpcRecord::new(
+            cid.clone(),
+            npc.id.clone(),
+        );
+        // Ignore error if junction entry already exists (shouldn't happen for new NPCs)
+        let _ = state.database.add_npc_to_campaign(&campaign_npc).await;
+    }
 
     Ok(npc)
 }
@@ -2143,15 +2155,16 @@ pub async fn update_npc(npc: NPC, state: State<'_, AppState>) -> Result<(), Stri
         chrono::Utc::now().to_rfc3339()
     };
 
-    let (campaign_id, location_id, voice_profile_id, quest_hooks) = if let Some(old) = state.database.get_npc(&npc.id).await.map_err(|e| e.to_string())? {
-        (old.campaign_id, old.location_id, old.voice_profile_id, old.quest_hooks)
+    let (campaign_id, origin_campaign_id, location_id, voice_profile_id, quest_hooks, is_template) = if let Some(old) = state.database.get_npc(&npc.id).await.map_err(|e| e.to_string())? {
+        (old.campaign_id, old.origin_campaign_id, old.location_id, old.voice_profile_id, old.quest_hooks, old.is_template)
     } else {
-        (None, None, None, None)
+        (None, None, None, None, None, false)
     };
 
     let record = crate::database::NpcRecord {
         id: npc.id.clone(),
         campaign_id,
+        origin_campaign_id,
         name: npc.name.clone(),
         role: role_str,
         personality_id: None,
@@ -2162,6 +2175,7 @@ pub async fn update_npc(npc: NPC, state: State<'_, AppState>) -> Result<(), Stri
         location_id,
         voice_profile_id,
         quest_hooks,
+        is_template,
         created_at,
     };
 
@@ -2184,6 +2198,306 @@ pub fn search_npcs(
     state: State<'_, AppState>,
 ) -> Result<Vec<NPC>, String> {
     Ok(state.npc_store.search(&query, campaign_id.as_deref()))
+}
+
+// ============================================================================
+// Campaign-NPC Management Commands (Multi-Campaign NPC Support)
+// ============================================================================
+
+/// Add an existing NPC to a campaign with optional initial state
+#[tauri::command]
+pub async fn add_npc_to_campaign(
+    npc_id: String,
+    campaign_id: String,
+    copy_state_from_campaign: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    // Check if NPC exists
+    if state.database.get_npc(&npc_id).await.map_err(|e| e.to_string())?.is_none() {
+        return Err(format!("NPC not found: {}", npc_id));
+    }
+
+    // Check if campaign exists
+    if state.database.get_campaign(&campaign_id).await.map_err(|e| e.to_string())?.is_none() {
+        return Err(format!("Campaign not found: {}", campaign_id));
+    }
+
+    // Check if already in campaign
+    if let Some(_existing) = state.database.get_campaign_npc(&campaign_id, &npc_id).await.map_err(|e| e.to_string())? {
+        return Err("NPC is already in this campaign".to_string());
+    }
+
+    // Get state from another campaign if specified
+    let initial_state = if let Some(source_campaign_id) = copy_state_from_campaign {
+        if let Some(source_record) = state.database.get_campaign_npc(&source_campaign_id, &npc_id).await.map_err(|e| e.to_string())? {
+            Some(source_record.state_json)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    let record = crate::database::CampaignNpcRecord::with_state_from(
+        campaign_id,
+        npc_id,
+        initial_state.as_deref(),
+    );
+
+    state.database.add_npc_to_campaign(&record).await.map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// Remove an NPC from a campaign (soft delete)
+#[tauri::command]
+pub async fn remove_npc_from_campaign(
+    npc_id: String,
+    campaign_id: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    state.database.remove_npc_from_campaign(&campaign_id, &npc_id).await.map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+/// List all campaigns an NPC appears in
+#[tauri::command]
+pub async fn list_npc_campaigns(
+    npc_id: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<NpcCampaignInfo>, String> {
+    let campaign_npcs = state.database.list_npc_campaigns(&npc_id).await.map_err(|e| e.to_string())?;
+    let mut results = Vec::new();
+
+    for cn in campaign_npcs {
+        if let Some(campaign) = state.database.get_campaign(&cn.campaign_id).await.map_err(|e| e.to_string())? {
+            results.push(NpcCampaignInfo {
+                campaign_id: campaign.id,
+                campaign_name: campaign.name,
+                joined_at: cn.joined_at,
+                is_active: cn.is_active,
+                state_json: cn.state_json,
+                voice_profile_override: cn.voice_profile_id_override,
+            });
+        }
+    }
+
+    Ok(results)
+}
+
+/// Response type for NPC campaign info
+#[derive(Debug, Serialize, Deserialize)]
+pub struct NpcCampaignInfo {
+    pub campaign_id: String,
+    pub campaign_name: String,
+    pub joined_at: String,
+    pub is_active: bool,
+    pub state_json: String,
+    pub voice_profile_override: Option<String>,
+}
+
+/// Get NPCs available to add to a campaign
+#[tauri::command]
+pub async fn get_available_npcs_for_campaign(
+    campaign_id: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<NPC>, String> {
+    let records = state.database.list_available_npcs_for_campaign(&campaign_id).await.map_err(|e| e.to_string())?;
+    let mut npcs = Vec::new();
+
+    for r in records {
+        if let Some(json) = r.data_json {
+            if let Ok(npc) = serde_json::from_str::<NPC>(&json) {
+                npcs.push(npc);
+            }
+        }
+    }
+
+    Ok(npcs)
+}
+
+/// Update campaign-specific NPC state
+#[tauri::command]
+pub async fn update_campaign_npc_state(
+    npc_id: String,
+    campaign_id: String,
+    state_json: String,
+    notes: Option<String>,
+    voice_profile_override: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    if let Some(mut record) = state.database.get_campaign_npc(&campaign_id, &npc_id).await.map_err(|e| e.to_string())? {
+        record.state_json = state_json;
+        if let Some(n) = notes {
+            record.notes = Some(n);
+        }
+        record.voice_profile_id_override = voice_profile_override;
+        state.database.update_campaign_npc(&record).await.map_err(|e| e.to_string())?;
+        Ok(())
+    } else {
+        Err("NPC not found in this campaign".to_string())
+    }
+}
+
+/// Set voice profile for an NPC in a specific campaign
+#[tauri::command]
+pub async fn set_campaign_npc_voice(
+    npc_id: String,
+    campaign_id: String,
+    voice_profile_id: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    if let Some(mut record) = state.database.get_campaign_npc(&campaign_id, &npc_id).await.map_err(|e| e.to_string())? {
+        record.voice_profile_id_override = voice_profile_id;
+        state.database.update_campaign_npc(&record).await.map_err(|e| e.to_string())?;
+        Ok(())
+    } else {
+        Err("NPC not found in this campaign".to_string())
+    }
+}
+
+// ============================================================================
+// NPC Voice Synthesis Commands
+// ============================================================================
+
+/// Speak text using an NPC's voice profile
+/// Uses campaign-specific voice override if available, otherwise falls back to NPC's default
+#[tauri::command]
+pub async fn speak_as_npc(
+    text: String,
+    npc_id: String,
+    campaign_id: Option<String>,
+    app_handle: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<Option<SpeakResult>, String> {
+    use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
+
+    // Get the NPC to ensure it exists
+    let npc_record = state.database.get_npc(&npc_id).await.map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("NPC not found: {}", npc_id))?;
+
+    // Determine voice profile to use
+    let voice_profile_id = if let Some(cid) = &campaign_id {
+        // Try campaign-specific override first
+        state.database.get_npc_effective_voice_profile(cid, &npc_id).await.map_err(|e| e.to_string())?
+    } else {
+        // Use NPC's default voice profile
+        npc_record.voice_profile_id.clone()
+    };
+
+    // Load base voice config from disk
+    let mut config = load_voice_config_disk(&app_handle)
+        .unwrap_or_else(|| {
+            log::warn!("No voice config found on disk, using default");
+            VoiceConfig::default()
+        });
+
+    // Restore secrets from credential manager if masked
+    if let Some(ref mut elevenlabs) = config.elevenlabs {
+        if elevenlabs.api_key.is_empty() || elevenlabs.api_key == "********" {
+            if let Ok(secret) = state.credentials.get_secret("elevenlabs_api_key") {
+                elevenlabs.api_key = secret;
+            }
+        }
+    }
+
+    // Check if voice is disabled
+    if matches!(config.provider, VoiceProviderType::Disabled) {
+        log::info!("Voice synthesis disabled, skipping speak_as_npc request");
+        return Ok(None);
+    }
+
+    // Determine voice_id to use
+    let voice_id = if let Some(profile_id) = voice_profile_id {
+        // Load voice profile from database
+        if let Some(profile) = state.database.get_voice_profile(&profile_id).await.map_err(|e| e.to_string())? {
+            // Parse provider from profile and construct prefixed voice_id
+            let provider_prefix = match profile.provider.to_lowercase().as_str() {
+                "piper" => "piper:",
+                "coqui" => "coqui:",
+                "elevenlabs" => "elevenlabs:",
+                "openai" => "openai:",
+                _ => "",
+            };
+            format!("{}{}", provider_prefix, profile.voice_id)
+        } else {
+            // Profile not found, use config default
+            config.default_voice_id.clone().unwrap_or_else(|| "default".to_string())
+        }
+    } else {
+        // No profile set, use config default
+        config.default_voice_id.clone().unwrap_or_else(|| "default".to_string())
+    };
+
+    log::info!("speak_as_npc: NPC='{}', voice_id='{}', provider={:?}",
+        npc_record.name, voice_id, config.provider);
+
+    let manager = VoiceManager::new(config);
+
+    let request = SynthesisRequest {
+        text,
+        voice_id,
+        settings: None,
+        output_format: OutputFormat::Wav,
+    };
+
+    match manager.synthesize(request).await {
+        Ok(result) => {
+            let bytes = std::fs::read(&result.audio_path).map_err(|e| e.to_string())?;
+            let audio_data = BASE64.encode(&bytes);
+            log::info!("speak_as_npc synthesis complete, {} bytes", bytes.len());
+
+            Ok(Some(SpeakResult {
+                audio_data,
+                format: "wav".to_string(),
+            }))
+        }
+        Err(e) => {
+            log::error!("speak_as_npc synthesis failed: {}", e);
+            Err(format!("Voice synthesis failed: {}", e))
+        }
+    }
+}
+
+/// Get the effective voice profile for an NPC (considering campaign override)
+#[tauri::command]
+pub async fn get_effective_npc_voice_profile(
+    npc_id: String,
+    campaign_id: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<Option<VoiceProfileInfo>, String> {
+    let profile_id = if let Some(cid) = campaign_id {
+        state.database.get_npc_effective_voice_profile(&cid, &npc_id).await.map_err(|e| e.to_string())?
+    } else if let Some(npc) = state.database.get_npc(&npc_id).await.map_err(|e| e.to_string())? {
+        npc.voice_profile_id
+    } else {
+        return Err(format!("NPC not found: {}", npc_id));
+    };
+
+    if let Some(pid) = profile_id {
+        if let Some(profile) = state.database.get_voice_profile(&pid).await.map_err(|e| e.to_string())? {
+            return Ok(Some(VoiceProfileInfo {
+                id: profile.id,
+                name: profile.name,
+                provider: profile.provider,
+                voice_id: profile.voice_id,
+                gender: profile.gender,
+                age_range: profile.age_range,
+            }));
+        }
+    }
+
+    Ok(None)
+}
+
+/// Info about a voice profile for UI display
+#[derive(Debug, Serialize, Deserialize)]
+pub struct VoiceProfileInfo {
+    pub id: String,
+    pub name: String,
+    pub provider: String,
+    pub voice_id: String,
+    pub gender: Option<String>,
+    pub age_range: Option<String>,
 }
 
 // ============================================================================

@@ -429,13 +429,14 @@ impl Database {
         sqlx::query(
             r#"
             INSERT OR REPLACE INTO npcs
-            (id, campaign_id, name, role, personality_id, personality_json, data_json,
-             stats_json, notes, location_id, voice_profile_id, quest_hooks, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (id, campaign_id, origin_campaign_id, name, role, personality_id, personality_json, data_json,
+             stats_json, notes, location_id, voice_profile_id, quest_hooks, is_template, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             "#
         )
         .bind(&npc.id)
         .bind(&npc.campaign_id)
+        .bind(&npc.origin_campaign_id)
         .bind(&npc.name)
         .bind(&npc.role)
         .bind(&npc.personality_id)
@@ -446,6 +447,7 @@ impl Database {
         .bind(&npc.location_id)
         .bind(&npc.voice_profile_id)
         .bind(&npc.quest_hooks)
+        .bind(npc.is_template)
         .bind(&npc.created_at)
         .execute(&self.pool)
         .await?;
@@ -528,6 +530,168 @@ impl Database {
         .await?;
         Ok(())
     }
+
+    // =========================================================================
+    // Campaign-NPC Junction Operations (Multi-Campaign NPC Support)
+    // =========================================================================
+
+    /// Add an NPC to a campaign (creates junction table entry)
+    pub async fn add_npc_to_campaign(&self, record: &CampaignNpcRecord) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"
+            INSERT INTO campaign_npcs
+            (id, campaign_id, npc_id, state_json, relationship_changes_json, notes,
+             first_appeared_session_id, last_seen_session_id, joined_at, is_active,
+             voice_profile_id_override)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            "#
+        )
+        .bind(&record.id)
+        .bind(&record.campaign_id)
+        .bind(&record.npc_id)
+        .bind(&record.state_json)
+        .bind(&record.relationship_changes_json)
+        .bind(&record.notes)
+        .bind(&record.first_appeared_session_id)
+        .bind(&record.last_seen_session_id)
+        .bind(&record.joined_at)
+        .bind(record.is_active)
+        .bind(&record.voice_profile_id_override)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Get a campaign-NPC relationship record
+    pub async fn get_campaign_npc(&self, campaign_id: &str, npc_id: &str) -> Result<Option<CampaignNpcRecord>, sqlx::Error> {
+        sqlx::query_as::<_, CampaignNpcRecord>(
+            "SELECT * FROM campaign_npcs WHERE campaign_id = ? AND npc_id = ?"
+        )
+        .bind(campaign_id)
+        .bind(npc_id)
+        .fetch_optional(&self.pool)
+        .await
+    }
+
+    /// Update a campaign-NPC relationship (e.g., update state, notes)
+    pub async fn update_campaign_npc(&self, record: &CampaignNpcRecord) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"
+            UPDATE campaign_npcs
+            SET state_json = ?, relationship_changes_json = ?, notes = ?,
+                first_appeared_session_id = ?, last_seen_session_id = ?,
+                is_active = ?, voice_profile_id_override = ?
+            WHERE id = ?
+            "#
+        )
+        .bind(&record.state_json)
+        .bind(&record.relationship_changes_json)
+        .bind(&record.notes)
+        .bind(&record.first_appeared_session_id)
+        .bind(&record.last_seen_session_id)
+        .bind(record.is_active)
+        .bind(&record.voice_profile_id_override)
+        .bind(&record.id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// List all NPCs in a campaign (via junction table)
+    pub async fn list_campaign_npcs(&self, campaign_id: &str) -> Result<Vec<CampaignNpcRecord>, sqlx::Error> {
+        sqlx::query_as::<_, CampaignNpcRecord>(
+            "SELECT * FROM campaign_npcs WHERE campaign_id = ? AND is_active = 1 ORDER BY joined_at DESC"
+        )
+        .bind(campaign_id)
+        .fetch_all(&self.pool)
+        .await
+    }
+
+    /// List all campaigns an NPC appears in
+    pub async fn list_npc_campaigns(&self, npc_id: &str) -> Result<Vec<CampaignNpcRecord>, sqlx::Error> {
+        sqlx::query_as::<_, CampaignNpcRecord>(
+            "SELECT * FROM campaign_npcs WHERE npc_id = ? ORDER BY joined_at DESC"
+        )
+        .bind(npc_id)
+        .fetch_all(&self.pool)
+        .await
+    }
+
+    /// Remove an NPC from a campaign (soft delete by setting is_active = 0)
+    pub async fn remove_npc_from_campaign(&self, campaign_id: &str, npc_id: &str) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            "UPDATE campaign_npcs SET is_active = 0 WHERE campaign_id = ? AND npc_id = ?"
+        )
+        .bind(campaign_id)
+        .bind(npc_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Hard delete an NPC from a campaign
+    pub async fn delete_campaign_npc(&self, campaign_id: &str, npc_id: &str) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            "DELETE FROM campaign_npcs WHERE campaign_id = ? AND npc_id = ?"
+        )
+        .bind(campaign_id)
+        .bind(npc_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Update the last seen session for an NPC in a campaign
+    pub async fn update_npc_last_seen(&self, campaign_id: &str, npc_id: &str, session_id: &str) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            "UPDATE campaign_npcs SET last_seen_session_id = ? WHERE campaign_id = ? AND npc_id = ?"
+        )
+        .bind(session_id)
+        .bind(campaign_id)
+        .bind(npc_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// Get NPCs available to add to a campaign (not already in it)
+    pub async fn list_available_npcs_for_campaign(&self, campaign_id: &str) -> Result<Vec<NpcRecord>, sqlx::Error> {
+        sqlx::query_as::<_, NpcRecord>(
+            r#"
+            SELECT n.* FROM npcs n
+            WHERE n.id NOT IN (
+                SELECT npc_id FROM campaign_npcs WHERE campaign_id = ? AND is_active = 1
+            )
+            ORDER BY n.name
+            "#
+        )
+        .bind(campaign_id)
+        .fetch_all(&self.pool)
+        .await
+    }
+
+    /// Get the effective voice profile ID for an NPC in a specific campaign
+    /// Returns campaign-specific override if set, otherwise the NPC's default
+    pub async fn get_npc_effective_voice_profile(
+        &self,
+        campaign_id: &str,
+        npc_id: &str,
+    ) -> Result<Option<String>, sqlx::Error> {
+        // First check for campaign-specific override
+        if let Some(campaign_npc) = self.get_campaign_npc(campaign_id, npc_id).await? {
+            if let Some(override_id) = campaign_npc.voice_profile_id_override {
+                return Ok(Some(override_id));
+            }
+        }
+
+        // Fall back to NPC's default voice profile
+        if let Some(npc) = self.get_npc(npc_id).await? {
+            return Ok(npc.voice_profile_id);
+        }
+
+        Ok(None)
+    }
+
     // =========================================================================
     // Personality Operations
     // =========================================================================

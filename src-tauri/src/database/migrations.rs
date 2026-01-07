@@ -7,7 +7,7 @@ use sqlx::Row;
 use tracing::{info, warn};
 
 /// Current database schema version
-const SCHEMA_VERSION: i32 = 17;
+const SCHEMA_VERSION: i32 = 18;
 
 /// Run all pending migrations
 pub async fn run_migrations(pool: &SqlitePool) -> Result<(), sqlx::Error> {
@@ -74,6 +74,7 @@ async fn run_migration(pool: &SqlitePool, version: i32) -> Result<(), sqlx::Erro
         15 => ("session_events", MIGRATION_V15),
         16 => ("combat_states", MIGRATION_V16),
         17 => ("search_analytics", MIGRATION_V17),
+        18 => ("campaign_npcs_junction", MIGRATION_V18),
         _ => {
             warn!("Unknown migration version: {}", version);
             return Ok(());
@@ -711,4 +712,66 @@ CREATE TABLE IF NOT EXISTS search_query_stats (
 
 CREATE INDEX IF NOT EXISTS idx_search_query_stats_count ON search_query_stats(total_count DESC);
 CREATE INDEX IF NOT EXISTS idx_search_query_stats_last ON search_query_stats(last_searched_at DESC);
+"#;
+
+/// Migration v18: Campaign-NPC junction table for multi-campaign NPC support
+///
+/// This migration:
+/// 1. Creates campaign_npcs junction table for many-to-many relationships
+/// 2. Renames npcs.campaign_id to origin_campaign_id (where NPC was created)
+/// 3. Migrates existing NPC-campaign relationships to the junction table
+/// 4. Adds is_template flag to NPCs for reusable character templates
+const MIGRATION_V18: &str = r#"
+-- Campaign-NPC junction table: Links NPCs to campaigns with campaign-specific state
+CREATE TABLE IF NOT EXISTS campaign_npcs (
+    id TEXT PRIMARY KEY,
+    campaign_id TEXT NOT NULL,
+    npc_id TEXT NOT NULL,
+    -- Campaign-specific NPC state (memories, experiences, alterations)
+    state_json TEXT DEFAULT '{}',
+    -- How relationships have evolved in this campaign
+    relationship_changes_json TEXT,
+    -- DM notes specific to this campaign appearance
+    notes TEXT,
+    -- Temporal tracking
+    first_appeared_session_id TEXT,
+    last_seen_session_id TEXT,
+    joined_at TEXT NOT NULL,
+    -- Status flags
+    is_active INTEGER DEFAULT 1,
+    -- Voice profile override for this campaign (optional)
+    voice_profile_id_override TEXT,
+    FOREIGN KEY (campaign_id) REFERENCES campaigns(id) ON DELETE CASCADE,
+    FOREIGN KEY (npc_id) REFERENCES npcs(id) ON DELETE CASCADE,
+    FOREIGN KEY (first_appeared_session_id) REFERENCES sessions(id) ON DELETE SET NULL,
+    FOREIGN KEY (last_seen_session_id) REFERENCES sessions(id) ON DELETE SET NULL,
+    UNIQUE(campaign_id, npc_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_campaign_npcs_campaign ON campaign_npcs(campaign_id);
+CREATE INDEX IF NOT EXISTS idx_campaign_npcs_npc ON campaign_npcs(npc_id);
+CREATE INDEX IF NOT EXISTS idx_campaign_npcs_active ON campaign_npcs(is_active);
+
+-- Add origin_campaign_id column to track where NPC was first created
+-- (SQLite doesn't support RENAME COLUMN in older versions, so we add a new column)
+ALTER TABLE npcs ADD COLUMN origin_campaign_id TEXT;
+ALTER TABLE npcs ADD COLUMN is_template INTEGER DEFAULT 0;
+
+-- Migrate existing campaign_id values to origin_campaign_id
+UPDATE npcs SET origin_campaign_id = campaign_id WHERE campaign_id IS NOT NULL;
+
+-- Create junction table entries for existing NPC-campaign relationships
+INSERT OR IGNORE INTO campaign_npcs (id, campaign_id, npc_id, joined_at, is_active)
+SELECT
+    lower(hex(randomblob(16))),
+    campaign_id,
+    id,
+    created_at,
+    1
+FROM npcs
+WHERE campaign_id IS NOT NULL;
+
+-- Create index on origin campaign
+CREATE INDEX IF NOT EXISTS idx_npcs_origin_campaign ON npcs(origin_campaign_id);
+CREATE INDEX IF NOT EXISTS idx_npcs_is_template ON npcs(is_template);
 "#;

@@ -122,7 +122,8 @@ pub struct CombatRecord {
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct NpcRecord {
     pub id: String,
-    pub campaign_id: Option<String>,
+    pub campaign_id: Option<String>,           // Legacy: kept for backwards compat
+    pub origin_campaign_id: Option<String>,    // Where NPC was first created
     pub name: String,
     pub role: String,
     pub personality_id: Option<String>,
@@ -132,8 +133,65 @@ pub struct NpcRecord {
     pub notes: Option<String>,
     pub location_id: Option<String>,
     pub voice_profile_id: Option<String>,
-    pub quest_hooks: Option<String>,  // JSON array
+    pub quest_hooks: Option<String>,           // JSON array
+    pub is_template: bool,                     // Whether this is a reusable template
     pub created_at: String,
+}
+
+/// Campaign-NPC junction table record
+/// Allows NPCs to appear in multiple campaigns with campaign-specific state
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct CampaignNpcRecord {
+    pub id: String,
+    pub campaign_id: String,
+    pub npc_id: String,
+    /// Campaign-specific state (memories, experiences, alterations from base NPC)
+    pub state_json: String,
+    /// How relationships have evolved in this campaign
+    pub relationship_changes_json: Option<String>,
+    /// DM notes specific to this campaign appearance
+    pub notes: Option<String>,
+    /// First session where NPC appeared in this campaign
+    pub first_appeared_session_id: Option<String>,
+    /// Last session where NPC was seen
+    pub last_seen_session_id: Option<String>,
+    /// When NPC was added to this campaign
+    pub joined_at: String,
+    /// Whether NPC is still active in this campaign
+    pub is_active: bool,
+    /// Optional voice profile override for this specific campaign
+    pub voice_profile_id_override: Option<String>,
+}
+
+impl CampaignNpcRecord {
+    pub fn new(campaign_id: String, npc_id: String) -> Self {
+        Self {
+            id: uuid::Uuid::new_v4().to_string(),
+            campaign_id,
+            npc_id,
+            state_json: "{}".to_string(),
+            relationship_changes_json: None,
+            notes: None,
+            first_appeared_session_id: None,
+            last_seen_session_id: None,
+            joined_at: chrono::Utc::now().to_rfc3339(),
+            is_active: true,
+            voice_profile_id_override: None,
+        }
+    }
+
+    /// Create with initial state from another campaign
+    pub fn with_state_from(
+        campaign_id: String,
+        npc_id: String,
+        previous_state: Option<&str>,
+    ) -> Self {
+        let mut record = Self::new(campaign_id, npc_id);
+        if let Some(state) = previous_state {
+            record.state_json = state.to_string();
+        }
+        record
+    }
 }
 
 impl CampaignRecord {
