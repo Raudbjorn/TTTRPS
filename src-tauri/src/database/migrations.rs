@@ -7,7 +7,7 @@ use sqlx::Row;
 use tracing::{info, warn};
 
 /// Current database schema version
-const SCHEMA_VERSION: i32 = 17;
+const SCHEMA_VERSION: i32 = 19;
 
 /// Run all pending migrations
 pub async fn run_migrations(pool: &SqlitePool) -> Result<(), sqlx::Error> {
@@ -74,6 +74,8 @@ async fn run_migration(pool: &SqlitePool, version: i32) -> Result<(), sqlx::Erro
         15 => ("session_events", MIGRATION_V15),
         16 => ("combat_states", MIGRATION_V16),
         17 => ("search_analytics", MIGRATION_V17),
+        18 => ("global_chat_sessions", MIGRATION_V18),
+        19 => ("chat_session_unique_active", MIGRATION_V19),
         _ => {
             warn!("Unknown migration version: {}", version);
             return Ok(());
@@ -711,4 +713,51 @@ CREATE TABLE IF NOT EXISTS search_query_stats (
 
 CREATE INDEX IF NOT EXISTS idx_search_query_stats_count ON search_query_stats(total_count DESC);
 CREATE INDEX IF NOT EXISTS idx_search_query_stats_last ON search_query_stats(last_searched_at DESC);
+"#;
+
+/// Migration v18: Global chat sessions for persistent LLM conversations
+/// Allows chat history to persist across navigation and be linked to game sessions
+const MIGRATION_V18: &str = r#"
+-- Global chat sessions table
+CREATE TABLE IF NOT EXISTS global_chat_sessions (
+    id TEXT PRIMARY KEY,
+    status TEXT NOT NULL DEFAULT 'active',
+    linked_game_session_id TEXT,
+    linked_campaign_id TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (linked_game_session_id) REFERENCES sessions(id) ON DELETE SET NULL,
+    FOREIGN KEY (linked_campaign_id) REFERENCES campaigns(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_global_chat_sessions_status ON global_chat_sessions(status);
+CREATE INDEX IF NOT EXISTS idx_global_chat_sessions_game_session ON global_chat_sessions(linked_game_session_id);
+CREATE INDEX IF NOT EXISTS idx_global_chat_sessions_campaign ON global_chat_sessions(linked_campaign_id);
+CREATE INDEX IF NOT EXISTS idx_global_chat_sessions_created ON global_chat_sessions(created_at DESC);
+
+-- Chat messages table
+CREATE TABLE IF NOT EXISTS chat_messages (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    role TEXT NOT NULL,
+    content TEXT NOT NULL,
+    tokens_input INTEGER,
+    tokens_output INTEGER,
+    is_streaming INTEGER NOT NULL DEFAULT 0,
+    metadata TEXT,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (session_id) REFERENCES global_chat_sessions(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_chat_messages_session ON chat_messages(session_id);
+CREATE INDEX IF NOT EXISTS idx_chat_messages_created ON chat_messages(created_at);
+CREATE INDEX IF NOT EXISTS idx_chat_messages_role ON chat_messages(role);
+"#;
+
+/// Migration v19: Enforce single active chat session via partial unique index
+/// Prevents race condition in get_or_create_active_chat_session
+const MIGRATION_V19: &str = r#"
+-- Ensure only one chat session can be active at a time
+CREATE UNIQUE INDEX IF NOT EXISTS idx_global_chat_sessions_single_active
+ON global_chat_sessions(status) WHERE status = 'active';
 "#;
