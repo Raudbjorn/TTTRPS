@@ -7,10 +7,12 @@ use leptos::ev;
 use wasm_bindgen_futures::spawn_local;
 use crate::bindings::{
     VoiceProfile, VoiceProfileInfo, list_voice_presets, link_voice_profile_to_npc,
-    get_effective_npc_voice_profile, set_campaign_npc_voice, speak_as_npc,
+    unlink_voice_profile_from_npc, get_effective_npc_voice_profile, set_campaign_npc_voice,
+    speak_as_npc,
 };
 use crate::components::design_system::{Button, ButtonVariant, Modal};
 use crate::services::notification_service::{show_success, show_error};
+use crate::utils::play_audio_base64;
 
 /// NPC Voice Configuration modal for setting voice profiles
 #[component]
@@ -66,7 +68,7 @@ pub fn NpcVoiceConfig(
                     current_profile.set(profile);
                 }
                 Err(e) => {
-                    web_sys::console::log_1(&format!("Failed to get current profile: {}", e).into());
+                    show_error("Load Error", Some(&format!("Failed to get current profile: {}", e)), None);
                 }
             }
 
@@ -131,13 +133,14 @@ pub fn NpcVoiceConfig(
 
         spawn_local(async move {
             let result = if let Some(cid) = campaign_id {
-                // Set campaign-specific override
+                // Set campaign-specific override (None means use global DM voice)
                 set_campaign_npc_voice(npc_id, cid, profile_id).await
             } else if let Some(pid) = profile_id {
                 // Set NPC's default voice profile
                 link_voice_profile_to_npc(pid, npc_id).await
             } else {
-                Ok(())
+                // Unset NPC's default voice profile (revert to global DM voice)
+                unlink_voice_profile_from_npc(npc_id).await
             };
 
             match result {
@@ -302,31 +305,4 @@ fn VoiceProfileOption(
             </div>
         </button>
     }
-}
-
-/// Play base64-encoded audio using the browser's Audio API
-fn play_audio_base64(audio_data: &str, format: &str) -> Result<(), String> {
-    use wasm_bindgen::JsCast;
-
-    let window = web_sys::window().ok_or("No window object")?;
-    let document = window.document().ok_or("No document object")?;
-
-    let mime_type = match format {
-        "wav" => "audio/wav",
-        "mp3" => "audio/mpeg",
-        "ogg" => "audio/ogg",
-        _ => "audio/wav",
-    };
-    let data_url = format!("data:{};base64,{}", mime_type, audio_data);
-
-    let audio: web_sys::HtmlAudioElement = document
-        .create_element("audio")
-        .map_err(|e| format!("Failed to create audio element: {:?}", e))?
-        .dyn_into()
-        .map_err(|_| "Failed to cast to HtmlAudioElement")?;
-
-    audio.set_src(&data_url);
-    let _ = audio.play().map_err(|e| format!("Failed to play: {:?}", e))?;
-
-    Ok(())
 }

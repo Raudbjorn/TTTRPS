@@ -366,6 +366,8 @@ fn main() {
             // NPC Voice Commands
             commands::speak_as_npc,
             commands::get_effective_npc_voice_profile,
+            commands::link_voice_profile_to_npc,
+            commands::unlink_voice_profile_from_npc,
 
             // NPC Conversation Commands
             commands::list_npc_conversations,

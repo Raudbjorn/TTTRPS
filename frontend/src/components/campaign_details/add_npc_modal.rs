@@ -247,10 +247,14 @@ pub fn AddNpcToCampaignModal(
                                     key=|c| c.campaign_id.clone()
                                     children=move |campaign| {
                                         let cid = campaign.campaign_id.clone();
-                                        let cid_for_signal = cid.clone();
-                                        let cid_for_callback = cid.clone();
-                                        let is_selected = Signal::derive(move || copy_from_campaign.get() == Some(cid_for_signal.clone()));
-                                        let on_select = Callback::new(move |_: ev::MouseEvent| copy_from_campaign.set(Some(cid_for_callback.clone())));
+                                        let is_selected = {
+                                            let cid = cid.clone();
+                                            Signal::derive(move || copy_from_campaign.get() == Some(cid.clone()))
+                                        };
+                                        let on_select = {
+                                            let cid = cid.clone();
+                                            Callback::new(move |_: ev::MouseEvent| copy_from_campaign.set(Some(cid.clone())))
+                                        };
                                         view! {
                                             <CampaignOption
                                                 id=Some(campaign.campaign_id.clone())

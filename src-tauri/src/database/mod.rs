@@ -488,6 +488,29 @@ impl Database {
         Ok(())
     }
 
+    /// Link a voice profile to an NPC (sets their default voice)
+    pub async fn link_voice_profile_to_npc(
+        &self,
+        profile_id: &str,
+        npc_id: &str,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query("UPDATE npcs SET voice_profile_id = ? WHERE id = ?")
+            .bind(profile_id)
+            .bind(npc_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// Unlink voice profile from an NPC (revert to global DM voice)
+    pub async fn unlink_voice_profile_from_npc(&self, npc_id: &str) -> Result<(), sqlx::Error> {
+        sqlx::query("UPDATE npcs SET voice_profile_id = NULL WHERE id = ?")
+            .bind(npc_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
     // =========================================================================
     // NPC Conversation Operations
     // =========================================================================
@@ -655,13 +678,13 @@ impl Database {
     }
 
     /// Get NPCs available to add to a campaign (not already in it)
+    /// Uses LEFT JOIN for better performance on large tables
     pub async fn list_available_npcs_for_campaign(&self, campaign_id: &str) -> Result<Vec<NpcRecord>, sqlx::Error> {
         sqlx::query_as::<_, NpcRecord>(
             r#"
             SELECT n.* FROM npcs n
-            WHERE n.id NOT IN (
-                SELECT npc_id FROM campaign_npcs WHERE campaign_id = ? AND is_active = 1
-            )
+            LEFT JOIN campaign_npcs cn ON n.id = cn.npc_id AND cn.campaign_id = ? AND cn.is_active = 1
+            WHERE cn.npc_id IS NULL
             ORDER BY n.name
             "#
         )
@@ -672,19 +695,24 @@ impl Database {
 
     /// Get the effective voice profile ID for an NPC in a specific campaign
     /// Returns campaign-specific override if set, otherwise the NPC's default
+    ///
+    /// Resolution hierarchy:
+    /// 1. If campaign_npc record exists, its voice_profile_id_override is authoritative
+    ///    - Some(id) = use that profile
+    ///    - None = use global DM voice (return None)
+    /// 2. If no campaign_npc record, fall back to NPC's default voice profile
     pub async fn get_npc_effective_voice_profile(
         &self,
         campaign_id: &str,
         npc_id: &str,
     ) -> Result<Option<String>, sqlx::Error> {
-        // First check for campaign-specific override
+        // If campaign-specific record exists, its override is authoritative
         if let Some(campaign_npc) = self.get_campaign_npc(campaign_id, npc_id).await? {
-            if let Some(override_id) = campaign_npc.voice_profile_id_override {
-                return Ok(Some(override_id));
-            }
+            // Return the override directly - None means "use global DM voice"
+            return Ok(campaign_npc.voice_profile_id_override);
         }
 
-        // Fall back to NPC's default voice profile
+        // No campaign-specific record, fall back to NPC's default voice profile
         if let Some(npc) = self.get_npc(npc_id).await? {
             return Ok(npc.voice_profile_id);
         }

@@ -3801,6 +3801,15 @@ pub async fn link_voice_profile_to_npc(profile_id: String, npc_id: String) -> Re
     invoke_void("link_voice_profile_to_npc", &Args { profile_id, npc_id }).await
 }
 
+/// Unlink voice profile from an NPC (revert to global DM voice)
+pub async fn unlink_voice_profile_from_npc(npc_id: String) -> Result<(), String> {
+    #[derive(Serialize)]
+    struct Args {
+        npc_id: String,
+    }
+    invoke_void("unlink_voice_profile_from_npc", &Args { npc_id }).await
+}
+
 /// Get the voice profile linked to an NPC
 pub async fn get_npc_voice_profile(npc_id: String) -> Result<Option<String>, String> {
     #[derive(Serialize)]

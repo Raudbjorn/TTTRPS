@@ -7,6 +7,7 @@ use crate::bindings::{
 };
 use crate::components::design_system::Markdown;
 use crate::services::notification_service::show_error;
+use crate::utils::play_audio_base64;
 
 /// NPC Conversation component for chat-style messaging with NPCs
 #[component]
@@ -246,37 +247,32 @@ fn MessageBubble(
     };
 
     // Play button handler for NPC messages
-    let play_handler = {
+    let play_handler = move |_: ev::MouseEvent| {
+        if is_playing.get() {
+            return;
+        }
+        // Clone values once here before moving into async block
         let npc_id = npc_id.clone();
         let campaign_id = campaign_id.clone();
         let content = msg_content_for_play.clone();
-        move |_: ev::MouseEvent| {
-            if is_playing.get() {
-                return;
-            }
-            let npc_id = npc_id.clone();
-            let campaign_id = campaign_id.clone();
-            let content = content.clone();
-            is_playing.set(true);
+        is_playing.set(true);
 
-            spawn_local(async move {
-                match speak_as_npc(content, npc_id, campaign_id).await {
-                    Ok(Some(result)) => {
-                        // Play the audio using browser audio API
-                        if let Err(e) = play_audio_base64(&result.audio_data, &result.format) {
-                            show_error("Voice Error", Some(&format!("Failed to play audio: {}", e)), None);
-                        }
-                    }
-                    Ok(None) => {
-                        // Voice is disabled, silently ignore
-                    }
-                    Err(e) => {
-                        show_error("Voice Error", Some(&e), None);
+        spawn_local(async move {
+            match speak_as_npc(content, npc_id, campaign_id).await {
+                Ok(Some(result)) => {
+                    if let Err(e) = play_audio_base64(&result.audio_data, &result.format) {
+                        show_error("Voice Error", Some(&format!("Failed to play audio: {}", e)), None);
                     }
                 }
-                is_playing.set(false);
-            });
-        }
+                Ok(None) => {
+                    // Voice is disabled, silently ignore
+                }
+                Err(e) => {
+                    show_error("Voice Error", Some(&e), None);
+                }
+            }
+            is_playing.set(false);
+        });
     };
 
     // Play button only for NPC messages (not user messages)
@@ -323,35 +319,6 @@ fn MessageBubble(
             </div>
         </div>
     }
-}
-
-/// Play base64-encoded audio using the browser's Audio API
-fn play_audio_base64(audio_data: &str, format: &str) -> Result<(), String> {
-    use wasm_bindgen::JsCast;
-
-    let window = web_sys::window().ok_or("No window object")?;
-    let document = window.document().ok_or("No document object")?;
-
-    // Create data URL
-    let mime_type = match format {
-        "wav" => "audio/wav",
-        "mp3" => "audio/mpeg",
-        "ogg" => "audio/ogg",
-        _ => "audio/wav",
-    };
-    let data_url = format!("data:{};base64,{}", mime_type, audio_data);
-
-    // Create and play audio element
-    let audio: web_sys::HtmlAudioElement = document
-        .create_element("audio")
-        .map_err(|e| format!("Failed to create audio element: {:?}", e))?
-        .dyn_into()
-        .map_err(|_| "Failed to cast to HtmlAudioElement")?;
-
-    audio.set_src(&data_url);
-    let _ = audio.play().map_err(|e| format!("Failed to play: {:?}", e))?;
-
-    Ok(())
 }
 
 #[component]

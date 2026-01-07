@@ -2232,6 +2232,10 @@ pub async fn add_npc_to_campaign(
         if let Some(source_record) = state.database.get_campaign_npc(&source_campaign_id, &npc_id).await.map_err(|e| e.to_string())? {
             Some(source_record.state_json)
         } else {
+            log::warn!(
+                "add_npc_to_campaign: copy_state_from_campaign='{}' specified but NPC '{}' not found in that campaign, starting fresh",
+                source_campaign_id, npc_id
+            );
             None
         }
     } else {
@@ -2384,21 +2388,9 @@ pub async fn speak_as_npc(
         npc_record.voice_profile_id.clone()
     };
 
-    // Load base voice config from disk
-    let mut config = load_voice_config_disk(&app_handle)
-        .unwrap_or_else(|| {
-            log::warn!("No voice config found on disk, using default");
-            VoiceConfig::default()
-        });
-
-    // Restore secrets from credential manager if masked
-    if let Some(ref mut elevenlabs) = config.elevenlabs {
-        if elevenlabs.api_key.is_empty() || elevenlabs.api_key == "********" {
-            if let Ok(secret) = state.credentials.get_secret("elevenlabs_api_key") {
-                elevenlabs.api_key = secret;
-            }
-        }
-    }
+    // Use existing VoiceManager from state (already configured with secrets)
+    let manager = state.voice_manager.read().await;
+    let config = manager.get_config();
 
     // Check if voice is disabled
     if matches!(config.provider, VoiceProviderType::Disabled) {
@@ -2430,8 +2422,6 @@ pub async fn speak_as_npc(
 
     log::info!("speak_as_npc: NPC='{}', voice_id='{}', provider={:?}",
         npc_record.name, voice_id, config.provider);
-
-    let manager = VoiceManager::new(config);
 
     let request = SynthesisRequest {
         text,
@@ -4386,25 +4376,27 @@ pub async fn create_voice_profile(
     Ok(profile.id)
 }
 
-/// Link a voice profile to an NPC
+/// Link a voice profile to an NPC (sets their default voice)
 #[tauri::command]
 pub async fn link_voice_profile_to_npc(
     profile_id: String,
     npc_id: String,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    if let Some(mut record) = state.database.get_npc(&npc_id).await.map_err(|e| e.to_string())? {
-        if let Some(json) = &record.data_json {
-            let mut npc: serde_json::Value = serde_json::from_str(json)
-                .map_err(|e| e.to_string())?;
-            npc["voice_profile_id"] = serde_json::json!(profile_id);
-            record.data_json = Some(serde_json::to_string(&npc).map_err(|e| e.to_string())?);
-            state.database.save_npc(&record).await.map_err(|e| e.to_string())?;
-        }
-    } else {
-        return Err(format!("NPC not found: {}", npc_id));
-    }
-    Ok(())
+    state.database.link_voice_profile_to_npc(&profile_id, &npc_id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Unlink voice profile from an NPC (revert to global DM voice)
+#[tauri::command]
+pub async fn unlink_voice_profile_from_npc(
+    npc_id: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    state.database.unlink_voice_profile_from_npc(&npc_id)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// Get the voice profile linked to an NPC
