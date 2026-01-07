@@ -12,6 +12,7 @@
 //! - Session resumption (`--continue`, `--resume`)
 //! - Conversation compaction (`/compact`)
 //! - Configurable timeout and model selection
+//! - Automatic rate limit fallback (try primary model, fallback on 429)
 //!
 //! ## Session Management
 //!
@@ -25,8 +26,15 @@
 //! ```rust,no_run
 //! use crate::core::llm::providers::ClaudeCodeProvider;
 //!
+//! // Using builder pattern (recommended)
+//! let provider = ClaudeCodeProvider::builder()
+//!     .model("claude-sonnet-4-20250514")
+//!     .timeout_secs(300)
+//!     .fallback_model("claude-haiku-4-20250514")
+//!     .build();
+//!
+//! // Or with simple constructors
 //! let provider = ClaudeCodeProvider::new();
-//! // Or with custom timeout and session support
 //! let provider = ClaudeCodeProvider::with_config(300, None, None);
 //! ```
 
@@ -51,6 +59,19 @@ use tracing::{debug, error, info, warn};
 
 /// Fallback model when rate limited (429)
 const RATE_LIMIT_FALLBACK_MODEL: &str = "claude-sonnet-4-20250514";
+
+// ============================================================================
+// Constants
+// ============================================================================
+
+/// Default timeout in seconds for CLI operations.
+const DEFAULT_TIMEOUT_SECS: u64 = 300;
+
+/// Default model (Claude Code auto-selects based on task complexity).
+const DEFAULT_MODEL: &str = "claude-sonnet-4-20250514";
+
+/// Fallback model when rate limited (faster, cheaper).
+const FALLBACK_MODEL: &str = "claude-haiku-4-20250514";
 
 // ============================================================================
 // Response Types
@@ -117,6 +138,7 @@ pub enum SessionMode {
 pub struct ClaudeCodeProvider {
     timeout_secs: u64,
     model: Option<String>,
+    fallback_model: Option<String>,
     working_dir: Option<String>,
     /// Session store for tracking conversations
     session_store: Arc<SessionStore>,
@@ -124,17 +146,128 @@ pub struct ClaudeCodeProvider {
     current_session: RwLock<Option<SessionId>>,
     /// Whether to persist sessions to disk
     persist_sessions: bool,
+    /// Whether to automatically fallback on rate limit errors.
+    auto_fallback: bool,
+}
+
+// ============================================================================
+// Builder Pattern
+// ============================================================================
+
+/// Builder for ClaudeCodeProvider.
+#[derive(Debug)]
+pub struct ClaudeCodeProviderBuilder {
+    model: Option<String>,
+    fallback_model: Option<String>,
+    timeout_secs: Option<u64>,
+    working_dir: Option<String>,
+    persist_sessions: bool,
+    auto_fallback: bool,
+}
+
+impl Default for ClaudeCodeProviderBuilder {
+    fn default() -> Self {
+        Self {
+            model: None,
+            fallback_model: Some(FALLBACK_MODEL.to_string()),
+            timeout_secs: None,
+            working_dir: None,
+            persist_sessions: true,
+            auto_fallback: true,
+        }
+    }
+}
+
+impl ClaudeCodeProviderBuilder {
+    /// Create a new builder with default settings.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Set the model to use.
+    pub fn model(mut self, model: impl Into<String>) -> Self {
+        self.model = Some(model.into());
+        self
+    }
+
+    /// Set the fallback model (used when rate limited).
+    pub fn fallback_model(mut self, model: impl Into<String>) -> Self {
+        self.fallback_model = Some(model.into());
+        self
+    }
+
+    /// Disable fallback model (don't retry on rate limit).
+    pub fn no_fallback(mut self) -> Self {
+        self.fallback_model = None;
+        self.auto_fallback = false;
+        self
+    }
+
+    /// Enable/disable automatic fallback on rate limit errors.
+    pub fn auto_fallback(mut self, enabled: bool) -> Self {
+        self.auto_fallback = enabled;
+        self
+    }
+
+    /// Set the timeout in seconds.
+    pub fn timeout_secs(mut self, timeout: u64) -> Self {
+        self.timeout_secs = Some(timeout);
+        self
+    }
+
+    /// Set the working directory for the CLI.
+    pub fn working_dir(mut self, dir: impl Into<String>) -> Self {
+        self.working_dir = Some(dir.into());
+        self
+    }
+
+    /// Enable/disable session persistence to disk.
+    pub fn persist_sessions(mut self, enabled: bool) -> Self {
+        self.persist_sessions = enabled;
+        self
+    }
+
+    /// Build the provider.
+    pub fn build(self) -> ClaudeCodeProvider {
+        let store_path = if self.persist_sessions {
+            dirs::data_local_dir()
+                .map(|d| d.join("ttrpg-assistant").join("claude-sessions.json"))
+        } else {
+            None
+        };
+
+        let session_store = match store_path {
+            Some(path) => Arc::new(SessionStore::with_persistence(path)),
+            None => Arc::new(SessionStore::new()),
+        };
+
+        ClaudeCodeProvider {
+            timeout_secs: self.timeout_secs.unwrap_or(DEFAULT_TIMEOUT_SECS),
+            model: self.model,
+            fallback_model: self.fallback_model,
+            working_dir: self.working_dir,
+            session_store,
+            current_session: RwLock::new(None),
+            persist_sessions: self.persist_sessions,
+            auto_fallback: self.auto_fallback,
+        }
+    }
 }
 
 impl ClaudeCodeProvider {
     /// Create a new provider with default configuration.
     pub fn new() -> Self {
-        Self::with_config(300, None, None)
+        Self::builder().build()
+    }
+
+    /// Create a new builder.
+    pub fn builder() -> ClaudeCodeProviderBuilder {
+        ClaudeCodeProviderBuilder::new()
     }
 
     /// Create a new provider with custom timeout.
     pub fn with_timeout(timeout_secs: u64) -> Self {
-        Self::with_config(timeout_secs, None, None)
+        Self::builder().timeout_secs(timeout_secs).build()
     }
 
     /// Create a new provider with custom configuration.
@@ -143,22 +276,14 @@ impl ClaudeCodeProvider {
         model: Option<String>,
         working_dir: Option<String>,
     ) -> Self {
-        let store_path = dirs::data_local_dir()
-            .map(|d| d.join("ttrpg-assistant").join("claude-sessions.json"));
-
-        let session_store = match store_path {
-            Some(path) => Arc::new(SessionStore::with_persistence(path)),
-            None => Arc::new(SessionStore::new()),
-        };
-
-        Self {
-            timeout_secs,
-            model,
-            working_dir,
-            session_store,
-            current_session: RwLock::new(None),
-            persist_sessions: true,
+        let mut builder = Self::builder().timeout_secs(timeout_secs);
+        if let Some(m) = model {
+            builder = builder.model(m);
         }
+        if let Some(dir) = working_dir {
+            builder = builder.working_dir(dir);
+        }
+        builder.build()
     }
 
     /// Create provider with custom session store
@@ -171,11 +296,25 @@ impl ClaudeCodeProvider {
         Self {
             timeout_secs,
             model,
+            fallback_model: Some(FALLBACK_MODEL.to_string()),
             working_dir,
             session_store,
             current_session: RwLock::new(None),
             persist_sessions: true,
+            auto_fallback: true,
         }
+    }
+
+    /// Check if an error indicates a rate limit / quota exhaustion.
+    /// Uses confirmed Anthropic rate limit indicators.
+    fn is_rate_limit_error(output: &str) -> bool {
+        let lower = output.to_lowercase();
+        lower.contains("429")
+            || lower.contains("rate limit")
+            || lower.contains("too many requests")
+            || lower.contains("quota")
+            || lower.contains("overloaded")
+            || lower.contains("capacity")
     }
 
     /// Build the message content from the request.
@@ -209,20 +348,14 @@ impl ClaudeCodeProvider {
         }
     }
 
-    /// Check if an error message indicates a rate limit (429)
-    fn is_rate_limit_error(error_msg: &str) -> bool {
-        let lower = error_msg.to_lowercase();
-        lower.contains("rate limit")
-            || lower.contains("429")
-            || lower.contains("too many requests")
-            || lower.contains("overloaded")
-            || lower.contains("capacity")
-    }
-
-    /// Build CLI arguments for a request
-    ///
-    /// `model_override` can be used to force a specific model (e.g., for rate limit fallback)
-    fn build_args(&self, prompt: &str, session_mode: &SessionMode, streaming: bool, model_override: Option<&str>) -> Vec<String> {
+    /// Build CLI arguments for a request with optional model override.
+    fn build_args_with_model(
+        &self,
+        prompt: &str,
+        session_mode: &SessionMode,
+        streaming: bool,
+        model_override: Option<&str>,
+    ) -> Vec<String> {
         let mut args = vec!["-p".to_string(), prompt.to_string()];
 
         // Output format
@@ -260,16 +393,32 @@ impl ClaudeCodeProvider {
         args
     }
 
-    /// Execute a prompt via Claude Code CLI (non-streaming)
+    /// Build CLI arguments for a request
+    fn build_args(&self, prompt: &str, session_mode: &SessionMode, streaming: bool) -> Vec<String> {
+        self.build_args_with_model(prompt, session_mode, streaming, None)
+    }
+
+    /// Execute a prompt via Claude Code CLI (non-streaming).
     ///
     /// If a rate limit (429) error is encountered and no explicit model was configured,
     /// automatically retries with Sonnet as a fallback.
     async fn execute_prompt(&self, prompt: &str, session_mode: SessionMode) -> Result<ClaudeCodeResponse> {
-        self.execute_prompt_with_fallback(prompt, session_mode, None).await
+        self.execute_prompt_impl(prompt, session_mode, None).await
     }
 
-    /// Execute a prompt with optional model override and rate limit fallback
-    async fn execute_prompt_with_fallback(
+    /// Execute a prompt with a specific model override (for fallback scenarios).
+    async fn execute_prompt_with_model(
+        &self,
+        prompt: &str,
+        session_mode: SessionMode,
+        model: &str,
+    ) -> Result<ClaudeCodeResponse> {
+        self.execute_prompt_impl(prompt, session_mode, Some(model)).await
+    }
+
+    /// Core implementation for executing prompts via Claude Code CLI.
+    /// Includes rate limit fallback logic.
+    async fn execute_prompt_impl(
         &self,
         prompt: &str,
         session_mode: SessionMode,
@@ -282,7 +431,7 @@ impl ClaudeCodeProvider {
             )
         })?;
 
-        let args = self.build_args(prompt, &session_mode, false, model_override);
+        let args = self.build_args_with_model(prompt, &session_mode, false, model_override);
 
         let mut cmd = Command::new(binary);
         cmd.args(&args);
@@ -295,7 +444,11 @@ impl ClaudeCodeProvider {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
-        debug!(command = ?cmd, "executing Claude Code CLI");
+        if let Some(model) = model_override {
+            debug!(model = model, "executing Claude Code CLI with model override");
+        } else {
+            debug!(command = ?cmd, "executing Claude Code CLI");
+        }
 
         let timeout = tokio::time::Duration::from_secs(self.timeout_secs);
         let mut child = cmd.spawn().map_err(|e| LLMError::ApiError {
@@ -331,9 +484,9 @@ impl ClaudeCodeProvider {
 
                 if !status.success() {
                     let error_msg = if !stderr.is_empty() {
-                        stderr
+                        stderr.clone()
                     } else if !stdout.is_empty() {
-                        stdout
+                        stdout.clone()
                     } else {
                         "unknown error".to_string()
                     };
@@ -350,7 +503,7 @@ impl ClaudeCodeProvider {
                             "Rate limit detected, retrying with fallback model"
                         );
                         // Retry with Sonnet - use Box::pin for recursive async call
-                        return Box::pin(self.execute_prompt_with_fallback(
+                        return Box::pin(self.execute_prompt_impl(
                             prompt,
                             session_mode,
                             Some(RATE_LIMIT_FALLBACK_MODEL),
@@ -419,7 +572,7 @@ impl ClaudeCodeProvider {
             )
         })?;
 
-        let args = self.build_args(prompt, &session_mode, true, None);
+        let args = self.build_args(prompt, &session_mode, true);
         let (tx, rx) = mpsc::channel::<Result<ChatChunk>>(100);
 
         let mut cmd = Command::new(binary);
@@ -1080,7 +1233,32 @@ impl LLMProvider for ClaudeCodeProvider {
             }
         };
 
-        let response = self.execute_prompt(&message, session_mode).await?;
+        // Try primary model first
+        let result = self.execute_prompt(&message, session_mode.clone()).await;
+
+        let (response, used_model) = match result {
+            Ok(resp) => (resp, self.model.clone().unwrap_or_else(|| DEFAULT_MODEL.to_string())),
+            Err(LLMError::RateLimited { .. }) if self.auto_fallback => {
+                // Rate limited - try fallback model if available
+                if let Some(ref fallback) = self.fallback_model {
+                    warn!(
+                        primary = ?self.model,
+                        fallback = fallback,
+                        "Rate limited on primary model, switching to fallback"
+                    );
+
+                    let fallback_response = self
+                        .execute_prompt_with_model(&message, session_mode, fallback)
+                        .await?;
+
+                    (fallback_response, fallback.clone())
+                } else {
+                    // No fallback configured
+                    return Err(LLMError::RateLimited { retry_after_secs: 60 });
+                }
+            }
+            Err(e) => return Err(e),
+        };
 
         let latency_ms = start.elapsed().as_millis() as u64;
 
@@ -1094,13 +1272,14 @@ impl LLMProvider for ClaudeCodeProvider {
         info!(
             response_len = response.result.len(),
             latency_ms,
+            model = used_model,
             session_id = ?response.session_id,
             "received response from Claude Code"
         );
 
         Ok(ChatResponse {
             content: response.result,
-            model: self.model.clone().unwrap_or_else(|| "claude-code".to_string()),
+            model: used_model,
             provider: "claude-code".to_string(),
             usage: response.usage.map(|u| crate::core::llm::cost::TokenUsage {
                 input_tokens: u.input_tokens,
@@ -1316,7 +1495,7 @@ mod tests {
     #[test]
     fn test_build_args_new_session() {
         let provider = ClaudeCodeProvider::new();
-        let args = provider.build_args("test", &SessionMode::New, false, None);
+        let args = provider.build_args("test", &SessionMode::New, false);
         assert!(args.contains(&"-p".to_string()));
         assert!(args.contains(&"test".to_string()));
         assert!(args.contains(&"json".to_string()));
@@ -1328,14 +1507,14 @@ mod tests {
     #[test]
     fn test_build_args_continue() {
         let provider = ClaudeCodeProvider::new();
-        let args = provider.build_args("test", &SessionMode::Continue, false, None);
+        let args = provider.build_args("test", &SessionMode::Continue, false);
         assert!(args.contains(&"--continue".to_string()));
     }
 
     #[test]
     fn test_build_args_resume() {
         let provider = ClaudeCodeProvider::new();
-        let args = provider.build_args("test", &SessionMode::Resume("abc123".to_string()), false, None);
+        let args = provider.build_args("test", &SessionMode::Resume("abc123".to_string()), false);
         assert!(args.contains(&"--resume".to_string()));
         assert!(args.contains(&"abc123".to_string()));
     }
@@ -1343,7 +1522,7 @@ mod tests {
     #[test]
     fn test_build_args_fork() {
         let provider = ClaudeCodeProvider::new();
-        let args = provider.build_args("test", &SessionMode::Fork("abc123".to_string()), false, None);
+        let args = provider.build_args("test", &SessionMode::Fork("abc123".to_string()), false);
         assert!(args.contains(&"--resume".to_string()));
         assert!(args.contains(&"abc123".to_string()));
         assert!(args.contains(&"--fork-session".to_string()));
@@ -1352,7 +1531,7 @@ mod tests {
     #[test]
     fn test_build_args_streaming() {
         let provider = ClaudeCodeProvider::new();
-        let args = provider.build_args("test", &SessionMode::New, true, None);
+        let args = provider.build_args("test", &SessionMode::New, true);
         assert!(args.contains(&"stream-json".to_string()));
     }
 
@@ -1363,15 +1542,7 @@ mod tests {
             Some("claude-sonnet-4-20250514".to_string()),
             None,
         );
-        let args = provider.build_args("test", &SessionMode::New, false, None);
-        assert!(args.contains(&"--model".to_string()));
-        assert!(args.contains(&"claude-sonnet-4-20250514".to_string()));
-    }
-
-    #[test]
-    fn test_build_args_with_model_override() {
-        let provider = ClaudeCodeProvider::new();
-        let args = provider.build_args("test", &SessionMode::New, false, Some("claude-sonnet-4-20250514"));
+        let args = provider.build_args("test", &SessionMode::New, false);
         assert!(args.contains(&"--model".to_string()));
         assert!(args.contains(&"claude-sonnet-4-20250514".to_string()));
     }
@@ -1412,5 +1583,132 @@ mod tests {
         assert!(!status.skill_installed);
         assert!(status.version.is_none());
         assert!(status.error.is_none());
+    }
+
+    // ==================== Builder Pattern Tests ====================
+
+    #[test]
+    fn test_builder_default() {
+        let provider = ClaudeCodeProvider::builder().build();
+        assert_eq!(provider.timeout_secs, 300);
+        assert!(provider.model.is_none());
+        assert!(provider.fallback_model.is_some());
+        assert!(provider.auto_fallback);
+        assert!(provider.persist_sessions);
+    }
+
+    #[test]
+    fn test_builder_with_model() {
+        let provider = ClaudeCodeProvider::builder()
+            .model("claude-sonnet-4-20250514")
+            .build();
+        assert_eq!(provider.model.as_deref(), Some("claude-sonnet-4-20250514"));
+    }
+
+    #[test]
+    fn test_builder_with_fallback() {
+        let provider = ClaudeCodeProvider::builder()
+            .fallback_model("claude-haiku-4-20250514")
+            .build();
+        assert_eq!(provider.fallback_model.as_deref(), Some("claude-haiku-4-20250514"));
+    }
+
+    #[test]
+    fn test_builder_no_fallback() {
+        let provider = ClaudeCodeProvider::builder()
+            .no_fallback()
+            .build();
+        assert!(provider.fallback_model.is_none());
+        assert!(!provider.auto_fallback);
+    }
+
+    #[test]
+    fn test_builder_full_config() {
+        let provider = ClaudeCodeProvider::builder()
+            .model("claude-opus-4-20250514")
+            .fallback_model("claude-sonnet-4-20250514")
+            .timeout_secs(600)
+            .working_dir("/tmp/test")
+            .persist_sessions(false)
+            .auto_fallback(true)
+            .build();
+
+        assert_eq!(provider.model.as_deref(), Some("claude-opus-4-20250514"));
+        assert_eq!(provider.fallback_model.as_deref(), Some("claude-sonnet-4-20250514"));
+        assert_eq!(provider.timeout_secs, 600);
+        assert_eq!(provider.working_dir.as_deref(), Some("/tmp/test"));
+        assert!(!provider.persist_sessions);
+        assert!(provider.auto_fallback);
+    }
+
+    // ==================== Rate Limit Detection Tests ====================
+
+    #[test]
+    fn test_is_rate_limit_error_429() {
+        assert!(ClaudeCodeProvider::is_rate_limit_error("Error 429: Too many requests"));
+        assert!(ClaudeCodeProvider::is_rate_limit_error("HTTP 429"));
+    }
+
+    #[test]
+    fn test_is_rate_limit_error_rate_limit() {
+        assert!(ClaudeCodeProvider::is_rate_limit_error("rate limit exceeded"));
+        assert!(ClaudeCodeProvider::is_rate_limit_error("Rate Limit Hit"));
+    }
+
+    #[test]
+    fn test_is_rate_limit_error_quota() {
+        assert!(ClaudeCodeProvider::is_rate_limit_error("quota exceeded"));
+        assert!(ClaudeCodeProvider::is_rate_limit_error("Quota limit reached"));
+    }
+
+    #[test]
+    fn test_is_rate_limit_error_not_rate_limit() {
+        assert!(!ClaudeCodeProvider::is_rate_limit_error("authentication failed"));
+        assert!(!ClaudeCodeProvider::is_rate_limit_error("network error"));
+        assert!(!ClaudeCodeProvider::is_rate_limit_error(""));
+    }
+
+    #[test]
+    fn test_is_rate_limit_error_capacity_indicators() {
+        // Capacity/overload indicators for dynamic fallback
+        assert!(ClaudeCodeProvider::is_rate_limit_error("API overloaded"));
+        assert!(ClaudeCodeProvider::is_rate_limit_error("Server at capacity"));
+    }
+
+    // ==================== Model Override Tests ====================
+
+    #[test]
+    fn test_build_args_with_model_override() {
+        let provider = ClaudeCodeProvider::builder()
+            .model("claude-sonnet-4-20250514")
+            .build();
+
+        let args = provider.build_args_with_model(
+            "test",
+            &SessionMode::New,
+            false,
+            Some("claude-haiku-4-20250514"),
+        );
+
+        // Should use override, not the provider's model
+        assert!(args.contains(&"claude-haiku-4-20250514".to_string()));
+        assert!(!args.contains(&"claude-sonnet-4-20250514".to_string()));
+    }
+
+    #[test]
+    fn test_build_args_without_model_override() {
+        let provider = ClaudeCodeProvider::builder()
+            .model("claude-sonnet-4-20250514")
+            .build();
+
+        let args = provider.build_args_with_model(
+            "test",
+            &SessionMode::New,
+            false,
+            None,
+        );
+
+        // Should use provider's model
+        assert!(args.contains(&"claude-sonnet-4-20250514".to_string()));
     }
 }
