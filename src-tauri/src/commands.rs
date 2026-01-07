@@ -350,7 +350,7 @@ pub async fn configure_llm(
     {
         let manager = state.llm_manager.write().await;
         // Ensure chat client is configured (uses Meilisearch host from search_client)
-        manager.set_chat_client(state.search_client.host(), None).await;
+        manager.set_chat_client(state.search_client.host(), Some(&state.sidecar_manager.config().master_key)).await;
         // Use default system prompt (None)
         if let Err(e) = manager.configure_for_chat(&config, None).await {
             log::error!("Failed to configure Meilisearch chat: {}", e);
@@ -399,7 +399,7 @@ pub async fn chat(
     {
         let manager_guard = manager.write().await;
         // Ensure chat client is configured (uses Meilisearch host from search_client)
-        manager_guard.set_chat_client(state.search_client.host(), None).await;
+        manager_guard.set_chat_client(state.search_client.host(), Some(&state.sidecar_manager.config().master_key)).await;
         // This ensures the correct provider is registered with proxy if needed
         manager_guard.configure_for_chat(&config, Some(&system_prompt)).await
             .map_err(|e| format!("Failed to configure chat: {}", e))?;
@@ -794,7 +794,7 @@ pub async fn stream_chat(
     {
         let manager_guard = manager.write().await;
         // Ensure chat client is configured (uses Meilisearch host from search_client)
-        manager_guard.set_chat_client(state.search_client.host(), None).await;
+        manager_guard.set_chat_client(state.search_client.host(), Some(&state.sidecar_manager.config().master_key)).await;
         // This ensures the correct provider is registered with proxy if needed
         manager_guard.configure_for_chat(&config, system_prompt.as_deref()).await
             .map_err(|e| format!("Failed to configure chat: {}", e))?;
@@ -6031,7 +6031,7 @@ pub async fn configure_chat_workspace(
     {
         let manager_guard = manager.write().await;
         // Re-configure chat client to ensure it has latest host/key
-        manager_guard.set_chat_client(state.search_client.host(), None).await;
+        manager_guard.set_chat_client(state.search_client.host(), Some(&state.sidecar_manager.config().master_key)).await;
     }
 
     // Configure the workspace
@@ -6049,7 +6049,7 @@ pub async fn get_chat_workspace_settings(
 ) -> Result<Option<ChatWorkspaceSettings>, String> {
     use crate::core::meilisearch_chat::MeilisearchChatClient;
 
-    let client = MeilisearchChatClient::new(state.search_client.host(), None);
+    let client = MeilisearchChatClient::new(state.search_client.host(), Some(&state.sidecar_manager.config().master_key));
     client.get_workspace_settings(&workspace_id).await
 }
 
@@ -6173,7 +6173,7 @@ pub async fn configure_meilisearch_chat(
 
     // Configure Meilisearch chat client and workspace under single write lock
     let manager_guard = state.llm_manager.write().await;
-    manager_guard.set_chat_client(state.search_client.host(), None).await;
+    manager_guard.set_chat_client(state.search_client.host(), Some(&state.sidecar_manager.config().master_key)).await;
     manager_guard
         .configure_chat_workspace("dm-assistant", provider_config, custom_prompts)
         .await?;
