@@ -54,8 +54,11 @@ fn UsageMeter(
 /// Get badge variant for subscription plan
 fn plan_badge_variant(plan: &str) -> BadgeVariant {
     match plan {
-        "max_5x" => BadgeVariant::Success,
+        "max_20" => BadgeVariant::Success,  // Max 20x - premium
+        "max" => BadgeVariant::Success,     // Max 5x
         "pro" => BadgeVariant::Info,
+        "team" | "enterprise" => BadgeVariant::Info,
+        "api" => BadgeVariant::Default,
         "free" => BadgeVariant::Default,
         _ => BadgeVariant::Warning,
     }
@@ -64,8 +67,12 @@ fn plan_badge_variant(plan: &str) -> BadgeVariant {
 /// Get display name for subscription plan
 fn plan_display(plan: &str) -> &'static str {
     match plan {
-        "max_5x" => "Max 5x",
+        "max_20" => "Max 20x",
+        "max" => "Max 5x",
         "pro" => "Pro",
+        "team" => "Team",
+        "enterprise" => "Enterprise",
+        "api" => "API",
         "free" => "Free",
         _ => "Unknown",
     }

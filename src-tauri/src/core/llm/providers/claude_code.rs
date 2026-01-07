@@ -331,9 +331,9 @@ impl ClaudeCodeProvider {
 
                 if !status.success() {
                     let error_msg = if !stderr.is_empty() {
-                        stderr.clone()
+                        stderr
                     } else if !stdout.is_empty() {
-                        stdout.clone()
+                        stdout
                     } else {
                         "unknown error".to_string()
                     };

@@ -245,9 +245,7 @@ impl ChatProviderConfig {
             ChatProviderConfig::Claude { model, .. } => {
                 return format!(
                     "claude:{}",
-                    model.as_deref().unwrap_or_else(|| {
-                        Box::leak(model_selector().select_model_sync().into_boxed_str())
-                    })
+                    model.clone().unwrap_or_else(|| model_selector().select_model_sync())
                 );
             }
             ChatProviderConfig::Mistral { model, .. } => {
@@ -266,9 +264,7 @@ impl ChatProviderConfig {
             ChatProviderConfig::ClaudeCode { model, .. } => {
                 return format!(
                     "claude-code:{}",
-                    model.as_deref().unwrap_or_else(|| {
-                        Box::leak(model_selector().select_model_sync().into_boxed_str())
-                    })
+                    model.clone().unwrap_or_else(|| model_selector().select_model_sync())
                 );
             }
             ChatProviderConfig::ClaudeDesktop { .. } => "claude-desktop",

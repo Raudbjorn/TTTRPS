@@ -150,7 +150,7 @@ impl UsageData {
     pub fn is_valid(&self) -> bool {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
+            .expect("System time is before UNIX epoch")
             .as_secs();
         now - self.cached_at < CACHE_TTL_SECS
     }
@@ -389,7 +389,7 @@ impl ModelSelector {
 
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
+            .expect("System time is before UNIX epoch")
             .as_secs();
 
         let data = UsageData {
@@ -660,7 +660,15 @@ impl ModelSelector {
 
     /// Synchronous version for contexts where async isn't available
     /// Returns just the model ID with default complexity
+    /// Note: Checks override via try_read (non-blocking)
     pub fn select_model_sync(&self) -> String {
+        // Check for manual override first (non-blocking)
+        if let Ok(guard) = self.model_override.try_read() {
+            if let Some(ref override_model) = *guard {
+                return override_model.clone();
+            }
+        }
+
         let auth = Self::detect_auth();
 
         let (plan, usage) = match auth {
@@ -820,7 +828,7 @@ mod tests {
     fn test_usage_data_validity() {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .unwrap()
+            .expect("System time is before UNIX epoch")
             .as_secs();
 
         let valid = UsageData {
