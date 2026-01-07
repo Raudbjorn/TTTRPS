@@ -1878,7 +1878,10 @@ pub async fn link_chat_to_game_session(
 
 /// Archive the current chat session and create a new one
 /// Used when ending a game session
-/// Creates new session first to ensure there's always an active session available
+///
+/// Note: Archives first due to unique index constraint (only one active session allowed).
+/// If new session creation fails after archiving, call get_or_create_chat_session
+/// which handles the race-condition-safe creation.
 #[tauri::command]
 pub async fn end_chat_session_and_spawn_new(
     chat_session_id: String,
