@@ -37,6 +37,22 @@ pub struct Message {
     pub persistent_id: Option<String>,
 }
 
+/// Welcome message content (DRY helper)
+const WELCOME_MESSAGE: &str = "Welcome to Sidecar DM! I'm your AI-powered TTRPG assistant. Configure an LLM provider in Settings to get started.";
+
+/// Create the default welcome message
+fn create_welcome_message() -> Message {
+    Message {
+        id: 0,
+        role: "assistant".to_string(),
+        content: WELCOME_MESSAGE.to_string(),
+        tokens: None,
+        is_streaming: false,
+        stream_id: None,
+        persistent_id: None,
+    }
+}
+
 /// Main Chat component - the primary DM interface with streaming support
 #[component]
 pub fn Chat() -> impl IntoView {
@@ -81,15 +97,7 @@ pub fn Chat() -> impl IntoView {
                         Ok(stored_messages) => {
                             if stored_messages.is_empty() {
                                 // Add welcome message if no history
-                                messages.set(vec![Message {
-                                    id: 0,
-                                    role: "assistant".to_string(),
-                                    content: "Welcome to Sidecar DM! I'm your AI-powered TTRPG assistant. Configure an LLM provider in Settings to get started.".to_string(),
-                                    tokens: None,
-                                    is_streaming: false,
-                                    stream_id: None,
-                                    persistent_id: None,
-                                }]);
+                                messages.set(vec![create_welcome_message()]);
                                 next_message_id.set(1);
                             } else {
                                 // Convert stored messages to UI messages
@@ -116,30 +124,14 @@ pub fn Chat() -> impl IntoView {
                         Err(e) => {
                             log::error!("Failed to load chat messages: {}", e);
                             // Fall back to welcome message
-                            messages.set(vec![Message {
-                                id: 0,
-                                role: "assistant".to_string(),
-                                content: "Welcome to Sidecar DM! I'm your AI-powered TTRPG assistant. Configure an LLM provider in Settings to get started.".to_string(),
-                                tokens: None,
-                                is_streaming: false,
-                                stream_id: None,
-                                persistent_id: None,
-                            }]);
+                            messages.set(vec![create_welcome_message()]);
                         }
                     }
                 }
                 Err(e) => {
                     log::error!("Failed to get/create chat session: {}", e);
                     // Fall back to welcome message
-                    messages.set(vec![Message {
-                        id: 0,
-                        role: "assistant".to_string(),
-                        content: "Welcome to Sidecar DM! I'm your AI-powered TTRPG assistant. Configure an LLM provider in Settings to get started.".to_string(),
-                        tokens: None,
-                        is_streaming: false,
-                        stream_id: None,
-                        persistent_id: None,
-                    }]);
+                    messages.set(vec![create_welcome_message()]);
                 }
             }
             is_loading_history.set(false);
@@ -272,12 +264,10 @@ pub fn Chat() -> impl IntoView {
 
                             // Persist final message content to database
                             if let Some(Some(pid)) = streaming_persistent_id.try_get() {
-                                // Get the final content - find the last assistant message that just
-                                // finished streaming (is_streaming was just set to false)
+                                // Find message by its persistent_id (the exact message we created)
                                 let final_content = messages.try_with(|msgs| {
                                     msgs.iter()
-                                        .rev()
-                                        .find(|m| m.role == "assistant" && !m.is_streaming)
+                                        .find(|m| m.persistent_id.as_ref() == Some(&pid))
                                         .map(|m| m.content.clone())
                                 });
 
@@ -445,10 +435,18 @@ pub fn Chat() -> impl IntoView {
         // Persist placeholder assistant message (will be updated when streaming completes)
         if let Some(sid) = session_id_opt {
             let streaming_persistent_id = streaming_persistent_id;
+            let messages = messages;
             spawn_local(async move {
                 match add_chat_message(sid, "assistant".to_string(), String::new(), None).await {
                     Ok(record) => {
+                        let pid = record.id.clone();
                         streaming_persistent_id.set(Some(record.id));
+                        // Also update the message in the list with its persistent_id
+                        messages.update(|msgs| {
+                            if let Some(msg) = msgs.iter_mut().find(|m| m.id == assistant_msg_id) {
+                                msg.persistent_id = Some(pid);
+                            }
+                        });
                     }
                     Err(e) => {
                         log::error!("Failed to persist assistant placeholder: {}", e);

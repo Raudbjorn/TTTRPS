@@ -7,7 +7,7 @@ use sqlx::Row;
 use tracing::{info, warn};
 
 /// Current database schema version
-const SCHEMA_VERSION: i32 = 18;
+const SCHEMA_VERSION: i32 = 19;
 
 /// Run all pending migrations
 pub async fn run_migrations(pool: &SqlitePool) -> Result<(), sqlx::Error> {
@@ -75,6 +75,7 @@ async fn run_migration(pool: &SqlitePool, version: i32) -> Result<(), sqlx::Erro
         16 => ("combat_states", MIGRATION_V16),
         17 => ("search_analytics", MIGRATION_V17),
         18 => ("global_chat_sessions", MIGRATION_V18),
+        19 => ("chat_session_unique_active", MIGRATION_V19),
         _ => {
             warn!("Unknown migration version: {}", version);
             return Ok(());
@@ -751,4 +752,12 @@ CREATE TABLE IF NOT EXISTS chat_messages (
 CREATE INDEX IF NOT EXISTS idx_chat_messages_session ON chat_messages(session_id);
 CREATE INDEX IF NOT EXISTS idx_chat_messages_created ON chat_messages(created_at);
 CREATE INDEX IF NOT EXISTS idx_chat_messages_role ON chat_messages(role);
+"#;
+
+/// Migration v19: Enforce single active chat session via partial unique index
+/// Prevents race condition in get_or_create_active_chat_session
+const MIGRATION_V19: &str = r#"
+-- Ensure only one chat session can be active at a time
+CREATE UNIQUE INDEX IF NOT EXISTS idx_global_chat_sessions_single_active
+ON global_chat_sessions(status) WHERE status = 'active';
 "#;

@@ -1878,17 +1878,18 @@ pub async fn link_chat_to_game_session(
 
 /// Archive the current chat session and create a new one
 /// Used when ending a game session
+/// Creates new session first to ensure there's always an active session available
 #[tauri::command]
 pub async fn end_chat_session_and_spawn_new(
     chat_session_id: String,
     state: State<'_, AppState>,
 ) -> Result<crate::database::GlobalChatSessionRecord, String> {
-    // Archive current session
+    // Archive current session first (removes the 'active' constraint)
     state.database.archive_chat_session(&chat_session_id)
         .await
         .map_err(|e| e.to_string())?;
 
-    // Create new session
+    // Now create new session (only one active session allowed by unique index)
     let new_session = crate::database::GlobalChatSessionRecord::new();
     state.database.create_chat_session(&new_session)
         .await

@@ -1695,14 +1695,31 @@ impl Database {
     }
 
     /// Get or create active chat session
+    /// Uses partial unique index to prevent race conditions - if insert fails due to
+    /// constraint violation (another active session was created concurrently), retry get
     pub async fn get_or_create_active_chat_session(&self) -> Result<GlobalChatSessionRecord, sqlx::Error> {
+        // First check if one already exists
         if let Some(session) = self.get_active_chat_session().await? {
             return Ok(session);
         }
 
+        // Try to create a new active session
         let session = GlobalChatSessionRecord::new();
-        self.create_chat_session(&session).await?;
-        Ok(session)
+        match self.create_chat_session(&session).await {
+            Ok(()) => Ok(session),
+            Err(e) => {
+                // Check if it's a unique constraint violation (race condition)
+                let err_str = e.to_string();
+                if err_str.contains("UNIQUE constraint failed") {
+                    // Another concurrent call created an active session, fetch it
+                    self.get_active_chat_session()
+                        .await?
+                        .ok_or_else(|| sqlx::Error::RowNotFound)
+                } else {
+                    Err(e)
+                }
+            }
+        }
     }
 }
 
