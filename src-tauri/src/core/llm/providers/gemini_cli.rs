@@ -516,13 +516,14 @@ impl GeminiCliProvider {
 
     /// Check if an error indicates a rate limit / quota exhaustion.
     fn is_rate_limit_error(stderr: &str, exit_code: Option<i32>) -> bool {
-        // Check for common rate limit indicators
-        stderr.contains("429")
-            || stderr.contains("Resource exhausted")
-            || stderr.contains("RESOURCE_EXHAUSTED")
-            || stderr.contains("quota")
-            || stderr.contains("rate limit")
-            || stderr.contains("too many requests")
+        // Check for common rate limit indicators (case-insensitive)
+        let lower = stderr.to_lowercase();
+        lower.contains("429")
+            || lower.contains("resource exhausted")
+            || lower.contains("resource_exhausted")
+            || lower.contains("quota")
+            || lower.contains("rate limit")
+            || lower.contains("too many requests")
             || exit_code == Some(8) // Common exit code for rate limiting
     }
 
@@ -1051,5 +1052,282 @@ mod tests {
         let result = provider.parse_response(json);
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), LLMError::RateLimited { .. }));
+    }
+
+    // ==================== Rate Limit Detection Tests ====================
+
+    #[test]
+    fn test_is_rate_limit_error_429() {
+        assert!(GeminiCliProvider::is_rate_limit_error("Error 429: Too many requests", None));
+        assert!(GeminiCliProvider::is_rate_limit_error("HTTP 429", None));
+    }
+
+    #[test]
+    fn test_is_rate_limit_error_resource_exhausted() {
+        assert!(GeminiCliProvider::is_rate_limit_error("RESOURCE_EXHAUSTED", None));
+        assert!(GeminiCliProvider::is_rate_limit_error("Resource exhausted: quota exceeded", None));
+    }
+
+    #[test]
+    fn test_is_rate_limit_error_quota() {
+        assert!(GeminiCliProvider::is_rate_limit_error("quota exceeded", None));
+        assert!(GeminiCliProvider::is_rate_limit_error("You have exceeded your quota", None));
+    }
+
+    #[test]
+    fn test_is_rate_limit_error_rate_limit() {
+        assert!(GeminiCliProvider::is_rate_limit_error("rate limit exceeded", None));
+        assert!(GeminiCliProvider::is_rate_limit_error("Rate limit hit", None));
+    }
+
+    #[test]
+    fn test_is_rate_limit_error_too_many_requests() {
+        assert!(GeminiCliProvider::is_rate_limit_error("too many requests", None));
+    }
+
+    #[test]
+    fn test_is_rate_limit_error_exit_code_8() {
+        assert!(GeminiCliProvider::is_rate_limit_error("", Some(8)));
+        assert!(GeminiCliProvider::is_rate_limit_error("some other error", Some(8)));
+    }
+
+    #[test]
+    fn test_is_rate_limit_error_not_rate_limit() {
+        assert!(!GeminiCliProvider::is_rate_limit_error("authentication failed", None));
+        assert!(!GeminiCliProvider::is_rate_limit_error("invalid model", None));
+        assert!(!GeminiCliProvider::is_rate_limit_error("network error", Some(1)));
+        assert!(!GeminiCliProvider::is_rate_limit_error("", None));
+    }
+
+    // ==================== Args Building Tests ====================
+
+    #[test]
+    fn test_build_args_with_model() {
+        let provider = GeminiCliProvider::new();
+        let args = provider.build_args_with_model("hello", "gemini-3-flash-preview");
+
+        assert!(args.contains(&"-p".to_string()));
+        assert!(args.contains(&"hello".to_string()));
+        assert!(args.contains(&"--model".to_string()));
+        assert!(args.contains(&"gemini-3-flash-preview".to_string()));
+        assert!(args.contains(&"json".to_string()));
+    }
+
+    #[test]
+    fn test_build_args_with_model_includes_yolo() {
+        let provider = GeminiCliProvider::builder()
+            .yolo_mode(true)
+            .build();
+        let args = provider.build_args_with_model("test", "gemini-3-pro-preview");
+
+        assert!(args.contains(&"--yolo".to_string()));
+        assert!(args.contains(&"gemini-3-pro-preview".to_string()));
+    }
+
+    #[test]
+    fn test_build_args_with_model_includes_sandbox() {
+        let provider = GeminiCliProvider::builder()
+            .sandbox(true)
+            .build();
+        let args = provider.build_args_with_model("test", "gemini-3-pro-preview");
+
+        assert!(args.contains(&"--sandbox".to_string()));
+    }
+
+    #[test]
+    fn test_build_stream_args_with_model() {
+        let provider = GeminiCliProvider::new();
+        let args = provider.build_stream_args_with_model("hello", "gemini-3-flash-preview");
+
+        assert!(args.contains(&"-p".to_string()));
+        assert!(args.contains(&"hello".to_string()));
+        assert!(args.contains(&"--model".to_string()));
+        assert!(args.contains(&"gemini-3-flash-preview".to_string()));
+        assert!(args.contains(&"stream-json".to_string()));
+    }
+
+    // ==================== Prompt Building Tests ====================
+
+    #[test]
+    fn test_build_prompt_simple() {
+        use crate::core::llm::router::ChatMessage;
+
+        let provider = GeminiCliProvider::new();
+        let request = ChatRequest::new(vec![ChatMessage::user("Hello, world!")]);
+
+        let prompt = provider.build_prompt(&request);
+        assert_eq!(prompt, "Hello, world!");
+    }
+
+    #[test]
+    fn test_build_prompt_with_system() {
+        use crate::core::llm::router::ChatMessage;
+
+        let provider = GeminiCliProvider::new();
+        let request = ChatRequest {
+            messages: vec![
+                ChatMessage::user("Hi"),
+                ChatMessage::assistant("Hello!"),
+                ChatMessage::user("How are you?"),
+            ],
+            system_prompt: Some("You are a helpful assistant.".to_string()),
+            temperature: None,
+            max_tokens: None,
+            provider: None,
+            tools: None,
+            tool_choice: None,
+        };
+
+        let prompt = provider.build_prompt(&request);
+        assert!(prompt.contains("[System Instructions]"));
+        assert!(prompt.contains("You are a helpful assistant."));
+        assert!(prompt.contains("User: Hi"));
+        assert!(prompt.contains("Assistant: Hello!"));
+        assert!(prompt.contains("User: How are you?"));
+    }
+
+    // ==================== Error Parsing Tests ====================
+
+    #[test]
+    fn test_parse_response_auth_error() {
+        let provider = GeminiCliProvider::new();
+        let json = r#"{"response": null, "stats": null, "error": "authentication required"}"#;
+        let result = provider.parse_response(json);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), LLMError::AuthError(_)));
+    }
+
+    #[test]
+    fn test_parse_response_quota_error() {
+        let provider = GeminiCliProvider::new();
+        let json = r#"{"response": null, "stats": null, "error": "quota exceeded"}"#;
+        let result = provider.parse_response(json);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), LLMError::RateLimited { .. }));
+    }
+
+    #[test]
+    fn test_parse_response_generic_error() {
+        let provider = GeminiCliProvider::new();
+        let json = r#"{"response": null, "stats": null, "error": "unknown error occurred"}"#;
+        let result = provider.parse_response(json);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), LLMError::ApiError { .. }));
+    }
+
+    #[test]
+    fn test_parse_response_invalid_json() {
+        let provider = GeminiCliProvider::new();
+        let result = provider.parse_response("not valid json");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_response_empty_response() {
+        let provider = GeminiCliProvider::new();
+        let json = r#"{"response": null, "stats": null, "error": null}"#;
+        let (content, _) = provider.parse_response(json).unwrap();
+        assert_eq!(content, "");
+    }
+
+    // ==================== Builder Combination Tests ====================
+
+    #[test]
+    fn test_builder_full_chain() {
+        let provider = GeminiCliProvider::builder()
+            .model("gemini-3-pro-preview")
+            .fallback_model("gemini-2.5-flash")
+            .timeout_secs(180)
+            .yolo_mode(true)
+            .sandbox(false)
+            .auto_fallback(true)
+            .build();
+
+        assert_eq!(provider.model, "gemini-3-pro-preview");
+        assert_eq!(provider.fallback_model.as_deref(), Some("gemini-2.5-flash"));
+        assert_eq!(provider.timeout_secs, 180);
+        assert!(provider.yolo_mode);
+        assert!(!provider.sandbox);
+        assert!(provider.auto_fallback);
+    }
+
+    #[test]
+    fn test_builder_disable_auto_fallback_keeps_fallback_model() {
+        let provider = GeminiCliProvider::builder()
+            .auto_fallback(false)
+            .build();
+
+        // Fallback model is still set, but auto_fallback is disabled
+        assert!(provider.fallback_model.is_some());
+        assert!(!provider.auto_fallback);
+    }
+
+    #[test]
+    fn test_working_dir() {
+        use std::path::PathBuf;
+
+        let provider = GeminiCliProvider::builder()
+            .working_dir("/tmp/test")
+            .build();
+
+        assert_eq!(provider.working_dir, Some(PathBuf::from("/tmp/test")));
+    }
+
+    // ==================== Stream Chunk Parsing Tests ====================
+
+    #[test]
+    fn test_parse_stream_chunk_with_content() {
+        let json = r#"{"type": "content", "content": "Hello", "done": false}"#;
+        let chunk: GeminiCliStreamChunk = serde_json::from_str(json).unwrap();
+
+        assert_eq!(chunk.chunk_type.as_deref(), Some("content"));
+        assert_eq!(chunk.content.as_deref(), Some("Hello"));
+        assert_eq!(chunk.done, Some(false));
+    }
+
+    #[test]
+    fn test_parse_stream_chunk_with_delta() {
+        let json = r#"{"type": "delta", "delta": " world", "done": false}"#;
+        let chunk: GeminiCliStreamChunk = serde_json::from_str(json).unwrap();
+
+        assert_eq!(chunk.delta.as_deref(), Some(" world"));
+    }
+
+    #[test]
+    fn test_parse_stream_chunk_done() {
+        let json = r#"{"type": "done", "done": true}"#;
+        let chunk: GeminiCliStreamChunk = serde_json::from_str(json).unwrap();
+
+        assert_eq!(chunk.done, Some(true));
+    }
+
+    #[test]
+    fn test_parse_stream_chunk_with_error() {
+        let json = r#"{"type": "error", "error": "rate limit", "done": true}"#;
+        let chunk: GeminiCliStreamChunk = serde_json::from_str(json).unwrap();
+
+        assert_eq!(chunk.error.as_deref(), Some("rate limit"));
+        assert_eq!(chunk.done, Some(true));
+    }
+
+    // ==================== Token Stats Parsing Tests ====================
+
+    #[test]
+    fn test_parse_token_stats() {
+        let json = r#"{"input": 100, "output": 50}"#;
+        let stats: GeminiTokenStats = serde_json::from_str(json).unwrap();
+
+        assert_eq!(stats.input_tokens, Some(100));
+        assert_eq!(stats.output_tokens, Some(50));
+    }
+
+    #[test]
+    fn test_parse_token_stats_with_aliases() {
+        // Test that both "input" and "input_tokens" work
+        let json = r#"{"input_tokens": 100, "output_tokens": 50}"#;
+        let stats: GeminiTokenStats = serde_json::from_str(json).unwrap();
+
+        assert_eq!(stats.input_tokens, Some(100));
+        assert_eq!(stats.output_tokens, Some(50));
     }
 }
