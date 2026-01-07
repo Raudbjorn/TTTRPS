@@ -3,6 +3,9 @@ use leptos::ev;
 use wasm_bindgen_futures::spawn_local;
 use std::collections::HashMap;
 use gloo_timers::callback::Timeout;
+
+/// GitHub URL for the Sidecar DM Gemini extension
+const SIDECAR_DM_EXTENSION_URL: &str = "https://github.com/Raudbjorn/sidecar-dm-gemini-extension";
 use crate::bindings::{
     check_llm_health, configure_llm, get_llm_config, list_claude_models, list_gemini_models,
     list_ollama_models, list_openai_models, list_openrouter_models, list_provider_models,
@@ -342,8 +345,9 @@ pub fn LLMSettingsView() -> impl IntoView {
                 }
             }
             // Also check extension status
-            if let Ok(ext_status) = check_gemini_cli_extension().await {
-                gemini_cli_extension.set(ext_status);
+            match check_gemini_cli_extension().await {
+                Ok(ext_status) => gemini_cli_extension.set(ext_status),
+                Err(e) => show_error("Gemini Extension Status", Some(&e), None),
             }
             gemini_cli_loading.set(false);
         });
@@ -691,117 +695,143 @@ pub fn LLMSettingsView() -> impl IntoView {
                                         </div>
                                     }.into_any()
                                 } else if selected_provider.get() == LLMProvider::GeminiCli {
-                                    // Gemini CLI status panel
-                                    let status = gemini_cli_status.get();
-                                    let ext_status = gemini_cli_extension.get();
-                                    let is_loading = gemini_cli_loading.get();
+                                    // Gemini CLI status panel - capture signals for reactive updates
                                     view! {
                                         <div class="p-4 rounded-lg bg-[var(--bg-deep)] border border-[var(--border-subtle)] space-y-3">
                                             // Status indicators
                                             <div class="flex flex-wrap gap-2">
-                                                <div class=move || format!(
-                                                    "flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium {}",
-                                                    if status.is_installed { "bg-green-500/20 text-green-400" } else { "bg-red-500/20 text-red-400" }
-                                                )>
-                                                    <span class=move || format!(
-                                                        "w-2 h-2 rounded-full {}",
-                                                        if status.is_installed { "bg-green-400" } else { "bg-red-400" }
-                                                    )></span>
-                                                    {if status.is_installed { "CLI Installed" } else { "CLI Not Installed" }}
+                                                <div class=move || {
+                                                    let status = gemini_cli_status.get();
+                                                    format!(
+                                                        "flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium {}",
+                                                        if status.is_installed { "bg-green-500/20 text-green-400" } else { "bg-red-500/20 text-red-400" }
+                                                    )
+                                                }>
+                                                    <span class=move || {
+                                                        let status = gemini_cli_status.get();
+                                                        format!(
+                                                            "w-2 h-2 rounded-full {}",
+                                                            if status.is_installed { "bg-green-400" } else { "bg-red-400" }
+                                                        )
+                                                    }></span>
+                                                    {move || if gemini_cli_status.get().is_installed { "CLI Installed" } else { "CLI Not Installed" }}
                                                 </div>
-                                                <div class=move || format!(
-                                                    "flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium {}",
-                                                    if status.is_authenticated { "bg-green-500/20 text-green-400" } else { "bg-yellow-500/20 text-yellow-400" }
-                                                )>
-                                                    <span class=move || format!(
-                                                        "w-2 h-2 rounded-full {}",
-                                                        if status.is_authenticated { "bg-green-400" } else { "bg-yellow-400" }
-                                                    )></span>
-                                                    {if status.is_authenticated { "Authenticated" } else { "Not Authenticated" }}
+                                                <div class=move || {
+                                                    let status = gemini_cli_status.get();
+                                                    format!(
+                                                        "flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium {}",
+                                                        if status.is_authenticated { "bg-green-500/20 text-green-400" } else { "bg-yellow-500/20 text-yellow-400" }
+                                                    )
+                                                }>
+                                                    <span class=move || {
+                                                        let status = gemini_cli_status.get();
+                                                        format!(
+                                                            "w-2 h-2 rounded-full {}",
+                                                            if status.is_authenticated { "bg-green-400" } else { "bg-yellow-400" }
+                                                        )
+                                                    }></span>
+                                                    {move || if gemini_cli_status.get().is_authenticated { "Authenticated" } else { "Not Authenticated" }}
                                                 </div>
-                                                <div class=move || format!(
-                                                    "flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium {}",
-                                                    if ext_status.is_installed { "bg-green-500/20 text-green-400" } else { "bg-gray-500/20 text-gray-400" }
-                                                )>
-                                                    <span class=move || format!(
-                                                        "w-2 h-2 rounded-full {}",
-                                                        if ext_status.is_installed { "bg-green-400" } else { "bg-gray-400" }
-                                                    )></span>
-                                                    {if ext_status.is_installed { "Extension Installed" } else { "Extension Not Installed" }}
+                                                <div class=move || {
+                                                    let ext_status = gemini_cli_extension.get();
+                                                    format!(
+                                                        "flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium {}",
+                                                        if ext_status.is_installed { "bg-green-500/20 text-green-400" } else { "bg-gray-500/20 text-gray-400" }
+                                                    )
+                                                }>
+                                                    <span class=move || {
+                                                        let ext_status = gemini_cli_extension.get();
+                                                        format!(
+                                                            "w-2 h-2 rounded-full {}",
+                                                            if ext_status.is_installed { "bg-green-400" } else { "bg-gray-400" }
+                                                        )
+                                                    }></span>
+                                                    {move || if gemini_cli_extension.get().is_installed { "Extension Installed" } else { "Extension Not Installed" }}
                                                 </div>
                                             </div>
 
                                             // Status message
-                                            {(!status.message.is_empty()).then(|| view! {
-                                                <p class="text-xs text-[var(--text-muted)]">{status.message.clone()}</p>
-                                            })}
+                                            {move || {
+                                                let status = gemini_cli_status.get();
+                                                (!status.message.is_empty()).then(|| view! {
+                                                    <p class="text-xs text-[var(--text-muted)]">{status.message.clone()}</p>
+                                                })
+                                            }}
 
                                             // Action buttons
                                             <div class="flex flex-wrap gap-2 pt-2">
-                                                {move || if !status.is_installed {
-                                                    view! {
-                                                        <a
-                                                            href="https://github.com/google-gemini/gemini-cli"
-                                                            target="_blank"
-                                                            rel="noopener noreferrer"
-                                                            class="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--accent-primary)] text-white hover:opacity-90 transition-opacity"
-                                                        >
-                                                            "Install Gemini CLI"
-                                                        </a>
-                                                    }.into_any()
-                                                } else if !status.is_authenticated {
-                                                    view! {
-                                                        <button
-                                                            class="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--accent-primary)] text-white hover:opacity-90 transition-opacity disabled:opacity-50"
-                                                            disabled=is_loading
-                                                            on:click=move |_| {
-                                                                spawn_local(async move {
-                                                                    match launch_gemini_cli_login().await {
-                                                                        Ok(_) => show_success("Launching Gemini CLI", Some("Opening terminal for authentication...")),
-                                                                        Err(e) => show_error("Launch Failed", Some(&e), None),
-                                                                    }
-                                                                });
-                                                            }
-                                                        >
-                                                            "Login with Google"
-                                                        </button>
-                                                    }.into_any()
-                                                } else {
-                                                    view! { <span></span> }.into_any()
+                                                {move || {
+                                                    let status = gemini_cli_status.get();
+                                                    let is_loading = gemini_cli_loading.get();
+                                                    if !status.is_installed {
+                                                        view! {
+                                                            <a
+                                                                href="https://github.com/google-gemini/gemini-cli"
+                                                                target="_blank"
+                                                                rel="noopener noreferrer"
+                                                                class="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--accent-primary)] text-white hover:opacity-90 transition-opacity"
+                                                            >
+                                                                "Install Gemini CLI"
+                                                            </a>
+                                                        }.into_any()
+                                                    } else if !status.is_authenticated {
+                                                        view! {
+                                                            <button
+                                                                class="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--accent-primary)] text-white hover:opacity-90 transition-opacity disabled:opacity-50"
+                                                                disabled=is_loading
+                                                                on:click=move |_| {
+                                                                    spawn_local(async move {
+                                                                        match launch_gemini_cli_login().await {
+                                                                            Ok(_) => show_success("Launching Gemini CLI", Some("Opening terminal for authentication...")),
+                                                                            Err(e) => show_error("Launch Failed", Some(&e), None),
+                                                                        }
+                                                                    });
+                                                                }
+                                                            >
+                                                                "Login with Google"
+                                                            </button>
+                                                        }.into_any()
+                                                    } else {
+                                                        view! { <span></span> }.into_any()
+                                                    }
                                                 }}
 
                                                 <button
                                                     class="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--bg-elevated)] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] transition-colors disabled:opacity-50"
-                                                    disabled=is_loading
+                                                    disabled=move || gemini_cli_loading.get()
                                                     on:click=move |_| refresh_gemini_cli_status()
                                                 >
-                                                    {if is_loading { "Checking..." } else { "Refresh Status" }}
+                                                    {move || if gemini_cli_loading.get() { "Checking..." } else { "Refresh Status" }}
                                                 </button>
 
-                                                {move || if status.is_installed && status.is_authenticated && !ext_status.is_installed {
-                                                    view! {
-                                                        <button
-                                                            class="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--bg-elevated)] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] transition-colors disabled:opacity-50"
-                                                            disabled=is_loading
-                                                            on:click=move |_| {
-                                                                spawn_local(async move {
-                                                                    // Install extension from GitHub repository
-                                                                    // The backend will handle cloning and installing the extension
-                                                                    match install_gemini_cli_extension("https://github.com/Raudbjorn/sidecar-dm-gemini-extension".to_string()).await {
-                                                                        Ok(msg) => {
-                                                                            show_success("Extension Installed", Some(&msg));
-                                                                            refresh_gemini_cli_status();
+                                                {move || {
+                                                    let status = gemini_cli_status.get();
+                                                    let ext_status = gemini_cli_extension.get();
+                                                    let is_loading = gemini_cli_loading.get();
+                                                    if status.is_installed && status.is_authenticated && !ext_status.is_installed {
+                                                        view! {
+                                                            <button
+                                                                class="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--bg-elevated)] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] transition-colors disabled:opacity-50"
+                                                                disabled=is_loading
+                                                                on:click=move |_| {
+                                                                    spawn_local(async move {
+                                                                        // Install extension from GitHub repository
+                                                                        match install_gemini_cli_extension(SIDECAR_DM_EXTENSION_URL.to_string()).await {
+                                                                            Ok(msg) => {
+                                                                                show_success("Extension Installed", Some(&msg));
+                                                                                refresh_gemini_cli_status();
+                                                                            }
+                                                                            Err(e) => show_error("Install Failed", Some(&e), None),
                                                                         }
-                                                                        Err(e) => show_error("Install Failed", Some(&e), None),
-                                                                    }
-                                                                });
-                                                            }
-                                                        >
-                                                            "Install Sidecar DM Extension"
-                                                        </button>
-                                                    }.into_any()
-                                                } else {
-                                                    view! { <span></span> }.into_any()
+                                                                    });
+                                                                }
+                                                            >
+                                                                "Install Sidecar DM Extension"
+                                                            </button>
+                                                        }.into_any()
+                                                    } else {
+                                                        view! { <span></span> }.into_any()
+                                                    }
                                                 }}
                                             </div>
                                         </div>
