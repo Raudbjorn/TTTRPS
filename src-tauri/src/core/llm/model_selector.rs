@@ -64,10 +64,13 @@ impl std::fmt::Display for SubscriptionPlan {
 }
 
 impl From<&str> for SubscriptionPlan {
+    /// Parse plan from string (liberal input acceptance).
+    /// Canonical output format via Display uses "max" and "max_20".
     fn from(s: &str) -> Self {
         match s.to_lowercase().as_str() {
             "free" => Self::Free,
             "pro" => Self::Pro,
+            // Accept variants: "max", "max_5", "max5" all map to Max (5x Pro limits)
             "max" | "max_5" | "max5" => Self::Max,
             "max_20" | "max20" => Self::Max20,
             "team" => Self::Team,
