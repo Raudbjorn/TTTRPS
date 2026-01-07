@@ -31,6 +31,7 @@
 //! ```
 
 use crate::core::llm::cost::ProviderPricing;
+use crate::core::llm::model_selector::model_selector;
 use crate::core::llm::router::{
     ChatChunk, ChatRequest, ChatResponse, LLMError, LLMProvider, Result,
 };
@@ -47,6 +48,9 @@ use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader};
 use tokio::process::Command;
 use tokio::sync::{mpsc, RwLock};
 use tracing::{debug, error, info, warn};
+
+/// Fallback model when rate limited (429)
+const RATE_LIMIT_FALLBACK_MODEL: &str = "claude-sonnet-4-20250514";
 
 // ============================================================================
 // Response Types
@@ -205,8 +209,20 @@ impl ClaudeCodeProvider {
         }
     }
 
+    /// Check if an error message indicates a rate limit (429)
+    fn is_rate_limit_error(error_msg: &str) -> bool {
+        let lower = error_msg.to_lowercase();
+        lower.contains("rate limit")
+            || lower.contains("429")
+            || lower.contains("too many requests")
+            || lower.contains("overloaded")
+            || lower.contains("capacity")
+    }
+
     /// Build CLI arguments for a request
-    fn build_args(&self, prompt: &str, session_mode: &SessionMode, streaming: bool) -> Vec<String> {
+    ///
+    /// `model_override` can be used to force a specific model (e.g., for rate limit fallback)
+    fn build_args(&self, prompt: &str, session_mode: &SessionMode, streaming: bool, model_override: Option<&str>) -> Vec<String> {
         let mut args = vec!["-p".to_string(), prompt.to_string()];
 
         // Output format
@@ -216,10 +232,12 @@ impl ClaudeCodeProvider {
             args.extend(["--output-format".to_string(), "json".to_string()]);
         }
 
-        // Model selection
-        if let Some(ref model) = self.model {
-            args.extend(["--model".to_string(), model.clone()]);
-        }
+        // Model selection - use override, explicit config, or dynamic selection
+        let model = model_override
+            .map(String::from)
+            .or_else(|| self.model.clone())
+            .unwrap_or_else(|| model_selector().select_model_sync());
+        args.extend(["--model".to_string(), model]);
 
         // Session handling
         match session_mode {
@@ -243,7 +261,20 @@ impl ClaudeCodeProvider {
     }
 
     /// Execute a prompt via Claude Code CLI (non-streaming)
+    ///
+    /// If a rate limit (429) error is encountered and no explicit model was configured,
+    /// automatically retries with Sonnet as a fallback.
     async fn execute_prompt(&self, prompt: &str, session_mode: SessionMode) -> Result<ClaudeCodeResponse> {
+        self.execute_prompt_with_fallback(prompt, session_mode, None).await
+    }
+
+    /// Execute a prompt with optional model override and rate limit fallback
+    async fn execute_prompt_with_fallback(
+        &self,
+        prompt: &str,
+        session_mode: SessionMode,
+        model_override: Option<&str>,
+    ) -> Result<ClaudeCodeResponse> {
         let binary = which::which("claude").map_err(|_| {
             LLMError::NotConfigured(
                 "Claude Code CLI not found. Install with: npm install -g @anthropic-ai/claude-code"
@@ -251,7 +282,7 @@ impl ClaudeCodeProvider {
             )
         })?;
 
-        let args = self.build_args(prompt, &session_mode, false);
+        let args = self.build_args(prompt, &session_mode, false, model_override);
 
         let mut cmd = Command::new(binary);
         cmd.args(&args);
@@ -300,12 +331,32 @@ impl ClaudeCodeProvider {
 
                 if !status.success() {
                     let error_msg = if !stderr.is_empty() {
-                        stderr
+                        stderr.clone()
                     } else if !stdout.is_empty() {
-                        stdout
+                        stdout.clone()
                     } else {
                         "unknown error".to_string()
                     };
+
+                    // Check for rate limit and retry with Sonnet if no explicit model was set
+                    // and we haven't already tried the fallback
+                    if Self::is_rate_limit_error(&error_msg)
+                        && model_override.is_none()
+                        && self.model.is_none()
+                    {
+                        warn!(
+                            error = %error_msg,
+                            fallback_model = RATE_LIMIT_FALLBACK_MODEL,
+                            "Rate limit detected, retrying with fallback model"
+                        );
+                        // Retry with Sonnet - use Box::pin for recursive async call
+                        return Box::pin(self.execute_prompt_with_fallback(
+                            prompt,
+                            session_mode,
+                            Some(RATE_LIMIT_FALLBACK_MODEL),
+                        ))
+                        .await;
+                    }
 
                     error!(status = %status, error = %error_msg, "Claude Code failed");
                     return Err(LLMError::ApiError {
@@ -368,7 +419,7 @@ impl ClaudeCodeProvider {
             )
         })?;
 
-        let args = self.build_args(prompt, &session_mode, true);
+        let args = self.build_args(prompt, &session_mode, true, None);
         let (tx, rx) = mpsc::channel::<Result<ChatChunk>>(100);
 
         let mut cmd = Command::new(binary);
@@ -392,7 +443,7 @@ impl ClaudeCodeProvider {
             message: "Failed to capture stdout".to_string(),
         })?;
 
-        let model = self.model.clone().unwrap_or_else(|| "claude-code".to_string());
+        let model = self.model.clone().unwrap_or_else(|| model_selector().select_model_sync());
         let timeout_secs = self.timeout_secs;
         let session_store = self.session_store.clone();
         let working_dir = self.working_dir.clone();
@@ -1265,24 +1316,26 @@ mod tests {
     #[test]
     fn test_build_args_new_session() {
         let provider = ClaudeCodeProvider::new();
-        let args = provider.build_args("test", &SessionMode::New, false);
+        let args = provider.build_args("test", &SessionMode::New, false, None);
         assert!(args.contains(&"-p".to_string()));
         assert!(args.contains(&"test".to_string()));
         assert!(args.contains(&"json".to_string()));
         assert!(!args.contains(&"--continue".to_string()));
+        // Should have --model with dynamic selection
+        assert!(args.contains(&"--model".to_string()));
     }
 
     #[test]
     fn test_build_args_continue() {
         let provider = ClaudeCodeProvider::new();
-        let args = provider.build_args("test", &SessionMode::Continue, false);
+        let args = provider.build_args("test", &SessionMode::Continue, false, None);
         assert!(args.contains(&"--continue".to_string()));
     }
 
     #[test]
     fn test_build_args_resume() {
         let provider = ClaudeCodeProvider::new();
-        let args = provider.build_args("test", &SessionMode::Resume("abc123".to_string()), false);
+        let args = provider.build_args("test", &SessionMode::Resume("abc123".to_string()), false, None);
         assert!(args.contains(&"--resume".to_string()));
         assert!(args.contains(&"abc123".to_string()));
     }
@@ -1290,7 +1343,7 @@ mod tests {
     #[test]
     fn test_build_args_fork() {
         let provider = ClaudeCodeProvider::new();
-        let args = provider.build_args("test", &SessionMode::Fork("abc123".to_string()), false);
+        let args = provider.build_args("test", &SessionMode::Fork("abc123".to_string()), false, None);
         assert!(args.contains(&"--resume".to_string()));
         assert!(args.contains(&"abc123".to_string()));
         assert!(args.contains(&"--fork-session".to_string()));
@@ -1299,7 +1352,7 @@ mod tests {
     #[test]
     fn test_build_args_streaming() {
         let provider = ClaudeCodeProvider::new();
-        let args = provider.build_args("test", &SessionMode::New, true);
+        let args = provider.build_args("test", &SessionMode::New, true, None);
         assert!(args.contains(&"stream-json".to_string()));
     }
 
@@ -1310,9 +1363,27 @@ mod tests {
             Some("claude-sonnet-4-20250514".to_string()),
             None,
         );
-        let args = provider.build_args("test", &SessionMode::New, false);
+        let args = provider.build_args("test", &SessionMode::New, false, None);
         assert!(args.contains(&"--model".to_string()));
         assert!(args.contains(&"claude-sonnet-4-20250514".to_string()));
+    }
+
+    #[test]
+    fn test_build_args_with_model_override() {
+        let provider = ClaudeCodeProvider::new();
+        let args = provider.build_args("test", &SessionMode::New, false, Some("claude-sonnet-4-20250514"));
+        assert!(args.contains(&"--model".to_string()));
+        assert!(args.contains(&"claude-sonnet-4-20250514".to_string()));
+    }
+
+    #[test]
+    fn test_is_rate_limit_error() {
+        assert!(ClaudeCodeProvider::is_rate_limit_error("Error: rate limit exceeded"));
+        assert!(ClaudeCodeProvider::is_rate_limit_error("429 Too Many Requests"));
+        assert!(ClaudeCodeProvider::is_rate_limit_error("API is overloaded"));
+        assert!(ClaudeCodeProvider::is_rate_limit_error("Server at capacity"));
+        assert!(!ClaudeCodeProvider::is_rate_limit_error("Internal server error"));
+        assert!(!ClaudeCodeProvider::is_rate_limit_error("Authentication failed"));
     }
 
     #[tokio::test]
