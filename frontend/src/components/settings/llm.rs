@@ -295,11 +295,11 @@ pub fn LLMSettingsView() -> impl IntoView {
             // Check Gemini CLI status
             match check_gemini_cli_status().await {
                 Ok(status) => {
-                    statuses.insert("gemini-cli".to_string(), status.is_installed && status.is_authenticated);
+                    statuses.insert(LLMProvider::GeminiCli.to_string_key(), status.is_installed && status.is_authenticated);
                     gemini_cli_status.set(status);
                 }
                 Err(_) => {
-                    statuses.insert("gemini-cli".to_string(), false);
+                    statuses.insert(LLMProvider::GeminiCli.to_string_key(), false);
                 }
             }
 
@@ -337,7 +337,7 @@ pub fn LLMSettingsView() -> impl IntoView {
             match check_gemini_cli_status().await {
                 Ok(status) => {
                     let is_ready = status.is_installed && status.is_authenticated;
-                    provider_statuses.update(|map| { map.insert("gemini-cli".to_string(), is_ready); });
+                    provider_statuses.update(|map| { map.insert(LLMProvider::GeminiCli.to_string_key(), is_ready); });
                     gemini_cli_status.set(status);
                 }
                 Err(e) => {
