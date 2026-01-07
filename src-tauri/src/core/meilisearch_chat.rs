@@ -114,6 +114,12 @@ When answering questions:
 You have access to the player's rulebooks, campaign notes, and lore documents.
 Use the search tool to find relevant information before answering."#;
 
+/// Default model for Grok/xAI provider
+pub const GROK_DEFAULT_MODEL: &str = "grok-3-mini";
+
+/// Base URL for Grok/xAI API (OpenAI-compatible)
+pub const GROK_API_BASE_URL: &str = "https://api.x.ai/v1";
+
 // ============================================================================
 // Chat Provider Configuration
 // ============================================================================
@@ -266,7 +272,7 @@ impl ChatProviderConfig {
             ChatProviderConfig::Cohere { model, .. } => model.as_str(),
             ChatProviderConfig::DeepSeek { model, .. } => model.as_str(),
             ChatProviderConfig::Grok { model, .. } => {
-                model.as_deref().unwrap_or("grok-3-mini")
+                model.as_deref().unwrap_or(GROK_DEFAULT_MODEL)
             }
             ChatProviderConfig::ClaudeCode { model, .. } => {
                 model.as_deref().unwrap_or("claude-sonnet-4-20250514")
@@ -357,7 +363,7 @@ impl ChatProviderConfig {
                     system: Some(DEFAULT_DM_SYSTEM_PROMPT.to_string()),
                     ..Default::default()
                 }),
-                base_url: Some("https://api.x.ai/v1".to_string()),
+                base_url: Some(GROK_API_BASE_URL.to_string()),
             },
             // All other providers route through proxy
             _ => ChatWorkspaceSettings {
@@ -439,10 +445,10 @@ impl ChatProviderConfig {
             // Grok/xAI uses OpenAI-compatible API
             ChatProviderConfig::Grok { api_key, model } => ProviderConfig::OpenAI {
                 api_key: api_key.clone(),
-                model: model.as_deref().unwrap_or("grok-3-mini").to_string(),
+                model: model.as_deref().unwrap_or(GROK_DEFAULT_MODEL).to_string(),
                 max_tokens: 4096,
                 organization_id: None,
-                base_url: Some("https://api.x.ai/v1".to_string()),
+                base_url: Some(GROK_API_BASE_URL.to_string()),
             },
             ChatProviderConfig::ClaudeCode { timeout_secs, model } => ProviderConfig::ClaudeCode {
                 timeout_secs: timeout_secs.unwrap_or(300),

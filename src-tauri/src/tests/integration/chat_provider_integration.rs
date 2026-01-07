@@ -22,7 +22,9 @@
 //! cargo test chat_provider_integration -- --ignored --nocapture
 //! ```
 
-use crate::core::meilisearch_chat::{ChatProviderConfig, list_chat_providers};
+use crate::core::meilisearch_chat::{
+    ChatProviderConfig, list_chat_providers, GROK_DEFAULT_MODEL, GROK_API_BASE_URL,
+};
 use crate::core::llm::providers::ProviderConfig;
 
 // =============================================================================
@@ -93,7 +95,7 @@ fn test_grok_provider_config() {
     assert!(settings.api_key.is_some());
     assert_eq!(settings.api_key.unwrap(), "test-key");
     assert!(settings.base_url.is_some(), "Grok should use xAI base_url");
-    assert_eq!(settings.base_url.unwrap(), "https://api.x.ai/v1");
+    assert_eq!(settings.base_url.unwrap(), GROK_API_BASE_URL);
 }
 
 #[test]
@@ -103,8 +105,8 @@ fn test_grok_default_model() {
         model: None,
     };
 
-    // Should use grok-3-mini as default in proxy_model_id
-    assert_eq!(config.proxy_model_id(), "grok:grok-3-mini");
+    // Should use GROK_DEFAULT_MODEL as default in proxy_model_id
+    assert_eq!(config.proxy_model_id(), format!("grok:{}", GROK_DEFAULT_MODEL));
 }
 
 #[test]
@@ -114,10 +116,10 @@ fn test_grok_default_model_in_provider_config() {
         model: None,
     };
 
-    // Should use grok-3-mini as default in to_provider_config
+    // Should use GROK_DEFAULT_MODEL as default in to_provider_config
     match config.to_provider_config() {
         ProviderConfig::OpenAI { model, .. } => {
-            assert_eq!(model, "grok-3-mini");
+            assert_eq!(model, GROK_DEFAULT_MODEL);
         }
         _ => panic!("Grok should map to OpenAI ProviderConfig"),
     }
@@ -137,7 +139,7 @@ fn test_grok_to_provider_config() {
         ProviderConfig::OpenAI { api_key, model, base_url, .. } => {
             assert_eq!(api_key, "test-key");
             assert_eq!(model, "grok-3");
-            assert_eq!(base_url, Some("https://api.x.ai/v1".to_string()));
+            assert_eq!(base_url, Some(GROK_API_BASE_URL.to_string()));
         }
         _ => panic!("Grok should map to OpenAI ProviderConfig"),
     }
@@ -178,12 +180,15 @@ fn test_core_providers_present() {
 }
 
 // =============================================================================
-// Live Integration Tests (require running Meilisearch + API keys)
+// Configuration Smoke Tests (require API keys from env vars)
 // =============================================================================
+//
+// These tests validate provider configuration wiring, not actual chat completions.
+// They verify that ChatProviderConfig correctly maps to Meilisearch settings.
 
 #[tokio::test]
-#[ignore = "Requires OPENAI_API_KEY environment variable and running Meilisearch"]
-async fn test_openai_chat_completion() {
+#[ignore = "Requires OPENAI_API_KEY environment variable"]
+async fn test_openai_configuration_smoke_test() {
     let api_key = get_env_key("OPENAI_API_KEY")
         .expect("OPENAI_API_KEY must be set for this test");
 
@@ -202,8 +207,8 @@ async fn test_openai_chat_completion() {
 }
 
 #[tokio::test]
-#[ignore = "Requires ANTHROPIC_API_KEY environment variable and running Meilisearch"]
-async fn test_claude_chat_completion() {
+#[ignore = "Requires ANTHROPIC_API_KEY environment variable"]
+async fn test_claude_configuration_smoke_test() {
     let api_key = get_env_key("ANTHROPIC_API_KEY")
         .expect("ANTHROPIC_API_KEY must be set for this test");
 
@@ -228,29 +233,29 @@ async fn test_claude_chat_completion() {
 }
 
 #[tokio::test]
-#[ignore = "Requires GROK_API_KEY environment variable and running Meilisearch"]
-async fn test_grok_chat_completion() {
+#[ignore = "Requires GROK_API_KEY environment variable"]
+async fn test_grok_configuration_smoke_test() {
     let api_key = get_env_key("GROK_API_KEY")
         .expect("GROK_API_KEY must be set for this test");
 
     let config = ChatProviderConfig::Grok {
         api_key,
-        model: Some("grok-3-mini".to_string()),
+        model: Some(GROK_DEFAULT_MODEL.to_string()),
     };
 
     assert!(!config.requires_proxy(), "Grok should not require proxy");
 
     let settings = config.to_meilisearch_settings(MEILISEARCH_HOST);
     assert!(settings.api_key.is_some());
-    assert_eq!(settings.base_url, Some("https://api.x.ai/v1".to_string()));
+    assert_eq!(settings.base_url, Some(GROK_API_BASE_URL.to_string()));
 
     println!("Grok provider configured successfully");
     println!("Settings: {:?}", settings);
 }
 
 #[tokio::test]
-#[ignore = "Requires all API keys and running Meilisearch"]
-async fn test_all_providers_configurable() {
+#[ignore = "Requires all API keys"]
+async fn test_all_providers_configuration_smoke_test() {
     let openai_key = get_env_key("OPENAI_API_KEY");
     let anthropic_key = get_env_key("ANTHROPIC_API_KEY");
     let grok_key = get_env_key("GROK_API_KEY");
@@ -282,7 +287,7 @@ async fn test_all_providers_configurable() {
     if let Some(key) = grok_key {
         let config = ChatProviderConfig::Grok {
             api_key: key,
-            model: Some("grok-3-mini".to_string()),
+            model: Some(GROK_DEFAULT_MODEL.to_string()),
         };
         let settings = config.to_meilisearch_settings(MEILISEARCH_HOST);
         println!("Grok configured: source={:?}, base_url={:?}", settings.source, settings.base_url);
