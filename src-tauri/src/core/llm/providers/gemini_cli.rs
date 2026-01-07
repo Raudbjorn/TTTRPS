@@ -514,12 +514,12 @@ impl GeminiCliProvider {
 
     /// Logout from Gemini CLI by removing cached credentials.
     pub async fn logout() -> std::result::Result<(), String> {
-        // Gemini CLI stores credentials in ~/.gemini/
+        // Gemini CLI stores OAuth credentials in ~/.gemini/oauth_creds.json
         if let Some(home) = dirs::home_dir() {
             let gemini_dir = home.join(".gemini");
             if gemini_dir.exists() {
-                // Remove auth-related files but keep config
-                let auth_files = ["credentials.json", "oauth_token.json", ".auth"];
+                // The actual credential file used by Gemini CLI
+                let auth_files = ["oauth_creds.json"];
                 for file in auth_files {
                     let path = gemini_dir.join(file);
                     if path.exists() {

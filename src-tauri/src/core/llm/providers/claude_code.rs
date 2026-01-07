@@ -302,15 +302,13 @@ impl ClaudeCodeProvider {
     }
 
     /// Check if an error indicates a rate limit / quota exhaustion.
-    fn is_rate_limit_error(output: &str, exit_code: Option<i32>) -> bool {
+    /// Uses only confirmed Anthropic rate limit indicators.
+    fn is_rate_limit_error(output: &str, _exit_code: Option<i32>) -> bool {
         let lower = output.to_lowercase();
         lower.contains("429")
             || lower.contains("rate limit")
             || lower.contains("too many requests")
             || lower.contains("quota")
-            || lower.contains("resource exhausted")
-            || lower.contains("overloaded")
-            || exit_code == Some(8) // Common exit code for rate limiting
     }
 
     /// Build the message content from the request.
@@ -394,8 +392,29 @@ impl ClaudeCodeProvider {
         self.build_args_with_model(prompt, session_mode, streaming, None)
     }
 
-    /// Execute a prompt via Claude Code CLI (non-streaming)
+    /// Execute a prompt via Claude Code CLI (non-streaming).
+    /// Delegates to execute_prompt_impl with no model override.
     async fn execute_prompt(&self, prompt: &str, session_mode: SessionMode) -> Result<ClaudeCodeResponse> {
+        self.execute_prompt_impl(prompt, session_mode, None).await
+    }
+
+    /// Execute a prompt with a specific model override (for fallback scenarios).
+    async fn execute_prompt_with_model(
+        &self,
+        prompt: &str,
+        session_mode: SessionMode,
+        model: &str,
+    ) -> Result<ClaudeCodeResponse> {
+        self.execute_prompt_impl(prompt, session_mode, Some(model)).await
+    }
+
+    /// Core implementation for executing prompts via Claude Code CLI.
+    async fn execute_prompt_impl(
+        &self,
+        prompt: &str,
+        session_mode: SessionMode,
+        model_override: Option<&str>,
+    ) -> Result<ClaudeCodeResponse> {
         let binary = which::which("claude").map_err(|_| {
             LLMError::NotConfigured(
                 "Claude Code CLI not found. Install with: npm install -g @anthropic-ai/claude-code"
@@ -403,7 +422,7 @@ impl ClaudeCodeProvider {
             )
         })?;
 
-        let args = self.build_args(prompt, &session_mode, false);
+        let args = self.build_args_with_model(prompt, &session_mode, false, model_override);
 
         let mut cmd = Command::new(binary);
         cmd.args(&args);
@@ -416,7 +435,11 @@ impl ClaudeCodeProvider {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
-        debug!(command = ?cmd, "executing Claude Code CLI");
+        if let Some(model) = model_override {
+            debug!(model = model, "executing Claude Code CLI with model override");
+        } else {
+            debug!(command = ?cmd, "executing Claude Code CLI");
+        }
 
         let timeout = tokio::time::Duration::from_secs(self.timeout_secs);
         let mut child = cmd.spawn().map_err(|e| LLMError::ApiError {
@@ -508,115 +531,6 @@ impl ClaudeCodeProvider {
             }
             Err(_) => {
                 warn!(timeout_secs = self.timeout_secs, "Claude Code request timed out");
-                let _ = child.kill().await;
-                Err(LLMError::Timeout)
-            }
-        }
-    }
-
-    /// Execute a prompt with a specific model override (for fallback scenarios).
-    async fn execute_prompt_with_model(
-        &self,
-        prompt: &str,
-        session_mode: SessionMode,
-        model: &str,
-    ) -> Result<ClaudeCodeResponse> {
-        let binary = which::which("claude").map_err(|_| {
-            LLMError::NotConfigured(
-                "Claude Code CLI not found. Install with: npm install -g @anthropic-ai/claude-code"
-                    .to_string(),
-            )
-        })?;
-
-        let args = self.build_args_with_model(prompt, &session_mode, false, Some(model));
-
-        let mut cmd = Command::new(binary);
-        cmd.args(&args);
-
-        if let Some(ref dir) = self.working_dir {
-            cmd.current_dir(dir);
-        }
-
-        cmd.stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-
-        debug!(model = model, "executing Claude Code CLI with model override");
-
-        let timeout = tokio::time::Duration::from_secs(self.timeout_secs);
-        let mut child = cmd.spawn().map_err(|e| LLMError::ApiError {
-            status: 0,
-            message: format!("Failed to spawn Claude Code: {}", e),
-        })?;
-
-        let result = tokio::time::timeout(timeout, async {
-            let mut stdout = String::new();
-            let mut stderr = String::new();
-
-            if let Some(mut stdout_handle) = child.stdout.take() {
-                stdout_handle.read_to_string(&mut stdout).await?;
-            }
-
-            if let Some(mut stderr_handle) = child.stderr.take() {
-                stderr_handle.read_to_string(&mut stderr).await?;
-            }
-
-            let status = child.wait().await?;
-            Ok::<_, std::io::Error>((status, stdout, stderr))
-        })
-        .await;
-
-        match result {
-            Ok(Ok((status, stdout, stderr))) => {
-                if !status.success() {
-                    let error_msg = if !stderr.is_empty() {
-                        stderr.clone()
-                    } else if !stdout.is_empty() {
-                        stdout.clone()
-                    } else {
-                        "unknown error".to_string()
-                    };
-
-                    let combined = format!("{} {}", stdout, stderr);
-                    if Self::is_rate_limit_error(&combined, status.code()) {
-                        return Err(LLMError::RateLimited { retry_after_secs: 60 });
-                    }
-
-                    return Err(LLMError::ApiError {
-                        status: status.code().unwrap_or(1) as u16,
-                        message: error_msg,
-                    });
-                }
-
-                let response: ClaudeCodeResponse =
-                    serde_json::from_str(&stdout).unwrap_or_else(|_| ClaudeCodeResponse {
-                        session_id: None,
-                        result: stdout.trim().to_string(),
-                        usage: None,
-                        cost: None,
-                        error: None,
-                        is_error: None,
-                        duration_ms: None,
-                        num_turns: None,
-                    });
-
-                // Store session ID if returned
-                if let Some(ref session_id) = response.session_id {
-                    let mut current = self.current_session.write().await;
-                    *current = Some(session_id.clone());
-
-                    let mut info = SessionInfo::new(session_id.clone(), "claude-code");
-                    info.working_dir = self.working_dir.clone();
-                    let _ = self.session_store.store(info).await;
-                }
-
-                Ok(response)
-            }
-            Ok(Err(io_err)) => Err(LLMError::ApiError {
-                status: 0,
-                message: format!("I/O error: {}", io_err),
-            }),
-            Err(_) => {
                 let _ = child.kill().await;
                 Err(LLMError::Timeout)
             }
@@ -1714,20 +1628,13 @@ mod tests {
     }
 
     #[test]
-    fn test_is_rate_limit_error_overloaded() {
-        assert!(ClaudeCodeProvider::is_rate_limit_error("API overloaded", None));
-    }
-
-    #[test]
-    fn test_is_rate_limit_error_exit_code() {
-        assert!(ClaudeCodeProvider::is_rate_limit_error("", Some(8)));
-    }
-
-    #[test]
     fn test_is_rate_limit_error_not_rate_limit() {
         assert!(!ClaudeCodeProvider::is_rate_limit_error("authentication failed", None));
         assert!(!ClaudeCodeProvider::is_rate_limit_error("network error", Some(1)));
         assert!(!ClaudeCodeProvider::is_rate_limit_error("", None));
+        // "overloaded" and exit codes are not reliable rate limit indicators
+        assert!(!ClaudeCodeProvider::is_rate_limit_error("API overloaded", None));
+        assert!(!ClaudeCodeProvider::is_rate_limit_error("", Some(8)));
     }
 
     // ==================== Model Override Tests ====================
