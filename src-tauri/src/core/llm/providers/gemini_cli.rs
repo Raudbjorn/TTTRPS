@@ -45,7 +45,7 @@ use tracing::{debug, error, info, warn};
 const DEFAULT_TIMEOUT_SECS: u64 = 120;
 
 /// Default model to use.
-const DEFAULT_MODEL: &str = "gemini-2.5-flash";
+const DEFAULT_MODEL: &str = "gemini-3-flash-preview";
 
 /// Gemini CLI JSON response structure.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -816,15 +816,15 @@ mod tests {
     #[test]
     fn test_default_model() {
         let provider = GeminiCliProvider::new();
-        assert_eq!(provider.model(), "gemini-2.5-flash");
+        assert_eq!(provider.model(), "gemini-3-flash-preview");
     }
 
     #[test]
     fn test_custom_model() {
         let provider = GeminiCliProvider::builder()
-            .model("gemini-2.5-pro")
+            .model("gemini-3-pro-preview")
             .build();
-        assert_eq!(provider.model(), "gemini-2.5-pro");
+        assert_eq!(provider.model(), "gemini-3-pro-preview");
     }
 
     #[test]
