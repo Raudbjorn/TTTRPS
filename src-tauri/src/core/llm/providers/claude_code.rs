@@ -303,7 +303,7 @@ impl ClaudeCodeProvider {
 
     /// Check if an error indicates a rate limit / quota exhaustion.
     /// Uses only confirmed Anthropic rate limit indicators.
-    fn is_rate_limit_error(output: &str, _exit_code: Option<i32>) -> bool {
+    fn is_rate_limit_error(output: &str) -> bool {
         let lower = output.to_lowercase();
         lower.contains("429")
             || lower.contains("rate limit")
@@ -484,7 +484,7 @@ impl ClaudeCodeProvider {
 
                     // Check for rate limiting
                     let combined = format!("{} {}", stdout, stderr);
-                    if Self::is_rate_limit_error(&combined, status.code()) {
+                    if Self::is_rate_limit_error(&combined) {
                         warn!(status = %status, "Claude Code rate limited");
                         return Err(LLMError::RateLimited { retry_after_secs: 60 });
                     }
@@ -574,7 +574,7 @@ impl ClaudeCodeProvider {
             message: "Failed to capture stdout".to_string(),
         })?;
 
-        let model = self.model.clone().unwrap_or_else(|| "claude-code".to_string());
+        let model = self.model.clone().unwrap_or_else(|| DEFAULT_MODEL.to_string());
         let timeout_secs = self.timeout_secs;
         let session_store = self.session_store.clone();
         let working_dir = self.working_dir.clone();
@@ -1215,7 +1215,7 @@ impl LLMProvider for ClaudeCodeProvider {
         let result = self.execute_prompt(&message, session_mode.clone()).await;
 
         let (response, used_model) = match result {
-            Ok(resp) => (resp, self.model.clone().unwrap_or_else(|| "claude-code".to_string())),
+            Ok(resp) => (resp, self.model.clone().unwrap_or_else(|| DEFAULT_MODEL.to_string())),
             Err(LLMError::RateLimited { .. }) if self.auto_fallback => {
                 // Rate limited - try fallback model if available
                 if let Some(ref fallback) = self.fallback_model {
@@ -1611,30 +1611,29 @@ mod tests {
 
     #[test]
     fn test_is_rate_limit_error_429() {
-        assert!(ClaudeCodeProvider::is_rate_limit_error("Error 429: Too many requests", None));
-        assert!(ClaudeCodeProvider::is_rate_limit_error("HTTP 429", None));
+        assert!(ClaudeCodeProvider::is_rate_limit_error("Error 429: Too many requests"));
+        assert!(ClaudeCodeProvider::is_rate_limit_error("HTTP 429"));
     }
 
     #[test]
     fn test_is_rate_limit_error_rate_limit() {
-        assert!(ClaudeCodeProvider::is_rate_limit_error("rate limit exceeded", None));
-        assert!(ClaudeCodeProvider::is_rate_limit_error("Rate Limit Hit", None));
+        assert!(ClaudeCodeProvider::is_rate_limit_error("rate limit exceeded"));
+        assert!(ClaudeCodeProvider::is_rate_limit_error("Rate Limit Hit"));
     }
 
     #[test]
     fn test_is_rate_limit_error_quota() {
-        assert!(ClaudeCodeProvider::is_rate_limit_error("quota exceeded", None));
-        assert!(ClaudeCodeProvider::is_rate_limit_error("Quota limit reached", None));
+        assert!(ClaudeCodeProvider::is_rate_limit_error("quota exceeded"));
+        assert!(ClaudeCodeProvider::is_rate_limit_error("Quota limit reached"));
     }
 
     #[test]
     fn test_is_rate_limit_error_not_rate_limit() {
-        assert!(!ClaudeCodeProvider::is_rate_limit_error("authentication failed", None));
-        assert!(!ClaudeCodeProvider::is_rate_limit_error("network error", Some(1)));
-        assert!(!ClaudeCodeProvider::is_rate_limit_error("", None));
-        // "overloaded" and exit codes are not reliable rate limit indicators
-        assert!(!ClaudeCodeProvider::is_rate_limit_error("API overloaded", None));
-        assert!(!ClaudeCodeProvider::is_rate_limit_error("", Some(8)));
+        assert!(!ClaudeCodeProvider::is_rate_limit_error("authentication failed"));
+        assert!(!ClaudeCodeProvider::is_rate_limit_error("network error"));
+        assert!(!ClaudeCodeProvider::is_rate_limit_error(""));
+        // "overloaded" is not a reliable rate limit indicator
+        assert!(!ClaudeCodeProvider::is_rate_limit_error("API overloaded"));
     }
 
     // ==================== Model Override Tests ====================

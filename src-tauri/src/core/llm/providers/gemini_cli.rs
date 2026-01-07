@@ -142,6 +142,21 @@ pub struct GeminiCliProvider {
     persist_sessions: bool,
 }
 
+impl std::fmt::Debug for GeminiCliProvider {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("GeminiCliProvider")
+            .field("model", &self.model)
+            .field("fallback_model", &self.fallback_model)
+            .field("timeout_secs", &self.timeout_secs)
+            .field("working_dir", &self.working_dir)
+            .field("yolo_mode", &self.yolo_mode)
+            .field("sandbox", &self.sandbox)
+            .field("auto_fallback", &self.auto_fallback)
+            .field("persist_sessions", &self.persist_sessions)
+            .finish_non_exhaustive()
+    }
+}
+
 /// Builder for GeminiCliProvider.
 #[derive(Debug)]
 pub struct GeminiCliProviderBuilder {
@@ -1130,8 +1145,8 @@ impl ProviderSession for GeminiCliProvider {
             .await
             .ok_or_else(|| SessionError::NotFound(session_id.clone()))?;
 
-        // Create a new session based on the source
-        let new_session_id = format!("{}-fork-{}", session_id, uuid::Uuid::new_v4());
+        // Create a new session based on the source with a canonical UUID ID
+        let new_session_id = uuid::Uuid::new_v4().to_string();
 
         let mut new_info = SessionInfo::new(new_session_id.clone(), "gemini-cli");
         new_info.working_dir = source.working_dir;
