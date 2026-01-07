@@ -261,7 +261,17 @@ impl VoiceManager {
         // Determine provider from voice_id prefix or fallback to active provider config
         let provider_id = match parse_prefixed_voice_id(&request.voice_id) {
             Some(parsed) => parsed.provider_id,
-            None => self.get_active_provider_id()?,
+            None => match self.get_active_provider_id() {
+                Ok(id) => id,
+                Err(VoiceError::NotConfigured(message)) if message.contains("disabled") => {
+                    return Err(VoiceError::NotConfigured(format!(
+                        "{} (voice_id='{}' may have an unrecognized prefix)",
+                        message,
+                        request.voice_id
+                    )));
+                }
+                Err(e) => return Err(e),
+            },
         };
 
         let provider = self.providers.get(provider_id)
@@ -276,7 +286,7 @@ impl VoiceManager {
         // We must fail fast to avoid cache collisions where multiple unknown providers map to the same Disabled key.
         if matches!(provider_type_enum, VoiceProviderType::Disabled) && provider_id != "disabled" {
              return Err(VoiceError::NotConfigured(format!(
-                "Unknown voice provider id '{}' when deriving cache key. Update get_provider_type_from_id.",
+                "Unsupported voice provider: '{}'. Please check your configuration.",
                  provider_id
              )));
         }
