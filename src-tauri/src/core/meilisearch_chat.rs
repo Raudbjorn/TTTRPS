@@ -188,7 +188,7 @@ pub enum ChatProviderConfig {
         api_key: String,
         model: String,
     },
-    /// Grok/xAI (OpenAI-compatible, native via OpenAI source)
+    /// Grok/xAI (OpenAI-compatible, native via VLlm source with xAI base URL)
     Grok {
         api_key: String,
         #[serde(default)]

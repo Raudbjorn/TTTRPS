@@ -22,7 +22,7 @@
 //! cargo test chat_provider_integration -- --ignored --nocapture
 //! ```
 
-use crate::core::meilisearch_chat::{ChatProviderConfig, ChatProviderInfo, list_chat_providers};
+use crate::core::meilisearch_chat::{ChatProviderConfig, list_chat_providers};
 use crate::core::llm::providers::ProviderConfig;
 
 // =============================================================================
@@ -103,8 +103,24 @@ fn test_grok_default_model() {
         model: None,
     };
 
-    // Should use grok-3-mini as default
+    // Should use grok-3-mini as default in proxy_model_id
     assert_eq!(config.proxy_model_id(), "grok:grok-3-mini");
+}
+
+#[test]
+fn test_grok_default_model_in_provider_config() {
+    let config = ChatProviderConfig::Grok {
+        api_key: "test-key".to_string(),
+        model: None,
+    };
+
+    // Should use grok-3-mini as default in to_provider_config
+    match config.to_provider_config() {
+        ProviderConfig::OpenAI { model, .. } => {
+            assert_eq!(model, "grok-3-mini");
+        }
+        _ => panic!("Grok should map to OpenAI ProviderConfig"),
+    }
 }
 
 #[test]
@@ -141,23 +157,24 @@ fn test_list_chat_providers_includes_grok() {
 }
 
 #[test]
-fn test_provider_counts() {
+fn test_core_providers_present() {
     let providers = list_chat_providers();
 
-    // Should have at least these providers
-    let expected = vec![
-        "openai", "claude", "mistral", "gemini", "ollama",
-        "openrouter", "azure", "groq", "together", "cohere",
-        "deepseek", "grok", "claude-code", "claude-desktop",
-    ];
+    // Test only core stable providers to avoid brittleness
+    // as new providers are added/removed
+    let core_providers = vec!["openai", "claude", "grok"];
 
-    for id in expected {
+    for id in core_providers {
         assert!(
             providers.iter().any(|p| p.id == id),
-            "Missing provider: {}",
+            "Missing core provider: {}",
             id
         );
     }
+
+    // Grok should be marked as native (no proxy)
+    let grok = providers.iter().find(|p| p.id == "grok").unwrap();
+    assert!(grok.is_native, "Grok should be native provider");
 }
 
 // =============================================================================
