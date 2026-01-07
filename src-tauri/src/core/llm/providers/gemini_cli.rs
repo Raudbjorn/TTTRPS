@@ -44,8 +44,11 @@ use tracing::{debug, error, info, warn};
 /// Default timeout in seconds for CLI operations.
 const DEFAULT_TIMEOUT_SECS: u64 = 120;
 
-/// Default model to use.
-const DEFAULT_MODEL: &str = "gemini-3-flash-preview";
+/// Default model to use (prefer Pro for quality).
+const DEFAULT_MODEL: &str = "gemini-3-pro-preview";
+
+/// Fallback model when rate limited (faster, higher quota).
+const FALLBACK_MODEL: &str = "gemini-3-flash-preview";
 
 /// Gemini CLI JSON response structure.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -101,20 +104,39 @@ pub struct GeminiCliStreamChunk {
 #[derive(Debug, Clone)]
 pub struct GeminiCliProvider {
     model: String,
+    fallback_model: Option<String>,
     timeout_secs: u64,
     working_dir: Option<PathBuf>,
     yolo_mode: bool,
     sandbox: bool,
+    /// Whether to automatically fallback on rate limit errors.
+    auto_fallback: bool,
 }
 
 /// Builder for GeminiCliProvider.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct GeminiCliProviderBuilder {
     model: Option<String>,
+    fallback_model: Option<String>,
     timeout_secs: Option<u64>,
     working_dir: Option<PathBuf>,
     yolo_mode: bool,
     sandbox: bool,
+    auto_fallback: bool,
+}
+
+impl Default for GeminiCliProviderBuilder {
+    fn default() -> Self {
+        Self {
+            model: None,
+            fallback_model: Some(FALLBACK_MODEL.to_string()),
+            timeout_secs: None,
+            working_dir: None,
+            yolo_mode: false,
+            sandbox: false,
+            auto_fallback: true, // Enable by default
+        }
+    }
 }
 
 impl GeminiCliProviderBuilder {
@@ -153,14 +175,35 @@ impl GeminiCliProviderBuilder {
         self
     }
 
+    /// Set the fallback model (used when rate limited).
+    pub fn fallback_model(mut self, model: impl Into<String>) -> Self {
+        self.fallback_model = Some(model.into());
+        self
+    }
+
+    /// Disable fallback model (don't retry on rate limit).
+    pub fn no_fallback(mut self) -> Self {
+        self.fallback_model = None;
+        self.auto_fallback = false;
+        self
+    }
+
+    /// Enable/disable automatic fallback on rate limit errors.
+    pub fn auto_fallback(mut self, enabled: bool) -> Self {
+        self.auto_fallback = enabled;
+        self
+    }
+
     /// Build the provider.
     pub fn build(self) -> GeminiCliProvider {
         GeminiCliProvider {
             model: self.model.unwrap_or_else(|| DEFAULT_MODEL.to_string()),
+            fallback_model: self.fallback_model,
             timeout_secs: self.timeout_secs.unwrap_or(DEFAULT_TIMEOUT_SECS),
             working_dir: self.working_dir,
             yolo_mode: self.yolo_mode,
             sandbox: self.sandbox,
+            auto_fallback: self.auto_fallback,
         }
     }
 }
@@ -417,20 +460,43 @@ impl GeminiCliProvider {
         }
     }
 
-    /// Build command arguments for a chat request.
-    fn build_args(&self, prompt: &str) -> Vec<String> {
+    /// Build command arguments for a chat request with a specific model.
+    fn build_args_with_model(&self, prompt: &str, model: &str) -> Vec<String> {
         let mut args = vec![
             "-p".to_string(),
             prompt.to_string(),
             "--output-format".to_string(),
             "json".to_string(),
+            "--model".to_string(),
+            model.to_string(),
         ];
 
-        // Add model if not default
-        if self.model != DEFAULT_MODEL {
-            args.push("--model".to_string());
-            args.push(self.model.clone());
+        if self.yolo_mode {
+            args.push("--yolo".to_string());
         }
+
+        if self.sandbox {
+            args.push("--sandbox".to_string());
+        }
+
+        args
+    }
+
+    /// Build command arguments for a chat request.
+    fn build_args(&self, prompt: &str) -> Vec<String> {
+        self.build_args_with_model(prompt, &self.model)
+    }
+
+    /// Build command arguments for streaming with a specific model.
+    fn build_stream_args_with_model(&self, prompt: &str, model: &str) -> Vec<String> {
+        let mut args = vec![
+            "-p".to_string(),
+            prompt.to_string(),
+            "--output-format".to_string(),
+            "stream-json".to_string(),
+            "--model".to_string(),
+            model.to_string(),
+        ];
 
         if self.yolo_mode {
             args.push("--yolo".to_string());
@@ -445,27 +511,87 @@ impl GeminiCliProvider {
 
     /// Build command arguments for streaming.
     fn build_stream_args(&self, prompt: &str) -> Vec<String> {
-        let mut args = vec![
-            "-p".to_string(),
-            prompt.to_string(),
-            "--output-format".to_string(),
-            "stream-json".to_string(),
-        ];
+        self.build_stream_args_with_model(prompt, &self.model)
+    }
 
-        if self.model != DEFAULT_MODEL {
-            args.push("--model".to_string());
-            args.push(self.model.clone());
+    /// Check if an error indicates a rate limit / quota exhaustion.
+    fn is_rate_limit_error(stderr: &str, exit_code: Option<i32>) -> bool {
+        // Check for common rate limit indicators
+        stderr.contains("429")
+            || stderr.contains("Resource exhausted")
+            || stderr.contains("RESOURCE_EXHAUSTED")
+            || stderr.contains("quota")
+            || stderr.contains("rate limit")
+            || stderr.contains("too many requests")
+            || exit_code == Some(8) // Common exit code for rate limiting
+    }
+
+    /// Execute a chat request with a specific model.
+    async fn execute_chat(&self, prompt: &str, model: &str) -> Result<(String, Option<TokenUsage>, u64)> {
+        let args = self.build_args_with_model(prompt, model);
+
+        debug!(
+            prompt_len = prompt.len(),
+            model = model,
+            args = ?args,
+            "executing Gemini CLI"
+        );
+
+        let start = Instant::now();
+
+        let mut cmd = Command::new("gemini");
+        cmd.args(&args)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+
+        if let Some(ref dir) = self.working_dir {
+            cmd.current_dir(dir);
         }
 
-        if self.yolo_mode {
-            args.push("--yolo".to_string());
+        let output = tokio::time::timeout(
+            std::time::Duration::from_secs(self.timeout_secs),
+            cmd.output(),
+        )
+        .await
+        .map_err(|_| LLMError::Timeout)?
+        .map_err(|e| LLMError::ApiError {
+            status: 0,
+            message: format!("Failed to execute Gemini CLI: {}", e),
+        })?;
+
+        let latency_ms = start.elapsed().as_millis() as u64;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            error!(
+                model = model,
+                exit_code = ?output.status.code(),
+                stderr = %stderr,
+                "Gemini CLI failed"
+            );
+
+            if stderr.contains("authentication") || stderr.contains("not logged in") {
+                return Err(LLMError::AuthError(
+                    "Not authenticated. Run 'gemini' to log in with your Google account."
+                        .to_string(),
+                ));
+            }
+
+            // Check for rate limiting
+            if Self::is_rate_limit_error(&stderr, output.status.code()) {
+                return Err(LLMError::RateLimited { retry_after_secs: 60 });
+            }
+
+            return Err(LLMError::ApiError {
+                status: output.status.code().unwrap_or(1) as u16,
+                message: stderr.to_string(),
+            });
         }
 
-        if self.sandbox {
-            args.push("--sandbox".to_string());
-        }
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let (content, usage) = self.parse_response(&stdout)?;
 
-        args
+        Ok((content, usage, latency_ms))
     }
 
     /// Build the full prompt from a ChatRequest.
@@ -589,79 +715,66 @@ impl LLMProvider for GeminiCliProvider {
         }
 
         let prompt = self.build_prompt(&request);
-        let args = self.build_args(&prompt);
 
-        debug!(
-            prompt_len = prompt.len(),
-            args = ?args,
-            "executing Gemini CLI"
-        );
+        // Try primary model first
+        let primary_model = &self.model;
+        match self.execute_chat(&prompt, primary_model).await {
+            Ok((content, usage, latency_ms)) => {
+                info!(
+                    model = primary_model,
+                    response_len = content.len(),
+                    latency_ms,
+                    usage = ?usage,
+                    "received response from Gemini CLI"
+                );
 
-        let start = Instant::now();
-
-        let mut cmd = Command::new("gemini");
-        cmd.args(&args)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-
-        if let Some(ref dir) = self.working_dir {
-            cmd.current_dir(dir);
-        }
-
-        let output = tokio::time::timeout(
-            std::time::Duration::from_secs(self.timeout_secs),
-            cmd.output(),
-        )
-        .await
-        .map_err(|_| LLMError::Timeout)?
-        .map_err(|e| LLMError::ApiError {
-            status: 0,
-            message: format!("Failed to execute Gemini CLI: {}", e),
-        })?;
-
-        let latency_ms = start.elapsed().as_millis() as u64;
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            error!(
-                exit_code = ?output.status.code(),
-                stderr = %stderr,
-                "Gemini CLI failed"
-            );
-
-            if stderr.contains("authentication") || stderr.contains("not logged in") {
-                return Err(LLMError::AuthError(
-                    "Not authenticated. Run 'gemini' to log in with your Google account."
-                        .to_string(),
-                ));
+                return Ok(ChatResponse {
+                    content,
+                    model: primary_model.clone(),
+                    provider: "gemini-cli".to_string(),
+                    usage,
+                    finish_reason: Some("stop".to_string()),
+                    latency_ms,
+                    cost_usd: None,
+                    tool_calls: None,
+                });
             }
+            Err(LLMError::RateLimited { .. }) if self.auto_fallback => {
+                // Rate limited - try fallback model if available
+                if let Some(ref fallback) = self.fallback_model {
+                    warn!(
+                        primary_model = primary_model,
+                        fallback_model = fallback,
+                        "Rate limited on primary model, switching to fallback"
+                    );
 
-            return Err(LLMError::ApiError {
-                status: output.status.code().unwrap_or(1) as u16,
-                message: stderr.to_string(),
-            });
+                    let (content, usage, latency_ms) = self.execute_chat(&prompt, fallback).await?;
+
+                    info!(
+                        model = fallback,
+                        response_len = content.len(),
+                        latency_ms,
+                        usage = ?usage,
+                        "received response from fallback model"
+                    );
+
+                    return Ok(ChatResponse {
+                        content,
+                        model: fallback.clone(),
+                        provider: "gemini-cli".to_string(),
+                        usage,
+                        finish_reason: Some("stop".to_string()),
+                        latency_ms,
+                        cost_usd: None,
+                        tool_calls: None,
+                    });
+                } else {
+                    // No fallback configured, propagate rate limit error
+                    return Err(LLMError::RateLimited { retry_after_secs: 60 });
+                }
+            }
+            Err(e) => return Err(e),
         }
-
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let (content, usage) = self.parse_response(&stdout)?;
-
-        info!(
-            response_len = content.len(),
-            latency_ms,
-            usage = ?usage,
-            "received response from Gemini CLI"
-        );
-
-        Ok(ChatResponse {
-            content,
-            model: self.model.clone(),
-            provider: "gemini-cli".to_string(),
-            usage,
-            finish_reason: Some("stop".to_string()),
-            latency_ms,
-            cost_usd: None, // Free tier / subscription based
-            tool_calls: None,
-        })
     }
 
     async fn stream_chat(&self, request: ChatRequest) -> Result<mpsc::Receiver<Result<ChatChunk>>> {
@@ -816,15 +929,39 @@ mod tests {
     #[test]
     fn test_default_model() {
         let provider = GeminiCliProvider::new();
-        assert_eq!(provider.model(), "gemini-3-flash-preview");
+        assert_eq!(provider.model(), "gemini-3-pro-preview");
     }
 
     #[test]
     fn test_custom_model() {
         let provider = GeminiCliProvider::builder()
-            .model("gemini-3-pro-preview")
+            .model("gemini-3-flash-preview")
             .build();
-        assert_eq!(provider.model(), "gemini-3-pro-preview");
+        assert_eq!(provider.model(), "gemini-3-flash-preview");
+    }
+
+    #[test]
+    fn test_fallback_model_default() {
+        let provider = GeminiCliProvider::new();
+        assert_eq!(provider.fallback_model.as_deref(), Some("gemini-3-flash-preview"));
+        assert!(provider.auto_fallback);
+    }
+
+    #[test]
+    fn test_no_fallback() {
+        let provider = GeminiCliProvider::builder()
+            .no_fallback()
+            .build();
+        assert!(provider.fallback_model.is_none());
+        assert!(!provider.auto_fallback);
+    }
+
+    #[test]
+    fn test_custom_fallback() {
+        let provider = GeminiCliProvider::builder()
+            .fallback_model("gemini-2.5-flash")
+            .build();
+        assert_eq!(provider.fallback_model.as_deref(), Some("gemini-2.5-flash"));
     }
 
     #[test]

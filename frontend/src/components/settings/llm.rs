@@ -138,7 +138,7 @@ impl LLMProvider {
             LLMProvider::DeepSeek => "deepseek-chat",
             LLMProvider::ClaudeCode => "claude-sonnet-4-20250514",
             LLMProvider::ClaudeDesktop => "claude-sonnet-4-20250514",
-            LLMProvider::GeminiCli => "gemini-3-flash-preview",
+            LLMProvider::GeminiCli => "gemini-3-pro-preview",
         }
     }
 
