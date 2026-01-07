@@ -280,6 +280,18 @@ fn main() {
             commands::start_planned_session,
             commands::end_session,
 
+            // Global Chat Session Commands (Persistent LLM Chat History)
+            commands::get_or_create_chat_session,
+            commands::get_active_chat_session,
+            commands::get_chat_messages,
+            commands::add_chat_message,
+            commands::update_chat_message,
+            commands::link_chat_to_game_session,
+            commands::end_chat_session_and_spawn_new,
+            commands::clear_chat_messages,
+            commands::list_chat_sessions,
+            commands::get_chat_sessions_for_game,
+
             // TASK-014: Timeline Commands
             commands::add_timeline_event,
             commands::get_session_timeline,

@@ -16,6 +16,9 @@ use crate::services::layout_service::use_layout_state;
 use crate::bindings::{
     cancel_stream, chat, check_llm_health, get_session_usage, listen_chat_chunks_async, stream_chat,
     ChatChunk, ChatRequestPayload, SessionUsage, StreamingChatMessage,
+    // Global chat session bindings
+    get_or_create_chat_session, get_chat_messages, add_chat_message, update_chat_message,
+    GlobalChatSession, ChatMessageRecord,
 };
 use crate::components::design_system::{Button, ButtonVariant, Input};
 
@@ -30,6 +33,8 @@ pub struct Message {
     pub is_streaming: bool,
     /// Stream ID for cancellation (only set for streaming messages)
     pub stream_id: Option<String>,
+    /// Persistent message ID from database (for updates)
+    pub persistent_id: Option<String>,
 }
 
 /// Main Chat component - the primary DM interface with streaming support
@@ -37,15 +42,9 @@ pub struct Message {
 pub fn Chat() -> impl IntoView {
     // State signals
     let message_input = RwSignal::new(String::new());
-    let messages = RwSignal::new(vec![Message {
-        id: 0,
-        role: "assistant".to_string(),
-        content: "Welcome to Sidecar DM! I'm your AI-powered TTRPG assistant. Configure an LLM provider in Settings to get started.".to_string(),
-        tokens: None,
-        is_streaming: false,
-        stream_id: None,
-    }]);
+    let messages = RwSignal::new(Vec::<Message>::new());
     let is_loading = RwSignal::new(false);
+    let is_loading_history = RwSignal::new(true);
     let llm_status = RwSignal::new("Checking...".to_string());
     let session_usage = RwSignal::new(SessionUsage {
         session_input_tokens: 0,
@@ -56,10 +55,96 @@ pub fn Chat() -> impl IntoView {
     let show_usage_panel = RwSignal::new(false);
     let next_message_id = RwSignal::new(1_usize);
 
+    // Global chat session state
+    let chat_session_id = RwSignal::new(Option::<String>::None);
+
     // Track the current streaming message ID and stream ID
     // Using RwSignal for UI reactivity
     let current_stream_id = RwSignal::new(Option::<String>::None);
     let streaming_message_id = RwSignal::new(Option::<usize>::None);
+    let streaming_persistent_id = RwSignal::new(Option::<String>::None);
+
+    // Load global chat session and messages on mount
+    {
+        let messages = messages;
+        let next_message_id = next_message_id;
+        let chat_session_id = chat_session_id;
+        let is_loading_history = is_loading_history;
+        spawn_local(async move {
+            // Get or create the global chat session
+            match get_or_create_chat_session().await {
+                Ok(session) => {
+                    chat_session_id.set(Some(session.id.clone()));
+
+                    // Load existing messages
+                    match get_chat_messages(session.id, Some(100)).await {
+                        Ok(stored_messages) => {
+                            if stored_messages.is_empty() {
+                                // Add welcome message if no history
+                                messages.set(vec![Message {
+                                    id: 0,
+                                    role: "assistant".to_string(),
+                                    content: "Welcome to Sidecar DM! I'm your AI-powered TTRPG assistant. Configure an LLM provider in Settings to get started.".to_string(),
+                                    tokens: None,
+                                    is_streaming: false,
+                                    stream_id: None,
+                                    persistent_id: None,
+                                }]);
+                                next_message_id.set(1);
+                            } else {
+                                // Convert stored messages to UI messages
+                                let ui_messages: Vec<Message> = stored_messages
+                                    .iter()
+                                    .enumerate()
+                                    .map(|(idx, m)| Message {
+                                        id: idx,
+                                        role: m.role.clone(),
+                                        content: m.content.clone(),
+                                        tokens: match (m.tokens_input, m.tokens_output) {
+                                            (Some(i), Some(o)) => Some((i as u32, o as u32)),
+                                            _ => None,
+                                        },
+                                        is_streaming: m.is_streaming != 0,
+                                        stream_id: None,
+                                        persistent_id: Some(m.id.clone()),
+                                    })
+                                    .collect();
+                                next_message_id.set(ui_messages.len());
+                                messages.set(ui_messages);
+                            }
+                        }
+                        Err(e) => {
+                            log::error!("Failed to load chat messages: {}", e);
+                            // Fall back to welcome message
+                            messages.set(vec![Message {
+                                id: 0,
+                                role: "assistant".to_string(),
+                                content: "Welcome to Sidecar DM! I'm your AI-powered TTRPG assistant. Configure an LLM provider in Settings to get started.".to_string(),
+                                tokens: None,
+                                is_streaming: false,
+                                stream_id: None,
+                                persistent_id: None,
+                            }]);
+                        }
+                    }
+                }
+                Err(e) => {
+                    log::error!("Failed to get/create chat session: {}", e);
+                    // Fall back to welcome message
+                    messages.set(vec![Message {
+                        id: 0,
+                        role: "assistant".to_string(),
+                        content: "Welcome to Sidecar DM! I'm your AI-powered TTRPG assistant. Configure an LLM provider in Settings to get started.".to_string(),
+                        tokens: None,
+                        is_streaming: false,
+                        stream_id: None,
+                        persistent_id: None,
+                    }]);
+                }
+            }
+            is_loading_history.set(false);
+        });
+    }
 
     // Shared health check logic
     // Trigger for health check retry
@@ -185,6 +270,28 @@ pub fn Chat() -> impl IntoView {
                             let _ = current_stream_id.try_set(None);
                             let _ = streaming_message_id.try_set(None);
 
+                            // Persist final message content to database
+                            if let Some(persistent_id) = streaming_persistent_id.try_get() {
+                                // Get the final content from the message
+                                let final_content = messages.try_with(|msgs| {
+                                    msgs.iter()
+                                        .find(|m| m.stream_id.as_ref() == Some(&chunk.stream_id) || !m.is_streaming)
+                                        .map(|m| m.content.clone())
+                                });
+
+                                if let Some(Some(content)) = final_content {
+                                    let tokens = chunk.usage.as_ref().map(|u| (u.input_tokens as i32, u.output_tokens as i32));
+                                    spawn_local(async move {
+                                        if let Some(pid) = persistent_id {
+                                            if let Err(e) = update_chat_message(pid, content, tokens, false).await {
+                                                log::error!("Failed to persist final message: {}", e);
+                                            }
+                                        }
+                                    });
+                                }
+                                let _ = streaming_persistent_id.try_set(None);
+                            }
+
                             // Update session usage
                             spawn_local(async move {
                                 if let Ok(usage) = get_session_usage().await {
@@ -247,6 +354,7 @@ pub fn Chat() -> impl IntoView {
                             tokens: None,
                             is_streaming: false,
                             stream_id: None,
+                            persistent_id: None,
                         });
                     });
                 }
@@ -291,6 +399,8 @@ pub fn Chat() -> impl IntoView {
             return;
         }
 
+        let session_id_opt = chat_session_id.get();
+
         // Add user message
         let user_msg_id = next_message_id.get();
         next_message_id.set(user_msg_id + 1);
@@ -302,8 +412,19 @@ pub fn Chat() -> impl IntoView {
                 tokens: None,
                 is_streaming: false,
                 stream_id: None,
+                persistent_id: None, // Will be set after persistence
             });
         });
+
+        // Persist user message to database
+        if let Some(sid) = session_id_opt.clone() {
+            let msg_content = msg.clone();
+            spawn_local(async move {
+                if let Err(e) = add_chat_message(sid, "user".to_string(), msg_content, None).await {
+                    log::error!("Failed to persist user message: {}", e);
+                }
+            });
+        }
 
         // Add placeholder assistant message for streaming
         let assistant_msg_id = next_message_id.get();
@@ -316,8 +437,24 @@ pub fn Chat() -> impl IntoView {
                 tokens: None,
                 is_streaming: true,
                 stream_id: None,
+                persistent_id: None, // Will be set after persistence
             });
         });
+
+        // Persist placeholder assistant message (will be updated when streaming completes)
+        if let Some(sid) = session_id_opt {
+            let streaming_persistent_id = streaming_persistent_id;
+            spawn_local(async move {
+                match add_chat_message(sid, "assistant".to_string(), String::new(), None).await {
+                    Ok(record) => {
+                        streaming_persistent_id.set(Some(record.id));
+                    }
+                    Err(e) => {
+                        log::error!("Failed to persist assistant placeholder: {}", e);
+                    }
+                }
+            });
+        }
 
         message_input.set(String::new());
         is_loading.set(true);
@@ -388,6 +525,7 @@ pub fn Chat() -> impl IntoView {
                 tokens: None,
                 is_streaming: false,
                 stream_id: None,
+                persistent_id: None,
             });
         });
         message_input.set(String::new());
@@ -417,6 +555,7 @@ pub fn Chat() -> impl IntoView {
                             },
                             is_streaming: false,
                             stream_id: None,
+                            persistent_id: None,
                         });
                     });
                     // Update session usage
@@ -435,6 +574,7 @@ pub fn Chat() -> impl IntoView {
                             tokens: None,
                             is_streaming: false,
                             stream_id: None,
+                            persistent_id: None,
                         });
                     });
                     show_error("Request Failed", Some(&e), None);

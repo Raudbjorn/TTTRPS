@@ -691,3 +691,88 @@ impl SearchQueryStatsRecord {
         }
     }
 }
+
+// ============================================================================
+// Global Chat Session Models (TASK: Persistent Chat History)
+// ============================================================================
+
+/// Global chat session record - persists across navigation
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct GlobalChatSessionRecord {
+    pub id: String,
+    pub status: String,  // "active", "archived"
+    pub linked_game_session_id: Option<String>,
+    pub linked_campaign_id: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+impl GlobalChatSessionRecord {
+    pub fn new() -> Self {
+        let now = chrono::Utc::now().to_rfc3339();
+        Self {
+            id: uuid::Uuid::new_v4().to_string(),
+            status: "active".to_string(),
+            linked_game_session_id: None,
+            linked_campaign_id: None,
+            created_at: now.clone(),
+            updated_at: now,
+        }
+    }
+
+    pub fn is_active(&self) -> bool {
+        self.status == "active"
+    }
+}
+
+impl Default for GlobalChatSessionRecord {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Chat message record for persistent storage
+#[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
+pub struct ChatMessageRecord {
+    pub id: String,
+    pub session_id: String,
+    pub role: String,  // "user", "assistant", "error", "system"
+    pub content: String,
+    pub tokens_input: Option<i32>,
+    pub tokens_output: Option<i32>,
+    pub is_streaming: i32,  // SQLite doesn't have bool, use 0/1
+    pub metadata: Option<String>,  // JSON for extensibility
+    pub created_at: String,
+}
+
+impl ChatMessageRecord {
+    pub fn new(session_id: String, role: String, content: String) -> Self {
+        Self {
+            id: uuid::Uuid::new_v4().to_string(),
+            session_id,
+            role,
+            content,
+            tokens_input: None,
+            tokens_output: None,
+            is_streaming: 0,
+            metadata: None,
+            created_at: chrono::Utc::now().to_rfc3339(),
+        }
+    }
+
+    pub fn with_tokens(mut self, input: i32, output: i32) -> Self {
+        self.tokens_input = Some(input);
+        self.tokens_output = Some(output);
+        self
+    }
+
+    pub fn with_metadata(mut self, metadata: &str) -> Self {
+        self.metadata = Some(metadata.to_string());
+        self
+    }
+
+    pub fn streaming(mut self) -> Self {
+        self.is_streaming = 1;
+        self
+    }
+}

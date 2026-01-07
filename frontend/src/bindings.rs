@@ -987,6 +987,140 @@ pub async fn reorder_session(session_id: String, new_order: i32) -> Result<(), S
 }
 
 // ============================================================================
+// Global Chat Session Commands (Persistent LLM Chat History)
+// ============================================================================
+
+/// Global chat session record (matching backend)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GlobalChatSession {
+    pub id: String,
+    pub status: String,
+    pub linked_game_session_id: Option<String>,
+    pub linked_campaign_id: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+/// Chat message record (matching backend)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChatMessageRecord {
+    pub id: String,
+    pub session_id: String,
+    pub role: String,
+    pub content: String,
+    pub tokens_input: Option<i32>,
+    pub tokens_output: Option<i32>,
+    pub is_streaming: i32,
+    pub metadata: Option<String>,
+    pub created_at: String,
+}
+
+/// Get or create the active global chat session
+pub async fn get_or_create_chat_session() -> Result<GlobalChatSession, String> {
+    invoke_no_args("get_or_create_chat_session").await
+}
+
+/// Get the current active chat session (if any)
+pub async fn get_active_chat_session() -> Result<Option<GlobalChatSession>, String> {
+    invoke_no_args("get_active_chat_session").await
+}
+
+/// Get messages for a chat session
+pub async fn get_chat_messages(session_id: String, limit: Option<i32>) -> Result<Vec<ChatMessageRecord>, String> {
+    #[derive(Serialize)]
+    struct Args {
+        session_id: String,
+        limit: Option<i32>,
+    }
+    invoke("get_chat_messages", &Args { session_id, limit }).await
+}
+
+/// Add a message to the chat session
+pub async fn add_chat_message(
+    session_id: String,
+    role: String,
+    content: String,
+    tokens: Option<(i32, i32)>,
+) -> Result<ChatMessageRecord, String> {
+    #[derive(Serialize)]
+    struct Args {
+        session_id: String,
+        role: String,
+        content: String,
+        tokens: Option<(i32, i32)>,
+    }
+    invoke("add_chat_message", &Args { session_id, role, content, tokens }).await
+}
+
+/// Update a chat message (e.g., after streaming completes)
+pub async fn update_chat_message(
+    message_id: String,
+    content: String,
+    tokens: Option<(i32, i32)>,
+    is_streaming: bool,
+) -> Result<(), String> {
+    #[derive(Serialize)]
+    struct Args {
+        message_id: String,
+        content: String,
+        tokens: Option<(i32, i32)>,
+        is_streaming: bool,
+    }
+    invoke_void("update_chat_message", &Args { message_id, content, tokens, is_streaming }).await
+}
+
+/// Link the current chat session to a game session
+pub async fn link_chat_to_game_session(
+    chat_session_id: String,
+    game_session_id: String,
+    campaign_id: Option<String>,
+) -> Result<(), String> {
+    #[derive(Serialize)]
+    struct Args {
+        chat_session_id: String,
+        game_session_id: String,
+        campaign_id: Option<String>,
+    }
+    invoke_void("link_chat_to_game_session", &Args { chat_session_id, game_session_id, campaign_id }).await
+}
+
+/// Archive the current chat session and create a new one
+pub async fn end_chat_session_and_spawn_new(chat_session_id: String) -> Result<GlobalChatSession, String> {
+    #[derive(Serialize)]
+    struct Args {
+        chat_session_id: String,
+    }
+    invoke("end_chat_session_and_spawn_new", &Args { chat_session_id }).await
+}
+
+/// Clear all messages in a chat session
+pub async fn clear_chat_messages(session_id: String) -> Result<u64, String> {
+    #[derive(Serialize)]
+    struct Args {
+        session_id: String,
+    }
+    invoke("clear_chat_messages", &Args { session_id }).await
+}
+
+/// List chat sessions (for history view)
+pub async fn list_chat_sessions(limit: Option<i32>) -> Result<Vec<GlobalChatSession>, String> {
+    #[derive(Serialize)]
+    struct Args {
+        limit: Option<i32>,
+    }
+    invoke("list_chat_sessions", &Args { limit }).await
+}
+
+/// Get chat sessions linked to a specific game session
+pub async fn get_chat_sessions_for_game(game_session_id: String) -> Result<Vec<GlobalChatSession>, String> {
+    #[derive(Serialize)]
+    struct Args {
+        game_session_id: String,
+    }
+    invoke("get_chat_sessions_for_game", &Args { game_session_id }).await
+}
+
+// ============================================================================
 // TASK-014: Timeline Commands
 // ============================================================================
 
