@@ -788,6 +788,7 @@ pub async fn stream_chat(
         log::info!("[stream_chat:{}] Receiver task started", stream_id_clone);
         let mut chunk_count = 0u32;
         let mut total_bytes = 0usize;
+        let mut stream_errored = false;
 
         // Process chunks and emit events
         while let Some(chunk_result) = rx.recv().await {
@@ -823,7 +824,7 @@ pub async fn stream_chat(
                     let error_message = format!("Error: {}", e);
                     log::error!("[stream_chat:{}] Stream error: {}", stream_id_clone, error_message);
 
-                    // Emit error event
+                    // Emit error event (this is the sole final chunk for error paths)
                     let error_chunk = ChatChunk {
                         stream_id: stream_id_clone.clone(),
                         content: error_message,
@@ -835,25 +836,28 @@ pub async fn stream_chat(
                         index: chunk_count + 1,
                     };
                     let _ = app_handle.emit("chat-chunk", &error_chunk);
+                    stream_errored = true;
                     break;
                 }
             }
         }
 
-        // Emit final chunk to signal completion
+        // Emit final chunk to signal completion (only if no error was emitted)
         log::info!("[stream_chat:{}] Stream finished with {} chunks, {} bytes total",
             stream_id_clone, chunk_count, total_bytes);
-        let final_chunk = ChatChunk {
-            stream_id: stream_id_clone.clone(),
-            content: String::new(),
-            provider: provider_for_task.clone(),
-            model: model_for_task.clone(),
-            is_final: true,
-            finish_reason: Some("stop".to_string()),
-            usage: None,
-            index: 0,
-        };
-        let _ = app_handle.emit("chat-chunk", &final_chunk);
+        if !stream_errored {
+            let final_chunk = ChatChunk {
+                stream_id: stream_id_clone.clone(),
+                content: String::new(),
+                provider: provider_for_task.clone(),
+                model: model_for_task.clone(),
+                is_final: true,
+                finish_reason: Some("stop".to_string()),
+                usage: None,
+                index: chunk_count + 1,
+            };
+            let _ = app_handle.emit("chat-chunk", &final_chunk);
+        }
         log::info!("[stream_chat:{}] Receiver task exiting", stream_id_clone);
     });
 

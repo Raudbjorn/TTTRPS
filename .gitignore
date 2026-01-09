@@ -4,7 +4,6 @@ check_output.txt
 check_output_*.txt
 cargo_check_output.txt
 fns.txt
-cargo_check_output.txt
 
 # Sidecar binaries (downloaded at build time)
 src-tauri/bin/
