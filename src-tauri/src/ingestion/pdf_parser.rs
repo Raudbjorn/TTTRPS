@@ -1,6 +1,7 @@
 //! PDF Parser Module
 //!
 //! Extracts text and structure from PDF documents for ingestion.
+//! Supports fallback extraction when primary parser fails or produces garbled output.
 
 use std::path::Path;
 use lopdf::Document;
@@ -24,6 +25,15 @@ pub enum PDFError {
 
     #[error("IO error: {0}")]
     IoError(#[from] std::io::Error),
+
+    #[error("Password required for encrypted PDF")]
+    PasswordRequired,
+
+    #[error("Invalid password for PDF")]
+    InvalidPassword,
+
+    #[error("Fallback extraction failed: {0}")]
+    FallbackFailed(String),
 }
 
 pub type Result<T> = std::result::Result<T, PDFError>;
@@ -285,6 +295,200 @@ impl PDFParser {
             .map_err(|e| PDFError::LoadError(e.to_string()))?;
         Ok(doc.get_pages().len())
     }
+
+    // ========================================================================
+    // Enhanced Extraction with Fallback (Task 0.1, 0.2)
+    // ========================================================================
+
+    /// Extract with automatic fallback if lopdf fails or produces low-quality output.
+    ///
+    /// This method tries the primary `lopdf` extraction first, validates the output
+    /// quality, and falls back to `pdf-extract` if the result is garbled or empty.
+    ///
+    /// # Arguments
+    /// * `path` - Path to the PDF file
+    /// * `password` - Optional password for encrypted PDFs
+    ///
+    /// # Returns
+    /// * `Result<ExtractedDocument>` - The extracted document or an error
+    pub fn extract_with_fallback(
+        path: &Path,
+        password: Option<&str>,
+    ) -> Result<ExtractedDocument> {
+        // Try lopdf first
+        match Self::extract_structured_with_password(path, password) {
+            Ok(doc) => {
+                // Validate extraction quality
+                if Self::is_extraction_quality_acceptable(&doc) {
+                    log::info!("lopdf extraction succeeded for {:?}", path);
+                    return Ok(doc);
+                }
+                log::warn!(
+                    "lopdf extraction quality low for {:?}, trying fallback",
+                    path
+                );
+            }
+            Err(e) => {
+                log::warn!("lopdf failed for {:?}: {}, trying fallback", path, e);
+            }
+        }
+
+        // Fallback to pdf-extract
+        Self::extract_with_pdf_extract(path)
+    }
+
+    /// Extract structured content with optional password support.
+    ///
+    /// # Arguments
+    /// * `path` - Path to the PDF file
+    /// * `password` - Optional password for encrypted PDFs
+    pub fn extract_structured_with_password(
+        path: &Path,
+        password: Option<&str>,
+    ) -> Result<ExtractedDocument> {
+        // Load the document
+        let mut doc = match Document::load(path) {
+            Ok(doc) => doc,
+            Err(e) => {
+                let err_str = e.to_string();
+                // lopdf may throw error when loading encrypted PDF without password
+                if err_str.contains("encrypted") || err_str.contains("password") {
+                    return Err(PDFError::PasswordRequired);
+                }
+                return Err(PDFError::LoadError(err_str));
+            }
+        };
+
+        // Check if document is encrypted and handle decryption
+        if doc.is_encrypted() {
+            match password {
+                Some(pwd) => {
+                    doc.decrypt(pwd).map_err(|e| {
+                        let err_str = e.to_string();
+                        if err_str.contains("password") || err_str.contains("decrypt") {
+                            PDFError::InvalidPassword
+                        } else {
+                            PDFError::LoadError(format!("Decryption failed: {}", e))
+                        }
+                    })?;
+                }
+                None => {
+                    return Err(PDFError::PasswordRequired);
+                }
+            }
+        }
+
+        Self::extract_from_document(doc, path)
+    }
+
+    /// Check extraction quality by analyzing the ratio of printable characters.
+    ///
+    /// Returns `true` if the extraction produced usable text, `false` if the
+    /// output appears garbled (high ratio of non-printable characters).
+    fn is_extraction_quality_acceptable(doc: &ExtractedDocument) -> bool {
+        let total_text: String = doc.pages.iter()
+            .map(|p| p.text.as_str())
+            .collect();
+
+        if total_text.is_empty() {
+            return false;
+        }
+
+        // Check for high ratio of non-printable/garbled characters
+        let total_chars = total_text.len();
+        let printable_count = total_text.chars()
+            .filter(|c| {
+                c.is_ascii_alphanumeric()
+                    || c.is_ascii_punctuation()
+                    || c.is_whitespace()
+                    // Allow common Unicode characters (accented letters, etc.)
+                    || c.is_alphabetic()
+            })
+            .count();
+
+        let printable_ratio = printable_count as f32 / total_chars as f32;
+
+        // Also check for reasonable word structure
+        let word_count = total_text.split_whitespace().count();
+        let avg_word_len = if word_count > 0 {
+            total_text.split_whitespace()
+                .map(|w| w.len())
+                .sum::<usize>() as f32 / word_count as f32
+        } else {
+            0.0
+        };
+
+        // Quality criteria:
+        // - At least 85% printable characters
+        // - Average word length between 2 and 15 (catches garbled output)
+        // - At least some words extracted
+        printable_ratio > 0.85
+            && avg_word_len > 2.0
+            && avg_word_len < 15.0
+            && word_count > 10
+    }
+
+    /// Fallback extraction using the `pdf-extract` crate.
+    ///
+    /// This is used when `lopdf` fails or produces garbled output. Note that
+    /// `pdf-extract` doesn't preserve page boundaries, so the result will be
+    /// a single-page document.
+    fn extract_with_pdf_extract(path: &Path) -> Result<ExtractedDocument> {
+        let bytes = std::fs::read(path)?;
+        let text = pdf_extract::extract_text_from_mem(&bytes)
+            .map_err(|e| PDFError::FallbackFailed(format!("pdf-extract failed: {}", e)))?;
+
+        if text.trim().is_empty() {
+            return Err(PDFError::FallbackFailed(
+                "pdf-extract returned empty content".to_string()
+            ));
+        }
+
+        let (paragraphs, headers) = Self::analyze_text_structure(&text);
+
+        // pdf-extract doesn't preserve page boundaries, create single-page doc
+        Ok(ExtractedDocument {
+            source_path: path.to_string_lossy().to_string(),
+            page_count: 1,
+            pages: vec![ExtractedPage {
+                page_number: 1,
+                text: text.clone(),
+                paragraphs,
+                headers,
+            }],
+            metadata: DocumentMetadata::default(),
+        })
+    }
+
+    /// Internal helper to extract from a loaded Document.
+    fn extract_from_document(doc: Document, path: &Path) -> Result<ExtractedDocument> {
+        let page_ids: Vec<_> = doc.get_pages().into_iter().collect();
+        let page_count = page_ids.len();
+        let mut pages = Vec::with_capacity(page_count);
+
+        for (page_num, _page_id) in page_ids {
+            let text = doc.extract_text(&[page_num])
+                .map_err(|e| PDFError::ExtractionError(e.to_string()))?;
+
+            let (paragraphs, headers) = Self::analyze_text_structure(&text);
+
+            pages.push(ExtractedPage {
+                page_number: page_num,
+                text,
+                paragraphs,
+                headers,
+            });
+        }
+
+        let metadata = Self::extract_metadata(&doc);
+
+        Ok(ExtractedDocument {
+            source_path: path.to_string_lossy().to_string(),
+            page_count,
+            pages,
+            metadata,
+        })
+    }
 }
 
 #[cfg(test)]
@@ -314,5 +518,50 @@ mod tests {
         assert_eq!(headers[0], "CHAPTER ONE");
         // Paragraphs include the header line, so we have at least 2 content paragraphs
         assert!(paragraphs.len() >= 2, "Expected at least 2 paragraphs, got {}", paragraphs.len());
+    }
+
+    #[test]
+    fn test_extraction_quality_acceptable() {
+        // Good quality extraction
+        let good_doc = ExtractedDocument {
+            source_path: "test.pdf".to_string(),
+            page_count: 1,
+            pages: vec![ExtractedPage {
+                page_number: 1,
+                text: "This is a good quality extraction with normal English text. It has multiple sentences and proper structure. The words are of reasonable length and everything looks fine.".to_string(),
+                paragraphs: vec![],
+                headers: vec![],
+            }],
+            metadata: DocumentMetadata::default(),
+        };
+        assert!(PDFParser::is_extraction_quality_acceptable(&good_doc));
+
+        // Empty extraction
+        let empty_doc = ExtractedDocument {
+            source_path: "test.pdf".to_string(),
+            page_count: 1,
+            pages: vec![ExtractedPage {
+                page_number: 1,
+                text: "".to_string(),
+                paragraphs: vec![],
+                headers: vec![],
+            }],
+            metadata: DocumentMetadata::default(),
+        };
+        assert!(!PDFParser::is_extraction_quality_acceptable(&empty_doc));
+
+        // Garbled extraction (mostly non-printable characters)
+        let garbled_doc = ExtractedDocument {
+            source_path: "test.pdf".to_string(),
+            page_count: 1,
+            pages: vec![ExtractedPage {
+                page_number: 1,
+                text: "□□□□□□□□□□□□□□□□□□□□".to_string(),
+                paragraphs: vec![],
+                headers: vec![],
+            }],
+            metadata: DocumentMetadata::default(),
+        };
+        assert!(!PDFParser::is_extraction_quality_acceptable(&garbled_doc));
     }
 }
