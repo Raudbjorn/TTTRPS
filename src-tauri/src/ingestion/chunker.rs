@@ -447,6 +447,455 @@ impl Default for SemanticChunker {
     }
 }
 
+// ============================================================================
+// TTRPG-Aware Configuration
+// ============================================================================
+
+use crate::ingestion::ttrpg::{ClassifiedElement, TTRPGElementType};
+
+/// Extended chunk configuration with TTRPG-specific options
+#[derive(Debug, Clone)]
+pub struct TTRPGChunkConfig {
+    /// Base chunking configuration
+    pub base: ChunkConfig,
+    /// Element types that should not be split
+    pub atomic_elements: Vec<TTRPGElementType>,
+    /// Maximum multiplier for atomic elements (e.g., 2.0 = allow up to 2x max_size)
+    pub atomic_max_multiplier: f32,
+    /// Overlap percentage (0.0 to 1.0)
+    pub overlap_percentage: f32,
+    /// Include section hierarchy in chunk metadata
+    pub include_hierarchy: bool,
+}
+
+impl Default for TTRPGChunkConfig {
+    fn default() -> Self {
+        Self {
+            base: ChunkConfig::default(),
+            atomic_elements: vec![
+                TTRPGElementType::StatBlock,
+                TTRPGElementType::RandomTable,
+                TTRPGElementType::SpellDescription,
+                TTRPGElementType::ItemDescription,
+            ],
+            atomic_max_multiplier: 2.0,
+            overlap_percentage: 0.12, // 12% overlap
+            include_hierarchy: true,
+        }
+    }
+}
+
+impl TTRPGChunkConfig {
+    /// Calculate actual overlap size from percentage
+    pub fn calculated_overlap(&self) -> usize {
+        (self.base.target_size as f32 * self.overlap_percentage) as usize
+    }
+
+    /// Check if an element type should be kept atomic
+    pub fn is_atomic(&self, element_type: &TTRPGElementType) -> bool {
+        element_type.is_atomic() || self.atomic_elements.contains(element_type)
+    }
+
+    /// Get maximum size for atomic elements
+    pub fn atomic_max_size(&self) -> usize {
+        (self.base.max_size as f32 * self.atomic_max_multiplier) as usize
+    }
+}
+
+// ============================================================================
+// Section Hierarchy
+// ============================================================================
+
+/// Tracks section hierarchy for contextual chunks
+#[derive(Debug, Clone, Default)]
+pub struct SectionHierarchy {
+    /// Stack of section titles (h1 at index 0, h2 at index 1, etc.)
+    sections: Vec<String>,
+}
+
+impl SectionHierarchy {
+    /// Create a new empty hierarchy
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Update hierarchy with a new header
+    ///
+    /// # Arguments
+    /// * `header` - The header text
+    /// * `level` - The header level (1 = top level, 2 = subsection, etc.)
+    pub fn update(&mut self, header: &str, level: usize) {
+        // Ensure we have enough capacity
+        if level > 0 {
+            // Truncate deeper levels when a higher-level header is encountered
+            if level <= self.sections.len() {
+                self.sections.truncate(level - 1);
+            }
+            // Pad with empty sections if needed
+            while self.sections.len() < level - 1 {
+                self.sections.push(String::new());
+            }
+            // Add the new section
+            if level - 1 < self.sections.len() {
+                self.sections[level - 1] = header.to_string();
+            } else {
+                self.sections.push(header.to_string());
+            }
+        }
+    }
+
+    /// Get the full section path as a string
+    ///
+    /// # Returns
+    /// Path like "Chapter 1 > Monsters > Goblins"
+    pub fn path(&self) -> String {
+        self.sections
+            .iter()
+            .filter(|s| !s.is_empty())
+            .cloned()
+            .collect::<Vec<_>>()
+            .join(" > ")
+    }
+
+    /// Get parent sections (excluding current section)
+    pub fn parents(&self) -> Vec<String> {
+        if self.sections.len() <= 1 {
+            return vec![];
+        }
+        self.sections[..self.sections.len() - 1]
+            .iter()
+            .filter(|s| !s.is_empty())
+            .cloned()
+            .collect()
+    }
+
+    /// Get the current section (deepest level)
+    pub fn current(&self) -> Option<&str> {
+        self.sections.last().map(|s| s.as_str()).filter(|s| !s.is_empty())
+    }
+
+    /// Clear the hierarchy
+    pub fn clear(&mut self) {
+        self.sections.clear();
+    }
+}
+
+// ============================================================================
+// TTRPG-Aware Chunker
+// ============================================================================
+
+/// TTRPG-aware chunker wrapper (composition over inheritance)
+pub struct TTRPGChunker {
+    /// Underlying semantic chunker
+    base_chunker: SemanticChunker,
+    /// TTRPG-specific configuration
+    config: TTRPGChunkConfig,
+}
+
+impl TTRPGChunker {
+    /// Create a new TTRPG-aware chunker with default configuration
+    pub fn new() -> Self {
+        Self::with_config(TTRPGChunkConfig::default())
+    }
+
+    /// Create a TTRPG-aware chunker with custom configuration
+    pub fn with_config(config: TTRPGChunkConfig) -> Self {
+        let mut base_config = config.base.clone();
+        base_config.overlap_size = config.calculated_overlap();
+
+        Self {
+            base_chunker: SemanticChunker::with_config(base_config),
+            config,
+        }
+    }
+
+    /// Chunk classified elements with TTRPG awareness and hierarchy tracking
+    ///
+    /// # Arguments
+    /// * `elements` - Classified document elements
+    /// * `source_id` - Source document identifier
+    ///
+    /// # Returns
+    /// Vector of content chunks with preserved atomic elements and hierarchy
+    pub fn chunk(&self, elements: &[ClassifiedElement], source_id: &str) -> Vec<ContentChunk> {
+        let mut chunks = Vec::new();
+        let mut chunk_index = 0;
+        let mut hierarchy = SectionHierarchy::new();
+        let mut buffer = String::new();
+        let mut buffer_page: Option<u32> = None;
+
+        for element in elements {
+            // Update hierarchy for section headers
+            if element.element_type == TTRPGElementType::SectionHeader {
+                // Flush buffer before section change
+                if !buffer.is_empty() && buffer.len() >= self.config.base.min_size {
+                    chunks.push(self.create_chunk_with_hierarchy(
+                        &buffer,
+                        source_id,
+                        buffer_page,
+                        &hierarchy,
+                        "text",
+                        &mut chunk_index,
+                    ));
+                    buffer = self.get_overlap(&buffer);
+                    buffer_page = Some(element.page_number);
+                }
+
+                let level = Self::detect_header_level(&element.content);
+                hierarchy.update(&element.content, level);
+                continue;
+            }
+
+            // Handle atomic elements (stat blocks, tables, etc.)
+            if self.config.is_atomic(&element.element_type) {
+                // Flush buffer first
+                if !buffer.is_empty() && buffer.len() >= self.config.base.min_size {
+                    chunks.push(self.create_chunk_with_hierarchy(
+                        &buffer,
+                        source_id,
+                        buffer_page,
+                        &hierarchy,
+                        "text",
+                        &mut chunk_index,
+                    ));
+                    buffer.clear();
+                }
+
+                // Emit atomic element as single chunk (or split if too large)
+                if element.content.len() <= self.config.atomic_max_size() {
+                    chunks.push(self.create_chunk_with_hierarchy(
+                        &element.content,
+                        source_id,
+                        Some(element.page_number),
+                        &hierarchy,
+                        element.element_type.as_str(),
+                        &mut chunk_index,
+                    ));
+                } else {
+                    // Element is too large even with multiplier, need to split
+                    let split_chunks = self.split_oversized_element(
+                        element,
+                        source_id,
+                        &hierarchy,
+                        &mut chunk_index,
+                    );
+                    chunks.extend(split_chunks);
+                }
+
+                buffer_page = None;
+                continue;
+            }
+
+            // Non-atomic element: accumulate with overlap
+            if buffer_page.is_none() {
+                buffer_page = Some(element.page_number);
+            }
+
+            // Check if adding this element would exceed max size
+            if buffer.len() + element.content.len() > self.config.base.max_size {
+                // Flush current buffer
+                if buffer.len() >= self.config.base.min_size {
+                    chunks.push(self.create_chunk_with_hierarchy(
+                        &buffer,
+                        source_id,
+                        buffer_page,
+                        &hierarchy,
+                        "text",
+                        &mut chunk_index,
+                    ));
+                    buffer = self.get_overlap(&buffer);
+                }
+            }
+
+            // Add element content to buffer
+            if !buffer.is_empty() {
+                buffer.push_str("\n\n");
+            }
+            buffer.push_str(&element.content);
+
+            // Flush if we've reached target size
+            if buffer.len() >= self.config.base.target_size {
+                chunks.push(self.create_chunk_with_hierarchy(
+                    &buffer,
+                    source_id,
+                    buffer_page,
+                    &hierarchy,
+                    "text",
+                    &mut chunk_index,
+                ));
+                buffer = self.get_overlap(&buffer);
+                buffer_page = Some(element.page_number);
+            }
+        }
+
+        // Flush remaining buffer
+        if !buffer.is_empty() && buffer.len() >= self.config.base.min_size {
+            chunks.push(self.create_chunk_with_hierarchy(
+                &buffer,
+                source_id,
+                buffer_page,
+                &hierarchy,
+                "text",
+                &mut chunk_index,
+            ));
+        }
+
+        chunks
+    }
+
+    /// Create a chunk with hierarchy metadata
+    fn create_chunk_with_hierarchy(
+        &self,
+        content: &str,
+        source_id: &str,
+        page_number: Option<u32>,
+        hierarchy: &SectionHierarchy,
+        chunk_type: &str,
+        chunk_index: &mut usize,
+    ) -> ContentChunk {
+        let mut metadata = HashMap::new();
+
+        if self.config.include_hierarchy {
+            let path = hierarchy.path();
+            if !path.is_empty() {
+                metadata.insert("section_path".to_string(), path);
+            }
+
+            let parents = hierarchy.parents();
+            if !parents.is_empty() {
+                metadata.insert("parent_sections".to_string(), parents.join(" | "));
+            }
+        }
+
+        let idx = *chunk_index;
+        *chunk_index += 1;
+
+        ContentChunk {
+            id: Uuid::new_v4().to_string(),
+            source_id: source_id.to_string(),
+            content: content.trim().to_string(),
+            page_number,
+            section: hierarchy.current().map(|s| s.to_string()),
+            chunk_type: chunk_type.to_string(),
+            chunk_index: idx,
+            metadata,
+        }
+    }
+
+    /// Get overlap text from the end of content
+    fn get_overlap(&self, content: &str) -> String {
+        let overlap_size = self.config.calculated_overlap();
+        if overlap_size == 0 || content.len() <= overlap_size {
+            return String::new();
+        }
+
+        let overlap_start = content.len().saturating_sub(overlap_size);
+        let overlap_text = &content[overlap_start..];
+
+        // Find first space to start at word boundary
+        if let Some(space_pos) = overlap_text.find(' ') {
+            overlap_text[space_pos + 1..].to_string()
+        } else {
+            overlap_text.to_string()
+        }
+    }
+
+    /// Detect header level from text patterns
+    fn detect_header_level(text: &str) -> usize {
+        let text_lower = text.to_lowercase().trim().to_string();
+
+        // Chapter = level 1
+        if text_lower.starts_with("chapter") || text_lower.starts_with("part") {
+            return 1;
+        }
+
+        // Section = level 2
+        if text_lower.starts_with("section") || text_lower.starts_with("appendix") {
+            return 2;
+        }
+
+        // All caps with numbers might be subsections
+        let letters: Vec<char> = text.chars().filter(|c| c.is_alphabetic()).collect();
+        if !letters.is_empty() && letters.iter().all(|c| c.is_uppercase()) {
+            // All caps are typically major sections
+            return 2;
+        }
+
+        // Default to level 3 for other headers
+        3
+    }
+
+    /// Split an oversized element into multiple chunks
+    fn split_oversized_element(
+        &self,
+        element: &ClassifiedElement,
+        source_id: &str,
+        hierarchy: &SectionHierarchy,
+        chunk_index: &mut usize,
+    ) -> Vec<ContentChunk> {
+        let mut chunks = Vec::new();
+        let sentences = self.base_chunker.split_into_sentences(&element.content);
+        let mut current = String::new();
+
+        for sentence in sentences {
+            if current.len() + sentence.len() > self.config.base.max_size {
+                if current.len() >= self.config.base.min_size {
+                    chunks.push(self.create_chunk_with_hierarchy(
+                        &current,
+                        source_id,
+                        Some(element.page_number),
+                        hierarchy,
+                        element.element_type.as_str(),
+                        chunk_index,
+                    ));
+                    current = self.get_overlap(&current);
+                }
+            }
+
+            if !current.is_empty() && !current.ends_with(' ') {
+                current.push(' ');
+            }
+            current.push_str(&sentence);
+
+            if current.len() >= self.config.base.target_size {
+                chunks.push(self.create_chunk_with_hierarchy(
+                    &current,
+                    source_id,
+                    Some(element.page_number),
+                    hierarchy,
+                    element.element_type.as_str(),
+                    chunk_index,
+                ));
+                current = self.get_overlap(&current);
+            }
+        }
+
+        if !current.is_empty() && current.len() >= self.config.base.min_size {
+            chunks.push(self.create_chunk_with_hierarchy(
+                &current,
+                source_id,
+                Some(element.page_number),
+                hierarchy,
+                element.element_type.as_str(),
+                chunk_index,
+            ));
+        }
+
+        chunks
+    }
+
+    /// Chunk raw text without pre-classification (uses base chunker)
+    pub fn chunk_text(&self, text: &str, source_id: &str) -> Vec<ContentChunk> {
+        self.base_chunker.chunk_text(text, source_id)
+    }
+}
+
+impl Default for TTRPGChunker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -500,5 +949,169 @@ mod tests {
         assert!(chunker.is_header("SECTION II"));
         assert!(!chunker.is_header("This is a regular sentence."));
         assert!(!chunker.is_header("This is a very long line that should not be detected as a header because headers are typically short."));
+    }
+
+    // ========================================================================
+    // TTRPG Chunker Tests
+    // ========================================================================
+
+    #[test]
+    fn test_section_hierarchy_path() {
+        let mut hierarchy = SectionHierarchy::new();
+
+        hierarchy.update("Chapter 1", 1);
+        assert_eq!(hierarchy.path(), "Chapter 1");
+
+        hierarchy.update("Monsters", 2);
+        assert_eq!(hierarchy.path(), "Chapter 1 > Monsters");
+
+        hierarchy.update("Goblins", 3);
+        assert_eq!(hierarchy.path(), "Chapter 1 > Monsters > Goblins");
+    }
+
+    #[test]
+    fn test_section_hierarchy_truncation() {
+        let mut hierarchy = SectionHierarchy::new();
+
+        hierarchy.update("Chapter 1", 1);
+        hierarchy.update("Section A", 2);
+        hierarchy.update("Subsection", 3);
+        assert_eq!(hierarchy.path(), "Chapter 1 > Section A > Subsection");
+
+        // New chapter should truncate deeper levels
+        hierarchy.update("Chapter 2", 1);
+        assert_eq!(hierarchy.path(), "Chapter 2");
+    }
+
+    #[test]
+    fn test_section_hierarchy_parents() {
+        let mut hierarchy = SectionHierarchy::new();
+
+        hierarchy.update("Chapter 1", 1);
+        hierarchy.update("Monsters", 2);
+        hierarchy.update("Goblins", 3);
+
+        let parents = hierarchy.parents();
+        assert_eq!(parents, vec!["Chapter 1", "Monsters"]);
+    }
+
+    #[test]
+    fn test_ttrpg_chunk_config_defaults() {
+        let config = TTRPGChunkConfig::default();
+
+        assert_eq!(config.overlap_percentage, 0.12);
+        assert_eq!(config.atomic_max_multiplier, 2.0);
+        assert!(config.include_hierarchy);
+        assert!(!config.atomic_elements.is_empty());
+    }
+
+    #[test]
+    fn test_ttrpg_chunk_config_is_atomic() {
+        let config = TTRPGChunkConfig::default();
+
+        assert!(config.is_atomic(&TTRPGElementType::StatBlock));
+        assert!(config.is_atomic(&TTRPGElementType::RandomTable));
+        assert!(config.is_atomic(&TTRPGElementType::SpellDescription));
+        assert!(!config.is_atomic(&TTRPGElementType::GenericText));
+    }
+
+    #[test]
+    fn test_ttrpg_chunker_preserves_stat_blocks() {
+        let config = TTRPGChunkConfig {
+            base: ChunkConfig {
+                target_size: 100,
+                min_size: 20,
+                max_size: 200,
+                overlap_size: 20,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let chunker = TTRPGChunker::with_config(config);
+
+        let elements = vec![
+            ClassifiedElement::new(
+                TTRPGElementType::GenericText,
+                0.9,
+                "Some introductory text about monsters.".to_string(),
+                1,
+            ),
+            ClassifiedElement::new(
+                TTRPGElementType::StatBlock,
+                0.95,
+                "Goblin\nSmall humanoid\nAC 15\nHP 7".to_string(),
+                1,
+            ),
+            ClassifiedElement::new(
+                TTRPGElementType::GenericText,
+                0.9,
+                "More text after the stat block.".to_string(),
+                1,
+            ),
+        ];
+
+        let chunks = chunker.chunk(&elements, "test");
+
+        // Stat block should be its own chunk
+        let stat_block_chunks: Vec<_> = chunks.iter()
+            .filter(|c| c.chunk_type == "stat_block")
+            .collect();
+        assert_eq!(stat_block_chunks.len(), 1);
+        assert!(stat_block_chunks[0].content.contains("Goblin"));
+    }
+
+    #[test]
+    fn test_ttrpg_chunker_hierarchy_metadata() {
+        let config = TTRPGChunkConfig {
+            base: ChunkConfig {
+                target_size: 500,
+                min_size: 50,
+                max_size: 1000,
+                overlap_size: 50,
+                ..Default::default()
+            },
+            include_hierarchy: true,
+            ..Default::default()
+        };
+        let chunker = TTRPGChunker::with_config(config);
+
+        let elements = vec![
+            ClassifiedElement::new(
+                TTRPGElementType::SectionHeader,
+                0.9,
+                "Chapter 1".to_string(),
+                1,
+            ),
+            ClassifiedElement::new(
+                TTRPGElementType::SectionHeader,
+                0.9,
+                "Monsters".to_string(),
+                1,
+            ),
+            ClassifiedElement::new(
+                TTRPGElementType::GenericText,
+                0.9,
+                "This chapter describes various monsters you might encounter. These creatures range from simple beasts to terrifying abominations.".to_string(),
+                1,
+            ),
+        ];
+
+        let chunks = chunker.chunk(&elements, "test");
+
+        // Should have hierarchy metadata
+        if !chunks.is_empty() {
+            let chunk = &chunks[0];
+            assert!(chunk.metadata.contains_key("section_path") || chunk.section.is_some());
+        }
+    }
+
+    #[test]
+    fn test_detect_header_level() {
+        assert_eq!(TTRPGChunker::detect_header_level("Chapter 1"), 1);
+        assert_eq!(TTRPGChunker::detect_header_level("Part II"), 1);
+        assert_eq!(TTRPGChunker::detect_header_level("Section A"), 2);
+        assert_eq!(TTRPGChunker::detect_header_level("Appendix B"), 2);
+        assert_eq!(TTRPGChunker::detect_header_level("MONSTERS"), 2);
+        assert_eq!(TTRPGChunker::detect_header_level("Regular Header"), 3);
     }
 }

@@ -581,7 +581,243 @@ impl SearchClient {
         log::info!("Cleared all documents from index '{}'", index_name);
         Ok(())
     }
+
+    // ========================================================================
+    // TTRPG-Specific Operations
+    // ========================================================================
+
+    /// Configure an index for TTRPG document search with appropriate filterable fields
+    pub async fn configure_ttrpg_index(&self, index_name: &str) -> Result<()> {
+        self.ensure_index(index_name, Some("id")).await?;
+
+        let settings = Settings::new()
+            .with_searchable_attributes(["content", "source", "element_type", "metadata"])
+            .with_filterable_attributes([
+                // TTRPG-specific filters
+                "damage_types",
+                "creature_types",
+                "conditions",
+                "alignments",
+                "rarities",
+                "sizes",
+                "spell_schools",
+                "element_type",
+                "challenge_rating",
+                "level",
+                "game_system",
+                // Standard filters
+                "source",
+                "source_type",
+                "page_number",
+                "campaign_id",
+                "session_id",
+                "created_at",
+            ])
+            .with_sortable_attributes([
+                "challenge_rating",
+                "level",
+                "created_at",
+            ]);
+
+        let index = self.client.index(index_name);
+        let task = index.set_settings(&settings).await?;
+        task.wait_for_completion(
+            &self.client,
+            Some(std::time::Duration::from_millis(100)),
+            Some(std::time::Duration::from_secs(30)),
+        ).await?;
+
+        log::info!("Configured TTRPG index '{}'", index_name);
+        Ok(())
+    }
+
+    /// Add TTRPG documents with game-specific metadata
+    pub async fn add_ttrpg_documents(
+        &self,
+        index_name: &str,
+        documents: Vec<TTRPGSearchDocument>,
+    ) -> Result<()> {
+        if documents.is_empty() {
+            return Ok(());
+        }
+
+        let index = self.client.index(index_name);
+        let task = index.add_documents(&documents, Some("id")).await?;
+
+        task.wait_for_completion(
+            &self.client,
+            Some(std::time::Duration::from_millis(100)),
+            Some(std::time::Duration::from_secs(30)),
+        ).await?;
+
+        log::info!("Added {} TTRPG documents to index '{}'", documents.len(), index_name);
+        Ok(())
+    }
+
+    /// Search TTRPG documents with game-specific filters
+    pub async fn search_ttrpg(
+        &self,
+        index_name: &str,
+        query: &str,
+        limit: usize,
+        filter: Option<&str>,
+    ) -> Result<Vec<TTRPGSearchResult>> {
+        let index = self.client.index(index_name);
+
+        let mut search = index.search();
+        search.with_query(query).with_limit(limit);
+
+        if let Some(f) = filter {
+            search.with_filter(f);
+        }
+
+        let results: SearchResults<TTRPGSearchDocument> = search.execute().await?;
+
+        let search_results: Vec<TTRPGSearchResult> = results.hits
+            .into_iter()
+            .enumerate()
+            .map(|(i, hit)| TTRPGSearchResult {
+                document: hit.result,
+                score: 1.0 - (i as f32 * 0.1).min(0.9),
+                index: index_name.to_string(),
+            })
+            .collect();
+
+        Ok(search_results)
+    }
 }
+
+// ============================================================================
+// TTRPG Document Types
+// ============================================================================
+
+/// TTRPG-specific searchable document with game metadata
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TTRPGSearchDocument {
+    /// Base document fields
+    #[serde(flatten)]
+    pub base: SearchDocument,
+
+    // TTRPG-specific filterable fields
+    /// Damage types mentioned (fire, cold, radiant, etc.)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub damage_types: Vec<String>,
+
+    /// Creature types (humanoid, undead, dragon, etc.)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub creature_types: Vec<String>,
+
+    /// Conditions (poisoned, frightened, etc.)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub conditions: Vec<String>,
+
+    /// Alignments (lawful good, chaotic evil, etc.)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub alignments: Vec<String>,
+
+    /// Item rarities (common, rare, legendary, etc.)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub rarities: Vec<String>,
+
+    /// Size categories (tiny, small, medium, large, etc.)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sizes: Vec<String>,
+
+    /// Spell schools (evocation, necromancy, etc.)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub spell_schools: Vec<String>,
+
+    /// Challenge rating for monsters/encounters
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub challenge_rating: Option<f32>,
+
+    /// Level (spell level, class level, etc.)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub level: Option<u32>,
+
+    /// Element type (stat_block, random_table, spell, etc.)
+    #[serde(default)]
+    pub element_type: String,
+
+    /// Detected game system (dnd5e, pf2e, etc.)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub game_system: Option<String>,
+
+    /// Section hierarchy path
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub section_path: Option<String>,
+}
+
+impl TTRPGSearchDocument {
+    /// Create a new TTRPG document from base document and attributes
+    pub fn new(base: SearchDocument, element_type: &str) -> Self {
+        Self {
+            base,
+            damage_types: Vec::new(),
+            creature_types: Vec::new(),
+            conditions: Vec::new(),
+            alignments: Vec::new(),
+            rarities: Vec::new(),
+            sizes: Vec::new(),
+            spell_schools: Vec::new(),
+            challenge_rating: None,
+            level: None,
+            element_type: element_type.to_string(),
+            game_system: None,
+            section_path: None,
+        }
+    }
+
+    /// Create from a content chunk with TTRPG attributes
+    pub fn from_chunk(
+        chunk: &crate::ingestion::ContentChunk,
+        attributes: &crate::ingestion::TTRPGAttributes,
+        element_type: &str,
+        game_system: Option<&str>,
+    ) -> Self {
+        let filterable = attributes.to_filterable_fields();
+
+        let base = SearchDocument {
+            id: chunk.id.clone(),
+            content: chunk.content.clone(),
+            source: chunk.source_id.clone(),
+            source_type: element_type.to_string(),
+            page_number: chunk.page_number,
+            chunk_index: Some(chunk.chunk_index as u32),
+            campaign_id: None,
+            session_id: None,
+            created_at: chrono::Utc::now().to_rfc3339(),
+            metadata: chunk.metadata.clone(),
+        };
+
+        Self {
+            base,
+            damage_types: filterable.damage_types,
+            creature_types: filterable.creature_types,
+            conditions: filterable.conditions,
+            alignments: filterable.alignments,
+            rarities: filterable.rarities,
+            sizes: filterable.sizes,
+            spell_schools: filterable.spell_schools,
+            challenge_rating: filterable.challenge_rating,
+            level: None,
+            element_type: element_type.to_string(),
+            game_system: game_system.map(|s| s.to_string()),
+            section_path: chunk.metadata.get("section_path").cloned(),
+        }
+    }
+}
+
+/// TTRPG search result with full document
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TTRPGSearchResult {
+    pub document: TTRPGSearchDocument,
+    pub score: f32,
+    pub index: String,
+}
+
+/// Index name for TTRPG content
+pub const INDEX_TTRPG: &str = "ttrpg";
 
 #[cfg(test)]
 mod tests {
@@ -613,5 +849,69 @@ mod tests {
         let json = serde_json::to_string(&doc).unwrap();
         assert!(json.contains("test-1"));
         assert!(json.contains("Test content"));
+    }
+
+    #[test]
+    fn test_ttrpg_document_serialization() {
+        let base = SearchDocument {
+            id: "ttrpg-1".to_string(),
+            content: "Goblin stat block".to_string(),
+            source: "monster_manual.pdf".to_string(),
+            source_type: "stat_block".to_string(),
+            page_number: Some(42),
+            chunk_index: Some(0),
+            campaign_id: None,
+            session_id: None,
+            created_at: "2024-01-01T00:00:00Z".to_string(),
+            metadata: HashMap::new(),
+        };
+
+        let mut doc = TTRPGSearchDocument::new(base, "stat_block");
+        doc.damage_types = vec!["slashing".to_string()];
+        doc.creature_types = vec!["humanoid".to_string()];
+        doc.sizes = vec!["small".to_string()];
+        doc.challenge_rating = Some(0.25);
+        doc.game_system = Some("dnd5e".to_string());
+
+        let json = serde_json::to_string(&doc).unwrap();
+        assert!(json.contains("ttrpg-1"));
+        assert!(json.contains("stat_block"));
+        assert!(json.contains("slashing"));
+        assert!(json.contains("humanoid"));
+        assert!(json.contains("dnd5e"));
+    }
+
+    #[test]
+    fn test_ttrpg_document_round_trip() {
+        let base = SearchDocument {
+            id: "round-trip-1".to_string(),
+            content: "Fire bolt cantrip".to_string(),
+            source: "phb.pdf".to_string(),
+            source_type: "spell".to_string(),
+            page_number: Some(100),
+            chunk_index: Some(5),
+            campaign_id: None,
+            session_id: None,
+            created_at: "2024-01-01T00:00:00Z".to_string(),
+            metadata: HashMap::new(),
+        };
+
+        let mut doc = TTRPGSearchDocument::new(base, "spell");
+        doc.damage_types = vec!["fire".to_string()];
+        doc.spell_schools = vec!["evocation".to_string()];
+        doc.level = Some(0);
+
+        let json = serde_json::to_string(&doc).unwrap();
+        let parsed: TTRPGSearchDocument = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(parsed.base.id, "round-trip-1");
+        assert_eq!(parsed.element_type, "spell");
+        assert_eq!(parsed.damage_types, vec!["fire"]);
+        assert_eq!(parsed.level, Some(0));
+    }
+
+    #[test]
+    fn test_ttrpg_index_constant() {
+        assert_eq!(INDEX_TTRPG, "ttrpg");
     }
 }

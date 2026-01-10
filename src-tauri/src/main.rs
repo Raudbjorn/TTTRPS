@@ -538,6 +538,23 @@ fn main() {
             commands::get_model_selection,
             commands::get_model_selection_for_prompt,
             commands::set_model_override,
+
+            // TTRPG Document Commands
+            commands::list_ttrpg_documents_by_source,
+            commands::list_ttrpg_documents_by_type,
+            commands::list_ttrpg_documents_by_system,
+            commands::search_ttrpg_documents_by_name,
+            commands::list_ttrpg_documents_by_cr,
+            commands::get_ttrpg_document,
+            commands::get_ttrpg_document_attributes,
+            commands::find_ttrpg_documents_by_attribute,
+            commands::delete_ttrpg_document,
+            commands::get_ttrpg_document_stats,
+            commands::count_ttrpg_documents_by_type,
+            commands::get_ttrpg_ingestion_job,
+            commands::get_ttrpg_ingestion_job_by_document,
+            commands::list_pending_ttrpg_ingestion_jobs,
+            commands::list_active_ttrpg_ingestion_jobs,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
