@@ -1389,10 +1389,10 @@ impl DMChatManager {
                     .to_string()
             ),
             search_description: Some(
-                "Search the player's rulebooks. USE BROAD KEYWORDS (e.g. 'Daryl toxin'). DO NOT USE FILTERS. Avoid 'what is' or 'stats'.".to_string()
+                "Search the player's rulebooks. KEYWORDS ONLY. The 'filter' argument MUST BE NULL/EMPTY. Do not use SQL or 'IN' clauses. Do not use 'stats'.".to_string()
             ),
             search_q_param: Some(
-                "Keywords. Include specific Entity (e.g. 'Daryl') AND unique Descriptor (e.g. 'neurotoxin'). PRIORITIZE specific terms over generic ones (e.g. use 'neurotoxin' not 'poison'). DO NOT use 'stats'.".to_string()
+                "Keywords. Include specific Entity (e.g. 'Daryl') AND unique Descriptor (e.g. 'neurotoxin'). PRIORITIZE specific terms. DO NOT include conditions or 'AND'. JUST KEYWORDS.".to_string()
             ),
             search_index_uid_param: Some(
                 "Index to search. ALWAYS use 'documents' for user queries. NEVER use the topic name as the index.".to_string()
