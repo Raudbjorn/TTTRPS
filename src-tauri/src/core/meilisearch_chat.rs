@@ -48,6 +48,9 @@ pub struct ChatPrompts {
     /// Description of the index selection parameter
     #[serde(skip_serializing_if = "Option::is_none")]
     pub search_index_uid_param: Option<String>,
+    /// Description of the filter parameter
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub search_filter_param: Option<String>,
     /// Description of the limit parameter
     #[serde(skip_serializing_if = "Option::is_none")]
     pub search_params: Option<serde_json::Value>,
@@ -1397,7 +1400,14 @@ impl DMChatManager {
             search_index_uid_param: Some(
                 "Index to search. ALWAYS use 'documents' for user queries. NEVER use the topic name as the index.".to_string()
             ),
-            search_params: Some(serde_json::json!({ "limit": 10 })),
+            search_filter_param: Some(
+                "Filter expression. DO NOT USE. MUST BE NULL. This tool does not support complex filtering. Search by KEYWORDS ONLY in the 'q' parameter.".to_string()
+            ),
+            // Force filter to empty string to prevent LLM hallucinations from breaking the query
+            search_params: Some(serde_json::json!({
+                "limit": 10,
+                "filter": ""
+            })),
             ..Default::default()
         });
 
