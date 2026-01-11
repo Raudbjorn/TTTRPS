@@ -18,6 +18,8 @@ use crate::bindings::{
     install_gemini_cli_extension, GeminiCliStatus, GeminiCliExtensionStatus,
     // LLM Proxy
     is_llm_proxy_running, get_llm_proxy_url, list_proxy_providers,
+    // Embedding configuration
+    list_ollama_embedding_models, setup_ollama_embeddings, OllamaEmbeddingModel,
 };
 use crate::components::design_system::{Badge, BadgeVariant, Button, ButtonVariant, Card, Input};
 use crate::services::notification_service::{show_error, show_success};
@@ -193,6 +195,11 @@ pub fn LLMSettingsView() -> impl IntoView {
     let cloud_models = RwSignal::new(Vec::<ModelInfo>::new());
     let is_loading_models = RwSignal::new(false);
 
+    // Embedding models
+    let embedding_models = RwSignal::new(Vec::<OllamaEmbeddingModel>::new());
+    let is_setting_up_embeddings = RwSignal::new(false);
+    let embeddings_status = RwSignal::new(String::new());
+
     // Statuses
     let provider_statuses = RwSignal::new(HashMap::<String, bool>::new());
     let claude_code_status = RwSignal::new(ClaudeCodeStatus::default());
@@ -216,9 +223,10 @@ pub fn LLMSettingsView() -> impl IntoView {
     // --- Helpers ---
 
     let fetch_ollama_models = move |host: String| {
+        let host_clone = host.clone();
         spawn_local(async move {
             is_loading_models.set(true);
-            match list_ollama_models(host).await {
+            match list_ollama_models(host.clone()).await {
                 Ok(models) => {
                      ollama_models.set(models);
                      provider_statuses.update(|map| { map.insert("ollama".to_string(), true); });
@@ -226,6 +234,20 @@ pub fn LLMSettingsView() -> impl IntoView {
                 Err(_) => {
                     ollama_models.set(Vec::new());
                     provider_statuses.update(|map| { map.insert("ollama".to_string(), false); });
+                }
+            }
+            // Also fetch embedding models
+            match list_ollama_embedding_models(host_clone).await {
+                Ok(models) => {
+                    embedding_models.set(models);
+                }
+                Err(_) => {
+                    // Use default embedding models if fetch fails
+                    embedding_models.set(vec![
+                        OllamaEmbeddingModel { name: "nomic-embed-text".to_string(), size: "274 MB".to_string(), dimensions: 768 },
+                        OllamaEmbeddingModel { name: "mxbai-embed-large".to_string(), size: "669 MB".to_string(), dimensions: 1024 },
+                        OllamaEmbeddingModel { name: "all-minilm".to_string(), size: "46 MB".to_string(), dimensions: 384 },
+                    ]);
                 }
             }
             is_loading_models.set(false);
@@ -893,10 +915,91 @@ pub fn LLMSettingsView() -> impl IntoView {
                         </div>
 
                          {move || if selected_provider.get() == LLMProvider::Ollama {
+                            let models = embedding_models.get();
+                            let current_model = embedding_model.get();
+                            let host_for_setup = api_key_or_host.get();
+
+                            // Handler for setup embeddings button
+                            let handle_setup_embeddings = move |_: ev::MouseEvent| {
+                                let host = api_key_or_host.get();
+                                let model = embedding_model.get();
+                                is_setting_up_embeddings.set(true);
+                                embeddings_status.set("Setting up embeddings...".to_string());
+                                spawn_local(async move {
+                                    match setup_ollama_embeddings(host.clone(), model.clone()).await {
+                                        Ok(result) => {
+                                            embeddings_status.set(format!(
+                                                "✓ Configured {} indexes with {} ({}D)",
+                                                result.indexes_configured.len(),
+                                                result.model,
+                                                result.dimensions
+                                            ));
+                                            show_success(
+                                                "Embeddings Configured",
+                                                Some(&format!(
+                                                    "AI-powered search enabled on {} indexes using {}",
+                                                    result.indexes_configured.len(),
+                                                    result.model
+                                                ))
+                                            );
+                                        }
+                                        Err(e) => {
+                                            embeddings_status.set(format!("✗ Failed: {}", e));
+                                            show_error("Embeddings Setup Failed", Some(&e), None);
+                                        }
+                                    }
+                                    is_setting_up_embeddings.set(false);
+                                });
+                            };
+
                             view! {
-                                <div>
-                                    <label class="block text-sm font-medium text-[var(--text-secondary)] mb-2">"Embedding Model"</label>
-                                    <Input value=embedding_model />
+                                <div class="space-y-3">
+                                    <div>
+                                        <label class="block text-sm font-medium text-[var(--text-secondary)] mb-2">"Embedding Model"</label>
+                                        {if !models.is_empty() {
+                                            view! {
+                                                <select
+                                                    class="w-full p-3 rounded-lg bg-[var(--bg-deep)] border border-[var(--border-subtle)] text-[var(--text-primary)] outline-none focus:border-[var(--accent-primary)] transition-colors"
+                                                    style="color-scheme: dark;"
+                                                    on:change=move |ev| {
+                                                        let val = event_target_value(&ev);
+                                                        embedding_model.set(val);
+                                                    }
+                                                >
+                                                    {models.into_iter().map(|m| {
+                                                        let is_selected = m.name == current_model;
+                                                        let label = format!("{} ({}D)", m.name, m.dimensions);
+                                                        view! {
+                                                            <option
+                                                                value=m.name.clone()
+                                                                selected=is_selected
+                                                                class="bg-[var(--bg-elevated)] text-[var(--text-primary)]"
+                                                            >
+                                                                {label}
+                                                            </option>
+                                                        }
+                                                    }).collect::<Vec<_>>()}
+                                                </select>
+                                            }.into_any()
+                                        } else {
+                                            view! {
+                                                <Input value=embedding_model />
+                                            }.into_any()
+                                        }}
+                                    </div>
+                                    <div class="flex items-center gap-3">
+                                        <Button
+                                            variant=ButtonVariant::Secondary
+                                            on_click=handle_setup_embeddings
+                                            disabled=is_setting_up_embeddings.get()
+                                            loading=is_setting_up_embeddings.get()
+                                        >
+                                            "Setup AI Search"
+                                        </Button>
+                                        <span class="text-xs text-[var(--text-muted)]">
+                                            {move || embeddings_status.get()}
+                                        </span>
+                                    </div>
                                 </div>
                             }.into_any()
                         } else {

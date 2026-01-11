@@ -1,8 +1,5 @@
 pub mod adaptive_learning;
-pub mod pdf_parser;
-pub mod epub_parser;
-pub mod mobi_parser;
-pub mod docx_parser;
+pub mod kreuzberg_extractor;
 pub mod personality;
 pub mod flavor;
 pub mod character_gen;
@@ -12,11 +9,16 @@ pub mod hash;
 pub mod layout;
 pub mod ttrpg;
 
+// Legacy PDF parser kept for reference but not exported
+// Use kreuzberg_extractor for all document extraction
+#[allow(dead_code)]
+mod pdf_parser;
+
 pub use adaptive_learning::AdaptiveLearningSystem;
-pub use pdf_parser::{PDFParser, ExtractedDocument, ExtractedPage, DocumentMetadata, PDFError};
-pub use epub_parser::{EPUBParser, ExtractedEPUB, ExtractedChapter};
-pub use mobi_parser::{MOBIParser, ExtractedMOBI, ExtractedSection};
-pub use docx_parser::{DOCXParser, ExtractedDOCX};
+pub use kreuzberg_extractor::{
+    DocumentExtractor, ExtractedContent, ExtractionError,
+    extract_text, extract_text_with_ocr, extract_document, extract_document_with_ocr,
+};
 pub use chunker::{
     SemanticChunker, ChunkConfig, ContentChunk,
     TTRPGChunker, TTRPGChunkConfig, SectionHierarchy,

@@ -1,13 +1,10 @@
 //! Meilisearch Ingestion Pipeline
 //!
 //! Handles document parsing, chunking, and indexing into Meilisearch.
-//! Supports PDFs, text files, and structured content.
+//! Uses kreuzberg for fast document extraction with OCR fallback.
 
 use crate::core::search_client::{SearchClient, SearchDocument, SearchError};
-use crate::ingestion::pdf_parser::PDFParser;
-use crate::ingestion::epub_parser::EPUBParser;
-use crate::ingestion::mobi_parser::MOBIParser;
-use crate::ingestion::docx_parser::DOCXParser;
+use crate::ingestion::kreuzberg_extractor::DocumentExtractor;
 use chrono::Utc;
 use std::collections::HashMap;
 use std::path::Path;
@@ -101,24 +98,17 @@ impl MeilisearchPipeline {
             .unwrap_or("unknown")
             .to_string();
 
-        // Extract text based on file type
-        let extension = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-
-        let chunks = match extension.to_lowercase().as_str() {
-            "pdf" => self.process_pdf(path, &source_name)?,
-            "epub" => self.process_epub(path, &source_name)?,
-            "mobi" | "azw" | "azw3" => self.process_mobi(path, &source_name)?,
-            "docx" => self.process_docx(path, &source_name)?,
-            "txt" | "md" | "markdown" => self.process_text_file(path, &source_name)?,
-            _ => {
-                // Try to read as text
-                match std::fs::read_to_string(path) {
-                    Ok(content) => self.chunk_text(&content, &source_name, None),
-                    Err(e) => {
-                        return Err(SearchError::ConfigError(format!(
-                            "Cannot read file: {}", e
-                        )));
-                    }
+        let chunks = if DocumentExtractor::is_supported(path) {
+                // Use kreuzberg for all supported formats
+                self.process_with_kreuzberg(path, &source_name).await?
+            } else {
+             // Fallback for unsupported formats (treat as plain text)
+             match std::fs::read_to_string(path) {
+                Ok(content) => self.chunk_text(&content, &source_name, None),
+                Err(e) => {
+                    return Err(SearchError::ConfigError(format!(
+                        "Cannot read file or unsupported format: {}", e
+                    )));
                 }
             }
         };
@@ -164,85 +154,87 @@ impl MeilisearchPipeline {
         })
     }
 
-    /// Process a PDF file
-    fn process_pdf(&self, path: &Path, source_name: &str) -> Result<Vec<(String, Option<u32>)>, SearchError> {
-        let pages = PDFParser::extract_text_with_pages(path)
-            .map_err(|e| SearchError::ConfigError(format!("PDF parsing failed: {}", e)))?;
+    /// Process any document using kreuzberg (PDF, DOCX, EPUB, MOBI, images, etc.)
+    ///
+    /// Uses kreuzberg's async extraction for non-blocking processing.
+    async fn process_with_kreuzberg(&self, path: &Path, source_name: &str) -> Result<Vec<(String, Option<u32>)>, SearchError> {
+        // Use kreuzberg with OCR fallback for scanned documents
+        let extractor = DocumentExtractor::with_ocr();
+
+        // This is now async and uses proper page config
+        let cb: Option<fn(f32, &str)> = None;
+        let extracted = extractor.extract(path, cb)
+            .await
+            .map_err(|e| SearchError::ConfigError(format!("Document extraction failed: {}", e)))?;
+
+        let total_text_len = extracted.char_count;
+        let page_count = extracted.page_count;
+
+        log::info!(
+            "Extracted content from '{}': {} pages, {} chars",
+            source_name, page_count, total_text_len
+        );
 
         let mut all_chunks = Vec::new();
 
-        for (page_num, page_text) in pages {
-            let page_chunks = self.chunk_text(&page_text, source_name, Some(page_num as u32));
-            all_chunks.extend(page_chunks);
+        // If we have distinct pages, chunk them individually to preserve page numbers
+        if let Some(pages) = extracted.pages {
+            for page in pages {
+                // Calculate adaptive chunk size per page if needed, but for now global config is fine
+                // or we could compute density per page.
+
+                // For simplicity, use standard chunking on page content.
+                // We could use the density logic here too if we cared about mixed-density docs.
+
+                let page_len = page.content.len();
+                let adaptive_min_chunk_size = if page_len < 100 { 10 } else { self.config.chunk_config.min_chunk_size };
+
+                let page_chunks = self.chunk_text_adaptive(
+                    &page.content,
+                    source_name,
+                    Some(page.page_number as u32),
+                    adaptive_min_chunk_size
+                );
+
+                all_chunks.extend(page_chunks);
+            }
+        } else {
+            // Fallback for formats without pages or if extraction failed to split pages
+             // Calculate adaptive min_chunk_size based on overall extraction quality
+            let avg_chars_per_page = if page_count > 0 {
+                total_text_len / page_count
+            } else {
+                0
+            };
+
+            let adaptive_min_chunk_size = if avg_chars_per_page >= 2000 {
+                self.config.chunk_config.min_chunk_size
+            } else if avg_chars_per_page >= 500 {
+                50.min(self.config.chunk_config.min_chunk_size)
+            } else if avg_chars_per_page >= 100 {
+                20.min(self.config.chunk_config.min_chunk_size)
+            } else {
+                10
+            };
+
+            all_chunks = self.chunk_text_adaptive(
+                &extracted.content,
+                source_name,
+                None,
+                adaptive_min_chunk_size,
+            );
+        }
+
+        // Warn if no content extracted
+        if all_chunks.is_empty() && total_text_len > 0 {
+            log::warn!(
+                "Document '{}' extracted {} chars but produced 0 chunks",
+                source_name,
+                total_text_len
+            );
         }
 
         Ok(all_chunks)
-    }
-
-    /// Process an EPUB file
-    fn process_epub(&self, path: &Path, source_name: &str) -> Result<Vec<(String, Option<u32>)>, SearchError> {
-        let extracted = EPUBParser::extract_structured(path)
-            .map_err(|e| SearchError::ConfigError(format!("EPUB parsing failed: {}", e)))?;
-
-        let mut all_chunks = Vec::new();
-
-        for chapter in extracted.chapters {
-            // Use chapter index as a pseudo "page number" for reference
-            let chapter_num = (chapter.index + 1) as u32;
-            let chapter_chunks = self.chunk_text(&chapter.text, source_name, Some(chapter_num));
-            all_chunks.extend(chapter_chunks);
-        }
-
-        log::info!(
-            "Processed EPUB '{}': {} chapters, {} total chunks",
-            source_name,
-            extracted.chapter_count,
-            all_chunks.len()
-        );
-
-        Ok(all_chunks)
-    }
-
-    /// Process a MOBI/AZW file
-    fn process_mobi(&self, path: &Path, source_name: &str) -> Result<Vec<(String, Option<u32>)>, SearchError> {
-        let extracted = MOBIParser::extract_structured(path)
-            .map_err(|e| SearchError::ConfigError(format!("MOBI parsing failed: {}", e)))?;
-
-        let mut all_chunks = Vec::new();
-
-        for section in extracted.sections {
-            // Use section index as pseudo page number
-            let section_num = (section.index + 1) as u32;
-            let section_chunks = self.chunk_text(&section.text, source_name, Some(section_num));
-            all_chunks.extend(section_chunks);
-        }
-
-        log::info!(
-            "Processed MOBI '{}': {} sections, {} total chunks",
-            source_name,
-            extracted.section_count,
-            all_chunks.len()
-        );
-
-        Ok(all_chunks)
-    }
-
-    /// Process a DOCX file
-    fn process_docx(&self, path: &Path, source_name: &str) -> Result<Vec<(String, Option<u32>)>, SearchError> {
-        let extracted = DOCXParser::extract_structured(path)
-            .map_err(|e| SearchError::ConfigError(format!("DOCX parsing failed: {}", e)))?;
-
-        // DOCX doesn't have page numbers, chunk the full text
-        let chunks = self.chunk_text(&extracted.text, source_name, None);
-
-        log::info!(
-            "Processed DOCX '{}': {} paragraphs, {} total chunks",
-            source_name,
-            extracted.paragraphs.len(),
-            chunks.len()
-        );
-
-        Ok(chunks)
     }
 
     /// Process a text file
@@ -253,8 +245,21 @@ impl MeilisearchPipeline {
         Ok(self.chunk_text(&content, source_name, None))
     }
 
+
+
     /// Chunk text content with overlap
     fn chunk_text(&self, text: &str, _source: &str, page_number: Option<u32>) -> Vec<(String, Option<u32>)> {
+        self.chunk_text_adaptive(text, _source, page_number, self.config.chunk_config.min_chunk_size)
+    }
+
+    /// Chunk text content with overlap and custom min_chunk_size
+    fn chunk_text_adaptive(
+        &self,
+        text: &str,
+        _source: &str,
+        page_number: Option<u32>,
+        min_chunk_size: usize,
+    ) -> Vec<(String, Option<u32>)> {
         let config = &self.config.chunk_config;
         let mut chunks = Vec::new();
         let text = text.trim();
@@ -263,9 +268,12 @@ impl MeilisearchPipeline {
             return chunks;
         }
 
-        // If text is smaller than chunk size, return as single chunk
+        // If text is smaller than chunk size, return as single chunk (even if below min)
         if text.len() <= config.chunk_size {
-            chunks.push((text.to_string(), page_number));
+            // For adaptive mode, accept smaller chunks
+            if text.len() >= min_chunk_size || min_chunk_size <= 10 {
+                chunks.push((text.to_string(), page_number));
+            }
             return chunks;
         }
 
@@ -283,7 +291,7 @@ impl MeilisearchPipeline {
 
             if potential_len > config.chunk_size && !current_chunk.is_empty() {
                 // Save current chunk
-                if current_chunk.len() >= config.min_chunk_size {
+                if current_chunk.len() >= min_chunk_size {
                     chunks.push((current_chunk.clone(), page_number));
                 }
 
@@ -306,7 +314,7 @@ impl MeilisearchPipeline {
         }
 
         // Don't forget the last chunk
-        if current_chunk.len() >= config.min_chunk_size {
+        if current_chunk.len() >= min_chunk_size {
             chunks.push((current_chunk, page_number));
         }
 

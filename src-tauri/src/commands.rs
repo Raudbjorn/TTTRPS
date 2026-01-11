@@ -2386,6 +2386,173 @@ pub async fn get_vector_store_status(state: State<'_, AppState>) -> Result<Strin
     }
 }
 
+/// Configure Meilisearch embedder for semantic search
+#[derive(Debug, Serialize, Deserialize)]
+pub struct EmbedderConfigRequest {
+    /// Embedder name (e.g., "default", "openai", "ollama")
+    pub name: String,
+    /// Provider type: "openAi", "ollama", or "huggingFace"
+    pub provider: String,
+    /// API key (for OpenAI)
+    pub api_key: Option<String>,
+    /// Model name (e.g., "text-embedding-3-small", "nomic-embed-text")
+    pub model: Option<String>,
+    /// Embedding dimensions (e.g., 1536 for OpenAI)
+    pub dimensions: Option<u32>,
+    /// Base URL (for Ollama)
+    pub url: Option<String>,
+}
+
+/// Configure Meilisearch embedder for semantic/vector search
+#[tauri::command]
+pub async fn configure_meilisearch_embedder(
+    index_name: String,
+    config: EmbedderConfigRequest,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    use crate::core::search_client::EmbedderConfig;
+
+    let embedder_config = match config.provider.as_str() {
+        "openAi" | "openai" => {
+            let api_key = config.api_key.ok_or("OpenAI API key required")?;
+            EmbedderConfig::OpenAI {
+                api_key,
+                model: config.model,
+                dimensions: config.dimensions,
+            }
+        }
+        "ollama" => {
+            let url = config.url.unwrap_or_else(|| "http://localhost:11434".to_string());
+            let model = config.model.unwrap_or_else(|| "nomic-embed-text".to_string());
+            EmbedderConfig::Ollama { url, model }
+        }
+        "huggingFace" | "huggingface" => {
+            let model = config.model.unwrap_or_else(|| "BAAI/bge-base-en-v1.5".to_string());
+            EmbedderConfig::HuggingFace { model }
+        }
+        other => return Err(format!("Unknown provider: {}. Use 'openAi', 'ollama', or 'huggingFace'", other)),
+    };
+
+    state.search_client
+        .configure_embedder(&index_name, &config.name, &embedder_config)
+        .await
+        .map_err(|e| format!("Failed to configure embedder: {}", e))?;
+
+    Ok(format!("Configured embedder '{}' for index '{}'", config.name, index_name))
+}
+
+/// Setup Ollama embeddings on all content indexes using REST embedder
+///
+/// This configures Meilisearch to use Ollama for AI-powered semantic search.
+/// The embedder is configured as a REST source for maximum compatibility.
+#[tauri::command]
+pub async fn setup_ollama_embeddings(
+    host: String,
+    model: String,
+    state: State<'_, AppState>,
+) -> Result<SetupEmbeddingsResult, String> {
+    let configured = state.search_client
+        .setup_ollama_embeddings(&host, &model)
+        .await
+        .map_err(|e| format!("Failed to setup embeddings: {}", e))?;
+
+    let dimensions = crate::core::search_client::ollama_embedding_dimensions(&model);
+
+    Ok(SetupEmbeddingsResult {
+        indexes_configured: configured,
+        model: model.clone(),
+        dimensions,
+        host: host.clone(),
+    })
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SetupEmbeddingsResult {
+    pub indexes_configured: Vec<String>,
+    pub model: String,
+    pub dimensions: u32,
+    pub host: String,
+}
+
+/// Get embedder configuration for an index
+#[tauri::command]
+pub async fn get_embedder_status(
+    index_name: String,
+    state: State<'_, AppState>,
+) -> Result<Option<serde_json::Value>, String> {
+    state.search_client
+        .get_embedder_settings(&index_name)
+        .await
+        .map_err(|e| format!("Failed to get embedder status: {}", e))
+}
+
+/// List available Ollama embedding models (filters for embedding-capable models)
+#[tauri::command]
+pub async fn list_ollama_embedding_models(host: String) -> Result<Vec<OllamaEmbeddingModel>, String> {
+    // Get all models from Ollama
+    let models = crate::core::llm::LLMClient::list_ollama_models(&host)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    // Known embedding model patterns
+    let embedding_patterns = [
+        "nomic-embed",
+        "mxbai-embed",
+        "all-minilm",
+        "bge-",
+        "snowflake-arctic-embed",
+        "gte-",
+        "e5-",
+        "embed",
+    ];
+
+    let embedding_models: Vec<OllamaEmbeddingModel> = models
+        .into_iter()
+        .filter(|m| {
+            let name_lower = m.name.to_lowercase();
+            embedding_patterns.iter().any(|p| name_lower.contains(p))
+        })
+        .map(|m| {
+            let dimensions = crate::core::search_client::ollama_embedding_dimensions(&m.name);
+            OllamaEmbeddingModel {
+                name: m.name,
+                size: m.size,
+                dimensions,
+            }
+        })
+        .collect();
+
+    // If no embedding models found, return common defaults that user should pull
+    if embedding_models.is_empty() {
+        return Ok(vec![
+            OllamaEmbeddingModel {
+                name: "nomic-embed-text".to_string(),
+                size: "274 MB".to_string(),
+                dimensions: 768,
+            },
+            OllamaEmbeddingModel {
+                name: "mxbai-embed-large".to_string(),
+                size: "669 MB".to_string(),
+                dimensions: 1024,
+            },
+            OllamaEmbeddingModel {
+                name: "all-minilm".to_string(),
+                size: "46 MB".to_string(),
+                dimensions: 384,
+            },
+        ]);
+    }
+
+    Ok(embedding_models)
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OllamaEmbeddingModel {
+    pub name: String,
+    pub size: String,
+    pub dimensions: u32,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct IngestResult {
     pub page_count: usize,
@@ -2402,6 +2569,32 @@ pub struct IngestProgress {
     pub source_name: String,
 }
 
+/// Estimate PDF page count using pdfinfo (fast) or file size heuristic
+fn estimate_pdf_pages(path: &std::path::Path, file_size: u64) -> usize {
+    // For PDFs, try to get actual page count from pdfinfo (very fast)
+    if path.extension().and_then(|e| e.to_str()) == Some("pdf") {
+        if let Ok(output) = std::process::Command::new("pdfinfo")
+            .arg(path)
+            .output()
+        {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            for line in stdout.lines() {
+                if line.starts_with("Pages:") {
+                    if let Some(count_str) = line.split(':').nth(1) {
+                        if let Ok(count) = count_str.trim().parse::<usize>() {
+                            return count;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Fallback: estimate based on file size
+    // Use 200KB per page as middle ground between text (50KB) and scanned (500KB+)
+    (file_size / 200_000).max(1) as usize
+}
+
 /// Ingest a document with progress reporting via Tauri events
 #[tauri::command]
 pub async fn ingest_document_with_progress(
@@ -2410,9 +2603,123 @@ pub async fn ingest_document_with_progress(
     source_type: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<IngestResult, String> {
+    // Delegate to the internal function that uses kreuzberg for fast extraction
+    ingest_document_with_progress_internal(path, source_type, app, state).await
+}
+
+/// List all documents from the library (persisted in Meilisearch)
+#[tauri::command]
+pub async fn list_library_documents(
+    state: State<'_, AppState>,
+) -> Result<Vec<crate::core::search_client::LibraryDocumentMetadata>, String> {
+    state.search_client
+        .list_library_documents()
+        .await
+        .map_err(|e| format!("Failed to list documents: {}", e))
+}
+
+/// Delete a document from the library (removes metadata and content chunks)
+#[tauri::command]
+pub async fn delete_library_document(
+    id: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    state.search_client
+        .delete_library_document_with_content(&id)
+        .await
+        .map_err(|e| format!("Failed to delete document: {}", e))
+}
+
+/// Rebuild library metadata from existing content indices.
+///
+/// Scans all content indices for unique sources and creates metadata entries
+/// for sources that don't already have entries. Useful for migrating legacy data.
+#[tauri::command]
+pub async fn rebuild_library_metadata(
+    state: State<'_, AppState>,
+) -> Result<usize, String> {
+    let created = state.search_client
+        .rebuild_library_metadata()
+        .await
+        .map_err(|e| format!("Failed to rebuild metadata: {}", e))?;
+
+    Ok(created.len())
+}
+
+/// Clear a document's content and re-ingest from the original file.
+///
+/// Useful when ingestion produced garbage content (e.g., failed font decoding)
+/// and you want to try again (possibly with OCR this time).
+#[tauri::command]
+pub async fn clear_and_reingest_document(
+    id: String,
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<IngestResult, String> {
     use tauri::Emitter;
 
-    let path_buf = std::path::Path::new(&path);
+    // Get the document metadata to find the file path
+    let doc = state.search_client
+        .get_library_document(&id)
+        .await
+        .map_err(|e| format!("Failed to get document: {}", e))?
+        .ok_or_else(|| "Document not found".to_string())?;
+
+    let file_path = doc.file_path
+        .ok_or_else(|| "Document has no file path - cannot re-ingest".to_string())?;
+
+    // Verify file still exists
+    let path = std::path::Path::new(&file_path);
+    if !path.exists() {
+        return Err(format!("Original file no longer exists: {}", file_path));
+    }
+
+    log::info!("Clearing and re-ingesting document: {} ({})", doc.name, id);
+
+    // Delete existing content and metadata
+    state.search_client
+        .delete_library_document_with_content(&id)
+        .await
+        .map_err(|e| format!("Failed to delete existing content: {}", e))?;
+
+    // Emit progress for clearing
+    let _ = app.emit("ingest-progress", IngestProgress {
+        stage: "clearing".to_string(),
+        progress: 0.05,
+        message: format!("Cleared old content, re-ingesting {}...", doc.name),
+        source_name: doc.name.clone(),
+    });
+
+    // Re-ingest using the existing ingest logic
+    // We need to call ingest_document_with_progress internally
+    let source_type = Some(doc.source_type.clone());
+
+    // Call the internal ingestion logic
+    ingest_document_with_progress_internal(
+        file_path,
+        source_type,
+        app,
+        state,
+    ).await
+}
+
+/// Internal ingestion logic shared by ingest_document_with_progress and clear_and_reingest
+async fn ingest_document_with_progress_internal(
+    path: String,
+    source_type: Option<String>,
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<IngestResult, String> {
+    use tauri::Emitter;
+    use crate::core::meilisearch_pipeline::MeilisearchPipeline;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+
+    let path_buf = std::path::PathBuf::from(&path);
+    if !path_buf.exists() {
+        return Err(format!("File not found: {}", path));
+    }
+
     let source_name = path_buf
         .file_name()
         .and_then(|n| n.to_str())
@@ -2429,16 +2736,21 @@ pub async fn ingest_document_with_progress(
         source_name: source_name.clone(),
     });
 
-    // Get file size for rough progress estimation
-    let file_size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
-    let estimated_pages = (file_size / 50_000).max(1) as usize; // Rough estimate: 50KB per page
+    let extension = path_buf
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_lowercase();
 
-    // Parse based on file type
-    let extension = path_buf.extension().and_then(|e| e.to_str()).unwrap_or("");
-    let format_name = match extension.to_lowercase().as_str() {
+    let file_size = std::fs::metadata(&path_buf)
+        .map(|m| m.len())
+        .unwrap_or(0);
+    let estimated_pages = estimate_pdf_pages(&path_buf, file_size);
+
+    let format_name = match extension.as_str() {
         "pdf" => "PDF",
         "epub" => "EPUB",
-        "mobi" | "azw" | "azw3" => "MOBI",
+        "mobi" | "azw" | "azw3" => "MOBI/AZW",
         "docx" => "DOCX",
         "txt" => "text",
         "md" | "markdown" => "Markdown",
@@ -2451,91 +2763,85 @@ pub async fn ingest_document_with_progress(
         message: format!("Parsing {} (~{} estimated pages)...", format_name, estimated_pages),
         source_name: source_name.clone(),
     });
+
     let page_count: usize;
     let text_content: String;
 
-    match extension.to_lowercase().as_str() {
-        "pdf" => {
-            use crate::ingestion::pdf_parser::PDFParser;
-            let pages = PDFParser::extract_text_with_pages(path_buf)
-                .map_err(|e| format!("PDF parsing failed: {}", e))?;
-            page_count = pages.len();
-            text_content = pages.into_iter().map(|(_, text)| text).collect::<Vec<_>>().join("\n\n");
+    // Use kreuzberg for supported document formats (PDF, EPUB, DOCX, MOBI, etc.)
+    if crate::ingestion::DocumentExtractor::is_supported(&path_buf) {
+        use crate::ingestion::DocumentExtractor;
 
-            let _ = app.emit("ingest-progress", IngestProgress {
-                stage: "parsing".to_string(),
-                progress: 0.4,
-                message: format!("Parsed {} pages", page_count),
-                source_name: source_name.clone(),
-            });
-        }
-        "epub" => {
-            use crate::ingestion::epub_parser::EPUBParser;
-            let extracted = EPUBParser::extract_structured(path_buf)
-                .map_err(|e| format!("EPUB parsing failed: {}", e))?;
-            page_count = extracted.chapter_count;
-            text_content = extracted.chapters.into_iter().map(|c| c.text).collect::<Vec<_>>().join("\n\n");
+        // Use OCR-enabled extractor for scanned documents
+        let extractor = DocumentExtractor::with_ocr();
 
-            let _ = app.emit("ingest-progress", IngestProgress {
-                stage: "parsing".to_string(),
-                progress: 0.4,
-                message: format!("Parsed {} chapters", page_count),
-                source_name: source_name.clone(),
-            });
-        }
-        "mobi" | "azw" | "azw3" => {
-            use crate::ingestion::mobi_parser::MOBIParser;
-            let extracted = MOBIParser::extract_structured(path_buf)
-                .map_err(|e| format!("MOBI parsing failed: {}", e))?;
-            page_count = extracted.section_count;
-            text_content = extracted.sections.into_iter().map(|s| s.text).collect::<Vec<_>>().join("\n\n");
+        let _ = app.emit("ingest-progress", IngestProgress {
+            stage: "parsing".to_string(),
+            progress: 0.2,
+            message: format!("Extracting {} with kreuzberg...", format_name),
+            source_name: source_name.clone(),
+        });
 
-            let _ = app.emit("ingest-progress", IngestProgress {
-                stage: "parsing".to_string(),
-                progress: 0.4,
-                message: format!("Parsed {} sections", page_count),
-                source_name: source_name.clone(),
-            });
-        }
-        "docx" => {
-            use crate::ingestion::docx_parser::DOCXParser;
-            let extracted = DOCXParser::extract_structured(path_buf)
-                .map_err(|e| format!("DOCX parsing failed: {}", e))?;
-            page_count = extracted.paragraphs.len();
-            text_content = extracted.text;
+        // Clone for callback
+        let app_handle = app.clone();
+        let source_name_cb = source_name.clone();
 
-            let _ = app.emit("ingest-progress", IngestProgress {
-                stage: "parsing".to_string(),
-                progress: 0.4,
-                message: format!("Parsed {} paragraphs", page_count),
-                source_name: source_name.clone(),
-            });
-        }
-        "txt" | "md" | "markdown" => {
-            text_content = std::fs::read_to_string(&path)
-                .map_err(|e| format!("Failed to read file: {}", e))?;
-            page_count = text_content.lines().count() / 50; // Rough page estimate
+        let progress_callback = move |p: f32, msg: &str| {
+            // Map 0.0-1.0 from extractor to 0.2-0.4 in overall progress
+            // Actually extractor uses arbitrary 0.2-0.8 range in OCR,
+            // so we can map it to 0.2 + (p * 0.2) roughly?
+            // Let's trust the extractor's p if it's 0-1 and map it to a sub-range
+            // or just log it.
+            // But wait, the extractor's OCR loop emits p from 0.2 to 0.8
+            // Our overall progress for "parsing" is roughly 0.0 to 0.4.
+            // So let's map generic p to 0.2 + (p * 0.2)
 
-            let _ = app.emit("ingest-progress", IngestProgress {
-                stage: "parsing".to_string(),
-                progress: 0.4,
-                message: format!("Loaded {} characters", text_content.len()),
-                source_name: source_name.clone(),
-            });
-        }
-        _ => {
-            // Try to read as text for unknown formats
-            text_content = std::fs::read_to_string(&path)
-                .map_err(|e| format!("Unsupported format or failed to read: {}", e))?;
-            page_count = 1;
+            let scaled_progress = 0.2 + (p * 0.2);
 
-            let _ = app.emit("ingest-progress", IngestProgress {
+            let _ = app_handle.emit("ingest-progress", IngestProgress {
                 stage: "parsing".to_string(),
-                progress: 0.4,
-                message: "File loaded".to_string(),
-                source_name: source_name.clone(),
+                progress: scaled_progress,
+                message: msg.to_string(),
+                source_name: source_name_cb.clone(),
             });
-        }
+        };
+
+        let extracted = extractor.extract(&path_buf, Some(progress_callback))
+            .await
+            .map_err(|e| format!("Document extraction failed: {}", e))?;
+
+        page_count = extracted.page_count;
+        text_content = extracted.content;
+
+        let _ = app.emit("ingest-progress", IngestProgress {
+            stage: "parsing".to_string(),
+            progress: 0.4,
+            message: format!("Extracted {} pages ({} chars)", page_count, text_content.len()),
+            source_name: source_name.clone(),
+        });
+    } else if extension == "txt" || extension == "md" || extension == "markdown" {
+        // Plain text files - read directly
+        text_content = std::fs::read_to_string(&path)
+            .map_err(|e| format!("Failed to read file: {}", e))?;
+        page_count = text_content.lines().count() / 50;
+
+        let _ = app.emit("ingest-progress", IngestProgress {
+            stage: "parsing".to_string(),
+            progress: 0.4,
+            message: format!("Loaded {} characters", text_content.len()),
+            source_name: source_name.clone(),
+        });
+    } else {
+        // Try to read as text for other formats
+        text_content = std::fs::read_to_string(&path)
+            .map_err(|e| format!("Unsupported format or failed to read: {}", e))?;
+        page_count = 1;
+
+        let _ = app.emit("ingest-progress", IngestProgress {
+            stage: "parsing".to_string(),
+            progress: 0.4,
+            message: "File loaded".to_string(),
+            source_name: source_name.clone(),
+        });
     }
 
     // Stage 2: Chunking (40-60%)
@@ -2554,16 +2860,36 @@ pub async fn ingest_document_with_progress(
         source_name: source_name.clone(),
     });
 
-    // Use the pipeline to process and index
-    let result = state.ingestion_pipeline
-        .process_file(
-            &state.search_client,
-            path_buf,
-            &source_type,
-            None
-        )
-        .await
-        .map_err(|e| e.to_string())?;
+    let pipeline = MeilisearchPipeline::default();
+    let result = pipeline.ingest_text(
+        &state.search_client,
+        &text_content,
+        &source_name,
+        &source_type,
+        None,
+        None,
+    )
+    .await
+    .map_err(|e| e.to_string())?;
+
+    // Save document metadata
+    let library_doc = crate::core::search_client::LibraryDocumentMetadata {
+        id: uuid::Uuid::new_v4().to_string(),
+        name: source_name.clone(),
+        source_type: source_type.clone(),
+        file_path: Some(path.clone()),
+        page_count: page_count as u32,
+        chunk_count: result.total_chunks as u32,
+        character_count: text_content.len() as u64,
+        content_index: result.index_used.clone(),
+        status: "ready".to_string(),
+        error_message: None,
+        ingested_at: chrono::Utc::now().to_rfc3339(),
+    };
+
+    if let Err(e) = state.search_client.save_library_document(&library_doc).await {
+        log::warn!("Failed to save library document metadata: {}. Document indexed but may not persist.", e);
+    }
 
     // Done!
     let _ = app.emit("ingest-progress", IngestProgress {

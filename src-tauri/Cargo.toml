@@ -61,10 +61,9 @@ which = "7.0"
 reqwest = { version = "0.11", features = ["json", "multipart", "stream"] }
 rodio = "0.19"
 lopdf = "0.32"
-pdf-extract = "0.7"  # Fallback PDF extraction
-epub = "2.1"
-zip = "2.1"
-quick-xml = "0.36"
+pdf-extract = "0.7"  # Legacy PDF extraction (fallback)
+image = "0.25"       # Image processing for OCR pipeline
+kreuzberg = { version = "4.0", features = ["pdf", "bundled-pdfium"] }
 futures-util = "0.3"
 async-trait = "0.1"
 
@@ -96,6 +95,8 @@ mockall = "0.13"
 wiremock = "0.6"
 fake = "4.1"
 rstest = "0.24"
+zip = "2.1"
+quick-xml = "0.36"
 
 [features]
 default = ["custom-protocol"]

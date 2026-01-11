@@ -378,11 +378,19 @@ fn main() {
             // Document Ingestion & Search (Meilisearch)
             commands::ingest_document,
             commands::ingest_document_with_progress,
+            commands::list_library_documents,
+            commands::delete_library_document,
+            commands::rebuild_library_metadata,
+            commands::clear_and_reingest_document,
             commands::ingest_pdf,
             commands::search,
             commands::check_meilisearch_health,
             commands::reindex_library,
             commands::get_vector_store_status,
+            commands::configure_meilisearch_embedder,
+            commands::setup_ollama_embeddings,
+            commands::get_embedder_status,
+            commands::list_ollama_embedding_models,
 
             // Voice Commands
             commands::speak,

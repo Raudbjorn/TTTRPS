@@ -34,6 +34,7 @@ impl Default for ChatLLMSource {
 
 /// Prompt configuration for chat workspace
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
 pub struct ChatPrompts {
     /// System prompt that defines the AI's behavior
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -47,6 +48,9 @@ pub struct ChatPrompts {
     /// Description of the index selection parameter
     #[serde(skip_serializing_if = "Option::is_none")]
     pub search_index_uid_param: Option<String>,
+    /// Description of the limit parameter
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub search_params: Option<serde_json::Value>,
 }
 
 /// Workspace settings for Meilisearch Chat
@@ -113,7 +117,14 @@ When answering questions:
 - Maintain the tone appropriate to the game being played
 
 You have access to the player's rulebooks, campaign notes, and lore documents.
-Use the search tool to find relevant information before answering."#;
+Use the search tool to find relevant information before answering.
+VALID INDEXES:
+- `documents`: User uploaded files (PDFs, etc.)
+- `rules`: Game mechanics and rulebooks
+- `fiction`: Lore and narrative content
+- `chat`: Conversation history
+
+Do NOT invent index names. Only use the ones listed above."#;
 
 /// Default model for Grok/xAI provider
 pub const GROK_DEFAULT_MODEL: &str = "grok-3-mini";
@@ -1146,8 +1157,15 @@ impl DMChatManager {
                         .to_string()
                 ),
                 search_description: Some(
-                    "Search the player's rulebooks, campaign notes, and lore for relevant information.".to_string()
+                    "Search the player's rulebooks. USE BROAD KEYWORDS (e.g. 'Daryl toxin'). DO NOT USE FILTERS. Avoid 'what is' or 'stats'.".to_string()
                 ),
+                search_q_param: Some(
+                    "Keywords. Include specific Entity (e.g. 'Daryl') AND unique Descriptor (e.g. 'neurotoxin'). PRIORITIZE specific terms over generic ones (e.g. use 'neurotoxin' not 'poison'). DO NOT use 'stats'.".to_string()
+                ),
+                search_index_uid_param: Some(
+                    "Index to search. ALWAYS use 'documents' for user queries. NEVER use the topic name as the index.".to_string()
+                ),
+                search_params: Some(serde_json::json!({ "limit": 10 })),
                 ..Default::default()
             }),
             base_url: None,
@@ -1183,6 +1201,16 @@ impl DMChatManager {
                         .unwrap_or(DEFAULT_DM_SYSTEM_PROMPT)
                         .to_string()
                 ),
+                search_description: Some(
+                    "Search the player's rulebooks. USE BROAD KEYWORDS (e.g. 'Daryl toxin'). DO NOT USE FILTERS. Avoid 'what is' or 'stats'.".to_string()
+                ),
+                search_q_param: Some(
+                    "Keywords. Include specific Entity (e.g. 'Daryl') AND unique Descriptor (e.g. 'neurotoxin'). PRIORITIZE specific terms over generic ones (e.g. use 'neurotoxin' not 'poison'). DO NOT use 'stats'.".to_string()
+                ),
+                search_index_uid_param: Some(
+                    "Index to search. ALWAYS use 'documents' for user queries. NEVER use the topic name as the index.".to_string()
+                ),
+                search_params: Some(serde_json::json!({ "limit": 10 })),
                 ..Default::default()
             }),
             base_url: Some(base_url.to_string()),
@@ -1360,6 +1388,16 @@ impl DMChatManager {
                     .unwrap_or(DEFAULT_DM_SYSTEM_PROMPT)
                     .to_string()
             ),
+            search_description: Some(
+                "Search the player's rulebooks. USE BROAD KEYWORDS (e.g. 'Daryl toxin'). DO NOT USE FILTERS. Avoid 'what is' or 'stats'.".to_string()
+            ),
+            search_q_param: Some(
+                "Keywords. Include specific Entity (e.g. 'Daryl') AND unique Descriptor (e.g. 'neurotoxin'). PRIORITIZE specific terms over generic ones (e.g. use 'neurotoxin' not 'poison'). DO NOT use 'stats'.".to_string()
+            ),
+            search_index_uid_param: Some(
+                "Index to search. ALWAYS use 'documents' for user queries. NEVER use the topic name as the index.".to_string()
+            ),
+            search_params: Some(serde_json::json!({ "limit": 10 })),
             ..Default::default()
         });
 

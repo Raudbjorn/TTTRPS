@@ -27,10 +27,14 @@ pub struct MeilisearchConfig {
 
 impl Default for MeilisearchConfig {
     fn default() -> Self {
+        // Try to read system meilisearch config first
+        let master_key = Self::read_system_master_key()
+            .unwrap_or_else(|| "ttrpg-assistant-dev-key".to_string());
+
         Self {
             host: "127.0.0.1".to_string(),
             port: 7700,
-            master_key: "ttrpg-assistant-dev-key".to_string(),
+            master_key,
             data_dir: dirs::data_local_dir()
                 .unwrap_or_else(|| PathBuf::from("."))
                 .join("ttrpg-assistant")
@@ -42,6 +46,32 @@ impl Default for MeilisearchConfig {
 impl MeilisearchConfig {
     pub fn url(&self) -> String {
         format!("http://{}:{}", self.host, self.port)
+    }
+
+    /// Try to read master-key from /etc/meilisearch.conf (system meilisearch)
+    fn read_system_master_key() -> Option<String> {
+        let config_path = std::path::Path::new("/etc/meilisearch.conf");
+        if !config_path.exists() {
+            return None;
+        }
+
+        let content = std::fs::read_to_string(config_path).ok()?;
+
+        // Parse env-style config: MEILI_MASTER_KEY=value
+        for line in content.lines() {
+            let line = line.trim();
+            if line.starts_with("MEILI_MASTER_KEY=") {
+                let value = line.trim_start_matches("MEILI_MASTER_KEY=");
+                // Remove quotes if present
+                let value = value.trim_matches('"').trim_matches('\'');
+                if !value.is_empty() {
+                    log::info!("Using system Meilisearch master-key from /etc/meilisearch.conf");
+                    return Some(value.to_string());
+                }
+            }
+        }
+
+        None
     }
 }
 

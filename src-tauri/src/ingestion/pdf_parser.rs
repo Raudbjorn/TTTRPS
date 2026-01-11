@@ -38,6 +38,9 @@ pub enum PDFError {
 
 pub type Result<T> = std::result::Result<T, PDFError>;
 
+/// Progress callback type for OCR extraction (current_page, total_pages)
+pub type OcrProgressCallback = Box<dyn Fn(usize, usize) + Send + Sync>;
+
 // ============================================================================
 // Extracted Content Types
 // ============================================================================
@@ -315,26 +318,127 @@ impl PDFParser {
         path: &Path,
         password: Option<&str>,
     ) -> Result<ExtractedDocument> {
-        // Try lopdf first
-        match Self::extract_structured_with_password(path, password) {
-            Ok(doc) => {
-                // Validate extraction quality
-                if Self::is_extraction_quality_acceptable(&doc) {
-                    log::info!("lopdf extraction succeeded for {:?}", path);
-                    return Ok(doc);
+        // Use dual-extraction approach: try both methods, take best result
+        Self::extract_dual(path, password)
+    }
+
+    /// Dual extraction: Run both lopdf and pdf-extract, return whichever extracts more content.
+    ///
+    /// This approach is more robust than sequential fallback because some PDFs work better
+    /// with one extractor vs the other regardless of "quality" metrics.
+    ///
+    /// # Arguments
+    /// * `path` - Path to the PDF file
+    /// * `password` - Optional password for encrypted PDFs
+    pub fn extract_dual(
+        path: &Path,
+        password: Option<&str>,
+    ) -> Result<ExtractedDocument> {
+        // Try lopdf
+        let lopdf_result = Self::extract_structured_with_password(path, password);
+
+        // Try pdf-extract (runs in parallel conceptually, but we're single-threaded here)
+        let pdf_extract_result = Self::extract_with_pdf_extract(path);
+
+        // Evaluate both results
+        let lopdf_chars = lopdf_result.as_ref()
+            .map(Self::count_printable_chars)
+            .unwrap_or(0);
+
+        let pdf_extract_chars = pdf_extract_result.as_ref()
+            .map(Self::count_printable_chars)
+            .unwrap_or(0);
+
+        log::info!(
+            "PDF extraction for {:?}: lopdf={} chars, pdf-extract={} chars",
+            path.file_name().unwrap_or_default(),
+            lopdf_chars,
+            pdf_extract_chars
+        );
+
+        // Choose the result with more content, with quality checks
+        // For scanned/image PDFs, we return empty documents gracefully rather than failing
+        match (lopdf_result, pdf_extract_result) {
+            (Ok(lopdf_doc), Ok(pdfextract_doc)) => {
+                // Both succeeded - choose the one with more printable content
+                if lopdf_chars >= pdf_extract_chars && lopdf_chars > 0 {
+                    if Self::is_extraction_quality_acceptable(&lopdf_doc) {
+                        log::info!("Using lopdf extraction ({} chars)", lopdf_chars);
+                    } else {
+                        log::warn!("Using lopdf extraction ({} chars) - quality check failed but has most content", lopdf_chars);
+                    }
+                    Ok(lopdf_doc)
+                } else if pdf_extract_chars > 0 {
+                    if Self::is_extraction_quality_acceptable(&pdfextract_doc) {
+                        log::info!("Using pdf-extract extraction ({} chars)", pdf_extract_chars);
+                    } else {
+                        log::warn!("Using pdf-extract extraction ({} chars) - quality check failed but has most content", pdf_extract_chars);
+                    }
+                    Ok(pdfextract_doc)
+                } else {
+                    // Both have 0 chars - likely a scanned/image PDF
+                    // Return lopdf result for page structure (page count) even if empty
+                    log::warn!(
+                        "PDF {:?} appears to be scanned/image-based: both extractors returned 0 text. \
+                         OCR would be required to extract content. Returning empty document with page structure.",
+                        path.file_name().unwrap_or_default()
+                    );
+                    Ok(lopdf_doc)
                 }
-                log::warn!(
-                    "lopdf extraction quality low for {:?}, trying fallback",
-                    path
-                );
             }
-            Err(e) => {
-                log::warn!("lopdf failed for {:?}: {}, trying fallback", path, e);
+            (Ok(lopdf_doc), Err(e)) => {
+                // Only lopdf succeeded
+                if lopdf_chars > 0 {
+                    log::info!("Using lopdf extraction ({} chars, pdf-extract failed: {})", lopdf_chars, e);
+                    Ok(lopdf_doc)
+                } else {
+                    // lopdf loaded the PDF but got no text - likely scanned
+                    log::warn!(
+                        "PDF {:?} appears to be scanned/image-based: lopdf extracted 0 text, pdf-extract failed ({}). \
+                         OCR would be required. Returning empty document with page structure.",
+                        path.file_name().unwrap_or_default(),
+                        e
+                    );
+                    Ok(lopdf_doc)
+                }
+            }
+            (Err(e), Ok(pdfextract_doc)) => {
+                // Only pdf-extract succeeded
+                if pdf_extract_chars > 0 {
+                    log::info!("Using pdf-extract extraction ({} chars, lopdf failed: {})", pdf_extract_chars, e);
+                    Ok(pdfextract_doc)
+                } else {
+                    // pdf-extract loaded but got no text - likely scanned
+                    log::warn!(
+                        "PDF {:?} appears to be scanned/image-based: pdf-extract extracted 0 text, lopdf failed ({}). \
+                         OCR would be required. Returning empty document.",
+                        path.file_name().unwrap_or_default(),
+                        e
+                    );
+                    Ok(pdfextract_doc)
+                }
+            }
+            (Err(e1), Err(e2)) => {
+                // Both failed to even load the PDF
+                log::error!("Both extractors failed to load PDF: lopdf: {}, pdf-extract: {}", e1, e2);
+                Err(PDFError::ExtractionError(format!(
+                    "Failed to load PDF. lopdf: {}; pdf-extract: {}",
+                    e1, e2
+                )))
             }
         }
+    }
 
-        // Fallback to pdf-extract
-        Self::extract_with_pdf_extract(path)
+    /// Count printable characters in an extracted document
+    fn count_printable_chars(doc: &ExtractedDocument) -> usize {
+        doc.pages.iter()
+            .map(|p| p.text.chars().filter(|c| {
+                c.is_ascii_alphanumeric()
+                    || c.is_ascii_punctuation()
+                    || c.is_whitespace()
+                    || c.is_alphabetic()
+            }).count())
+            .sum()
     }
 
     /// Extract structured content with optional password support.
@@ -488,6 +592,326 @@ impl PDFParser {
             pages,
             metadata,
         })
+    }
+
+    // ========================================================================
+    // OCR Extraction (for scanned/image-based PDFs)
+    // ========================================================================
+
+    /// Check if OCR tools (pdftoppm and tesseract) are available on the system
+    pub fn is_ocr_available() -> bool {
+        let pdftoppm = std::process::Command::new("pdftoppm")
+            .arg("-v")
+            .output()
+            .is_ok();
+
+        let tesseract = std::process::Command::new("tesseract")
+            .arg("--version")
+            .output()
+            .is_ok();
+
+        if !pdftoppm {
+            log::debug!("pdftoppm not found - install poppler-utils for OCR support");
+        }
+        if !tesseract {
+            log::debug!("tesseract not found - install tesseract-ocr for OCR support");
+        }
+
+        pdftoppm && tesseract
+    }
+
+    /// Extract text from a scanned/image-based PDF using OCR.
+    ///
+    /// Requires `pdftoppm` (from poppler-utils) and `tesseract` to be installed.
+    /// This is significantly slower than text extraction but works on scanned PDFs.
+    ///
+    /// # Arguments
+    /// * `path` - Path to the PDF file
+    /// * `dpi` - Resolution for rendering (default: 300, higher = better quality but slower)
+    /// * `lang` - Tesseract language code (default: "eng")
+    pub fn extract_with_ocr(
+        path: &Path,
+        dpi: Option<u32>,
+        lang: Option<&str>,
+    ) -> Result<ExtractedDocument> {
+        Self::extract_with_ocr_progress(path, dpi, lang, None)
+    }
+
+    /// Extract text from a scanned/image-based PDF using OCR with progress reporting.
+    ///
+    /// # Arguments
+    /// * `path` - Path to the PDF file
+    /// * `dpi` - Resolution for rendering (default: 300, higher = better quality but slower)
+    /// * `lang` - Tesseract language code (default: "eng")
+    /// * `progress_callback` - Optional callback for progress updates (current_page, total_pages)
+    pub fn extract_with_ocr_progress(
+        path: &Path,
+        dpi: Option<u32>,
+        lang: Option<&str>,
+        progress_callback: Option<OcrProgressCallback>,
+    ) -> Result<ExtractedDocument> {
+        let dpi = dpi.unwrap_or(300);
+        let lang = lang.unwrap_or("eng");
+
+        // Check if OCR tools are available
+        if !Self::is_ocr_available() {
+            return Err(PDFError::ExtractionError(
+                "OCR requires pdftoppm (poppler-utils) and tesseract-ocr to be installed".to_string()
+            ));
+        }
+
+        // Create temp directory for images
+        let temp_dir = tempfile::tempdir()
+            .map_err(|e| PDFError::IoError(e))?;
+
+        let temp_path = temp_dir.path();
+        let output_prefix = temp_path.join("page");
+
+        log::info!("Starting OCR extraction for {:?} (dpi={}, lang={})",
+            path.file_name().unwrap_or_default(), dpi, lang);
+
+        // Convert PDF to images using pdftoppm
+        let pdftoppm_output = std::process::Command::new("pdftoppm")
+            .arg("-png")
+            .arg("-r")
+            .arg(dpi.to_string())
+            .arg(path)
+            .arg(&output_prefix)
+            .output()
+            .map_err(|e| PDFError::ExtractionError(format!("Failed to run pdftoppm: {}", e)))?;
+
+        if !pdftoppm_output.status.success() {
+            let stderr = String::from_utf8_lossy(&pdftoppm_output.stderr);
+            return Err(PDFError::ExtractionError(format!(
+                "pdftoppm failed: {}", stderr
+            )));
+        }
+
+        // Find generated image files and sort them
+        let mut image_files: Vec<_> = std::fs::read_dir(temp_path)
+            .map_err(|e| PDFError::IoError(e))?
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().extension().map(|ext| ext == "png").unwrap_or(false))
+            .collect();
+
+        image_files.sort_by_key(|e| e.path());
+
+        if image_files.is_empty() {
+            return Err(PDFError::ExtractionError(
+                "pdftoppm produced no images".to_string()
+            ));
+        }
+
+        let total_pages = image_files.len();
+        log::info!("Rendered {} pages, starting OCR...", total_pages);
+
+        let mut pages = Vec::with_capacity(total_pages);
+        let mut total_chars = 0usize;
+
+        for (i, entry) in image_files.iter().enumerate() {
+            let image_path = entry.path();
+            let page_num = (i + 1) as u32;
+
+            // Report progress via callback
+            if let Some(ref callback) = progress_callback {
+                callback(i + 1, total_pages);
+            }
+
+            // Run tesseract on the image
+            let tesseract_output = std::process::Command::new("tesseract")
+                .arg(&image_path)
+                .arg("stdout")
+                .arg("-l")
+                .arg(lang)
+                .arg("--psm")
+                .arg("1") // Automatic page segmentation with OSD
+                .output()
+                .map_err(|e| PDFError::ExtractionError(format!(
+                    "Failed to run tesseract on page {}: {}", page_num, e
+                )))?;
+
+            if !tesseract_output.status.success() {
+                let stderr = String::from_utf8_lossy(&tesseract_output.stderr);
+                log::warn!("Tesseract warning on page {}: {}", page_num, stderr);
+            }
+
+            let text = String::from_utf8_lossy(&tesseract_output.stdout).to_string();
+            total_chars += text.len();
+
+            let (paragraphs, headers) = Self::analyze_text_structure(&text);
+
+            pages.push(ExtractedPage {
+                page_number: page_num,
+                text,
+                paragraphs,
+                headers,
+            });
+
+            // Progress logging for large documents
+            if (i + 1) % 10 == 0 {
+                log::info!("OCR progress: {}/{} pages", i + 1, total_pages);
+            }
+        }
+
+        log::info!(
+            "OCR complete for {:?}: {} pages, {} chars extracted",
+            path.file_name().unwrap_or_default(),
+            pages.len(),
+            total_chars
+        );
+
+        Ok(ExtractedDocument {
+            source_path: path.to_string_lossy().to_string(),
+            page_count: pages.len(),
+            pages,
+            metadata: DocumentMetadata::default(),
+        })
+    }
+
+    /// Extract with OCR fallback: tries text extraction first, falls back to OCR if empty.
+    ///
+    /// This is the recommended method for handling mixed PDF collections where some
+    /// may be scanned and others have embedded text.
+    pub fn extract_with_ocr_fallback(
+        path: &Path,
+        password: Option<&str>,
+    ) -> Result<ExtractedDocument> {
+        Self::extract_with_ocr_fallback_progress(path, password, None)
+    }
+
+    /// Extract with OCR fallback and progress reporting.
+    ///
+    /// # Arguments
+    /// * `path` - Path to the PDF file
+    /// * `password` - Optional password for encrypted PDFs
+    /// * `progress_callback` - Optional callback for OCR progress (current_page, total_pages)
+    /// Check if extracted content is garbage (failed font decoding)
+    /// Common patterns: "Identity-H Unimplemented", repeated glyph names, etc.
+    fn is_garbage_content(result: &ExtractedDocument) -> bool {
+        let full_text: String = result.pages.iter()
+            .map(|p| p.text.as_str())
+            .collect::<Vec<_>>()
+            .join(" ");
+
+        // Check for common garbage patterns from failed CID font decoding
+        let garbage_patterns = [
+            "Identity-H Unimplemented",
+            "Identity-V Unimplemented",
+            "CIDFont Unimplemented",
+            "ToUnicode Unimplemented",
+        ];
+
+        for pattern in garbage_patterns {
+            // If garbage pattern appears frequently, it's failed decoding
+            let count = full_text.matches(pattern).count();
+            if count > 10 {
+                log::warn!(
+                    "Detected garbage pattern '{}' {} times - font decoding failed",
+                    pattern, count
+                );
+                return true;
+            }
+        }
+
+        // Check for excessive repetition (same phrase repeated many times)
+        // This catches other garbage patterns we haven't explicitly listed
+        let words: Vec<&str> = full_text.split_whitespace().take(1000).collect();
+        if words.len() >= 100 {
+            let mut word_counts: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+            for word in &words {
+                *word_counts.entry(word).or_insert(0) += 1;
+            }
+            // If any single word is more than 30% of the sample, suspicious
+            let max_count = word_counts.values().max().copied().unwrap_or(0);
+            if max_count > words.len() / 3 {
+                log::warn!(
+                    "Detected excessive word repetition ({}/{} words) - likely garbage",
+                    max_count, words.len()
+                );
+                return true;
+            }
+        }
+
+        false
+    }
+
+    pub fn extract_with_ocr_fallback_progress(
+        path: &Path,
+        password: Option<&str>,
+        progress_callback: Option<OcrProgressCallback>,
+    ) -> Result<ExtractedDocument> {
+        // First try regular extraction
+        let result = Self::extract_dual(path, password)?;
+
+        // Check if we got meaningful content using page-count-aware threshold
+        let total_chars = Self::count_printable_chars(&result);
+        let page_count = result.page_count.max(1);
+        let chars_per_page = total_chars / page_count;
+
+        // Expect at least 200 chars per page for a text-based PDF
+        // TTRPG rulebooks typically have 1000-3000 chars per page
+        let min_chars_per_page = 200;
+
+        // Check for garbage content from failed font decoding
+        let is_garbage = Self::is_garbage_content(&result);
+
+        log::info!(
+            "PDF {:?}: {} pages, {} total chars, {} chars/page (threshold: {} chars/page, garbage: {})",
+            path.file_name().unwrap_or_default(),
+            page_count, total_chars, chars_per_page, min_chars_per_page, is_garbage
+        );
+
+        if chars_per_page >= min_chars_per_page && !is_garbage {
+            // Got enough meaningful text per page, use regular extraction
+            log::info!("Text extraction successful, skipping OCR");
+            return Ok(result);
+        }
+
+        // Reason for needing OCR
+        let ocr_reason = if is_garbage {
+            "garbage content from failed font decoding"
+        } else {
+            "too few chars per page (likely scanned)"
+        };
+
+        // Need OCR - either too few chars or garbage content
+        if Self::is_ocr_available() {
+            log::info!(
+                "Falling back to OCR for {:?}: {} (extracted {} chars)",
+                path.file_name().unwrap_or_default(),
+                ocr_reason,
+                total_chars
+            );
+
+            match Self::extract_with_ocr_progress(path, None, None, progress_callback) {
+                Ok(ocr_result) => {
+                    let ocr_chars = Self::count_printable_chars(&ocr_result);
+                    if ocr_chars > total_chars {
+                        log::info!(
+                            "OCR extracted {} chars (vs {} from text extraction)",
+                            ocr_chars, total_chars
+                        );
+                        return Ok(ocr_result);
+                    } else {
+                        log::warn!(
+                            "OCR didn't improve extraction ({} vs {} chars), using original",
+                            ocr_chars, total_chars
+                        );
+                    }
+                }
+                Err(e) => {
+                    log::warn!("OCR failed: {}, using original extraction result", e);
+                }
+            }
+        } else {
+            log::warn!(
+                "PDF {:?} appears to be scanned but OCR tools not available. \
+                 Install poppler-utils and tesseract-ocr for OCR support.",
+                path.file_name().unwrap_or_default()
+            );
+        }
+
+        Ok(result)
     }
 }
 

@@ -731,6 +731,58 @@ pub async fn ingest_document_with_progress(path: String, source_type: Option<Str
     invoke("ingest_document_with_progress", &Args { path, source_type }).await
 }
 
+/// Library document metadata (persisted in Meilisearch)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LibraryDocument {
+    pub id: String,
+    pub name: String,
+    pub source_type: String,
+    #[serde(default)]
+    pub file_path: Option<String>,
+    pub page_count: u32,
+    pub chunk_count: u32,
+    pub character_count: u64,
+    pub content_index: String,
+    pub status: String,
+    #[serde(default)]
+    pub error_message: Option<String>,
+    pub ingested_at: String,
+}
+
+/// List all documents from the library (persisted in Meilisearch)
+pub async fn list_library_documents() -> Result<Vec<LibraryDocument>, String> {
+    invoke("list_library_documents", &()).await
+}
+
+/// Delete a document from the library (removes metadata and content chunks)
+pub async fn delete_library_document(id: String) -> Result<(), String> {
+    #[derive(Serialize)]
+    struct Args {
+        id: String,
+    }
+    invoke("delete_library_document", &Args { id }).await
+}
+
+/// Rebuild library metadata from existing content indices.
+///
+/// Scans all content indices for unique sources and creates metadata entries
+/// for sources that don't already have entries. Returns number of entries created.
+pub async fn rebuild_library_metadata() -> Result<usize, String> {
+    invoke("rebuild_library_metadata", &()).await
+}
+
+/// Clear a document's content and re-ingest from the original file.
+///
+/// Useful when ingestion produced garbage content (e.g., failed font decoding)
+/// and you want to try again (possibly with OCR this time).
+pub async fn clear_and_reingest_document(id: String) -> Result<IngestResult, String> {
+    #[derive(Serialize)]
+    struct Args {
+        id: String,
+    }
+    invoke("clear_and_reingest_document", &Args { id }).await
+}
+
 // ============================================================================
 // Campaign Types
 // ============================================================================
@@ -2104,6 +2156,53 @@ pub async fn reindex_library(index_name: Option<String>) -> Result<String, Strin
         index_name: Option<String>,
     }
     invoke("reindex_library", &Args { index_name }).await
+}
+
+// ============================================================================
+// Embedder Configuration
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SetupEmbeddingsResult {
+    pub indexes_configured: Vec<String>,
+    pub model: String,
+    pub dimensions: u32,
+    pub host: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OllamaEmbeddingModel {
+    pub name: String,
+    pub size: String,
+    pub dimensions: u32,
+}
+
+/// Setup Ollama embeddings on all content indexes
+pub async fn setup_ollama_embeddings(host: String, model: String) -> Result<SetupEmbeddingsResult, String> {
+    #[derive(Serialize)]
+    struct Args {
+        host: String,
+        model: String,
+    }
+    invoke("setup_ollama_embeddings", &Args { host, model }).await
+}
+
+/// Get embedder configuration for an index
+pub async fn get_embedder_status(index_name: String) -> Result<Option<serde_json::Value>, String> {
+    #[derive(Serialize)]
+    struct Args {
+        index_name: String,
+    }
+    invoke("get_embedder_status", &Args { index_name }).await
+}
+
+/// List available Ollama embedding models
+pub async fn list_ollama_embedding_models(host: String) -> Result<Vec<OllamaEmbeddingModel>, String> {
+    #[derive(Serialize)]
+    struct Args {
+        host: String,
+    }
+    invoke("list_ollama_embedding_models", &Args { host }).await
 }
 
 // ============================================================================
