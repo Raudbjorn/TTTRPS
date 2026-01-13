@@ -2,13 +2,173 @@
 //!
 //! Handles document parsing, chunking, and indexing into Meilisearch.
 //! Uses kreuzberg for fast document extraction with OCR fallback.
+//! Includes TTRPG-specific metadata extraction for semantic search.
 
 use crate::core::search_client::{SearchClient, SearchDocument, SearchError};
 use crate::ingestion::kreuzberg_extractor::DocumentExtractor;
+use crate::ingestion::ttrpg::game_detector::{detect_game_system_with_confidence, GameSystem};
+use crate::ingestion::ttrpg::{detect_mechanic_type, extract_semantic_keywords};
 use chrono::Utc;
 use std::collections::HashMap;
 use std::path::Path;
 use uuid::Uuid;
+
+// ============================================================================
+// TTRPG Metadata
+// ============================================================================
+
+/// TTRPG-specific metadata extracted from documents
+#[derive(Debug, Clone, Default)]
+pub struct TTRPGMetadata {
+    /// Human-readable book title (derived from filename)
+    pub book_title: Option<String>,
+    /// Detected game system display name
+    pub game_system: Option<String>,
+    /// Detected game system machine ID
+    pub game_system_id: Option<String>,
+    /// Content category (rulebook, adventure, setting, supplement, bestiary)
+    pub content_category: Option<String>,
+    /// Genre/theme
+    pub genre: Option<String>,
+    /// Publisher (if detected)
+    pub publisher: Option<String>,
+}
+
+impl TTRPGMetadata {
+    /// Extract TTRPG metadata from file path and content
+    pub fn extract(path: &Path, content: &str, source_type: &str) -> Self {
+        let mut metadata = Self::default();
+
+        // Extract book title from filename
+        if let Some(filename) = path.file_stem().and_then(|s| s.to_str()) {
+            metadata.book_title = Some(Self::clean_book_title(filename));
+        }
+
+        // Detect game system from content
+        let detection = detect_game_system_with_confidence(content);
+        if detection.confidence >= 0.3 {
+            metadata.game_system = Some(detection.system.display_name().to_string());
+            metadata.game_system_id = Some(detection.system.as_str().to_string());
+            metadata.genre = Some(detection.system.genre().to_string());
+        }
+
+        // Determine content category from source_type or detection
+        metadata.content_category = Self::detect_content_category(source_type, content);
+
+        // Try to detect publisher from content
+        metadata.publisher = Self::detect_publisher(content);
+
+        metadata
+    }
+
+    /// Clean up a filename to produce a readable book title
+    fn clean_book_title(filename: &str) -> String {
+        let cleaned = filename
+            // Remove common prefixes/suffixes
+            .trim_start_matches(|c: char| c.is_ascii_digit() || c == '_' || c == '-' || c == '.')
+            // Replace underscores and hyphens with spaces
+            .replace('_', " ")
+            .replace('-', " ")
+            // Remove multiple spaces
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
+
+        // Title case the result
+        cleaned
+            .split(' ')
+            .map(|word| {
+                let mut chars = word.chars();
+                match chars.next() {
+                    None => String::new(),
+                    Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+
+    /// Detect content category from source_type and content analysis
+    fn detect_content_category(source_type: &str, content: &str) -> Option<String> {
+        let content_lower = content.to_lowercase();
+
+        // First check source_type
+        match source_type {
+            "rules" | "rulebook" => return Some("rulebook".to_string()),
+            "fiction" | "story" => return Some("fiction".to_string()),
+            "adventure" | "module" => return Some("adventure".to_string()),
+            "setting" | "worldbook" => return Some("setting".to_string()),
+            "bestiary" | "monster" => return Some("bestiary".to_string()),
+            _ => {}
+        }
+
+        // Content-based detection
+        let bestiary_indicators = ["stat block", "hit points", "armor class", "challenge rating", "creature", "monster manual"];
+        let adventure_indicators = ["adventure", "module", "campaign", "scenario", "encounter", "dungeon"];
+        let setting_indicators = ["setting", "world", "history", "geography", "faction", "timeline"];
+        let rulebook_indicators = ["rules", "character creation", "combat", "skills", "spellcasting", "gameplay"];
+
+        let bestiary_score: usize = bestiary_indicators.iter().filter(|i| content_lower.contains(*i)).count();
+        let adventure_score: usize = adventure_indicators.iter().filter(|i| content_lower.contains(*i)).count();
+        let setting_score: usize = setting_indicators.iter().filter(|i| content_lower.contains(*i)).count();
+        let rulebook_score: usize = rulebook_indicators.iter().filter(|i| content_lower.contains(*i)).count();
+
+        let max_score = bestiary_score.max(adventure_score).max(setting_score).max(rulebook_score);
+
+        if max_score >= 2 {
+            if bestiary_score == max_score {
+                return Some("bestiary".to_string());
+            } else if adventure_score == max_score {
+                return Some("adventure".to_string());
+            } else if setting_score == max_score {
+                return Some("setting".to_string());
+            } else if rulebook_score == max_score {
+                return Some("rulebook".to_string());
+            }
+        }
+
+        // Default based on source_type
+        match source_type {
+            "document" | "pdf" => Some("supplement".to_string()),
+            _ => None,
+        }
+    }
+
+    /// Detect publisher from content (basic pattern matching)
+    fn detect_publisher(content: &str) -> Option<String> {
+        let content_lower = content.to_lowercase();
+
+        // Publisher patterns (lowercase for matching)
+        let publishers = [
+            ("wizards of the coast", "Wizards of the Coast"),
+            ("wotc", "Wizards of the Coast"),
+            ("paizo", "Paizo Inc."),
+            ("chaosium", "Chaosium Inc."),
+            ("arc dream", "Arc Dream Publishing"),
+            ("evil hat", "Evil Hat Productions"),
+            ("free league", "Free League Publishing"),
+            ("fria ligan", "Free League Publishing"),
+            ("monte cook games", "Monte Cook Games"),
+            ("modiphius", "Modiphius Entertainment"),
+            ("pinnacle", "Pinnacle Entertainment"),
+            ("steve jackson games", "Steve Jackson Games"),
+            ("mongoose publishing", "Mongoose Publishing"),
+            ("white wolf", "White Wolf Publishing"),
+            ("onyx path", "Onyx Path Publishing"),
+            ("fantasy flight", "Fantasy Flight Games"),
+            ("tuesday knight", "Tuesday Knight Games"),
+            ("kobold press", "Kobold Press"),
+        ];
+
+        for (pattern, publisher) in publishers {
+            if content_lower.contains(pattern) {
+                return Some(publisher.to_string());
+            }
+        }
+
+        None
+    }
+}
 
 // ============================================================================
 // Configuration
@@ -85,6 +245,9 @@ impl MeilisearchPipeline {
     }
 
     /// Process a file and ingest into Meilisearch
+    ///
+    /// Extracts content, chunks it, detects TTRPG metadata (game system, publisher, etc.),
+    /// and indexes with rich semantic information for embedding.
     pub async fn process_file(
         &self,
         search_client: &SearchClient,
@@ -98,13 +261,25 @@ impl MeilisearchPipeline {
             .unwrap_or("unknown")
             .to_string();
 
-        let chunks = if DocumentExtractor::is_supported(path) {
-                // Use kreuzberg for all supported formats
-                self.process_with_kreuzberg(path, &source_name).await?
-            } else {
-             // Fallback for unsupported formats (treat as plain text)
-             match std::fs::read_to_string(path) {
-                Ok(content) => self.chunk_text(&content, &source_name, None),
+        // Extract content and chunks
+        let (chunks, full_content) = if DocumentExtractor::is_supported(path) {
+            // Use kreuzberg for all supported formats
+            let chunks = self.process_with_kreuzberg(path, &source_name).await?;
+            // Combine chunks for metadata detection (use first ~10000 chars for efficiency)
+            let combined: String = chunks.iter()
+                .take(20)
+                .map(|(c, _)| c.as_str())
+                .collect::<Vec<_>>()
+                .join(" ");
+            (chunks, combined)
+        } else {
+            // Fallback for unsupported formats (treat as plain text)
+            match std::fs::read_to_string(path) {
+                Ok(content) => {
+                    let chunks = self.chunk_text(&content, &source_name, None);
+                    let sample = content.chars().take(10000).collect::<String>();
+                    (chunks, sample)
+                }
                 Err(e) => {
                     return Err(SearchError::ConfigError(format!(
                         "Cannot read file or unsupported format: {}", e
@@ -113,25 +288,57 @@ impl MeilisearchPipeline {
             }
         };
 
+        // Extract TTRPG-specific metadata from path and content
+        let ttrpg_metadata = TTRPGMetadata::extract(path, &full_content, source_type);
+
+        log::info!(
+            "TTRPG metadata for '{}': system={:?}, category={:?}, publisher={:?}",
+            source_name,
+            ttrpg_metadata.game_system,
+            ttrpg_metadata.content_category,
+            ttrpg_metadata.publisher
+        );
+
         // Determine target index
         let index_name = SearchClient::select_index_for_source_type(source_type);
 
-        // Build SearchDocuments
+        // Build SearchDocuments with rich TTRPG metadata for semantic embedding
         let now = Utc::now().to_rfc3339();
         let documents: Vec<SearchDocument> = chunks
             .into_iter()
             .enumerate()
-            .map(|(i, (content, page))| SearchDocument {
-                id: format!("{}-{}", Uuid::new_v4(), i),
-                content,
-                source: source_name.clone(),
-                source_type: source_type.to_string(),
-                page_number: page,
-                chunk_index: Some(i as u32),
-                campaign_id: campaign_id.map(|s| s.to_string()),
-                session_id: None,
-                created_at: now.clone(),
-                metadata: HashMap::new(),
+            .map(|(i, (content, page))| {
+                // Extract mechanic type and semantic keywords from chunk content
+                let mechanic_type = detect_mechanic_type(&content).map(|s| s.to_string());
+                let semantic_keywords = extract_semantic_keywords(&content, 10);
+
+                SearchDocument {
+                    id: format!("{}-{}", Uuid::new_v4(), i),
+                    content,
+                    source: source_name.clone(),
+                    source_type: source_type.to_string(),
+                    page_number: page,
+                    chunk_index: Some(i as u32),
+                    campaign_id: campaign_id.map(|s| s.to_string()),
+                    session_id: None,
+                    created_at: now.clone(),
+                    metadata: HashMap::new(),
+                    // TTRPG-specific embedding metadata
+                    book_title: ttrpg_metadata.book_title.clone(),
+                    game_system: ttrpg_metadata.game_system.clone(),
+                    game_system_id: ttrpg_metadata.game_system_id.clone(),
+                    content_category: ttrpg_metadata.content_category.clone(),
+                    section_title: None, // TODO: Extract from TOC/section headers
+                    genre: ttrpg_metadata.genre.clone(),
+                    publisher: ttrpg_metadata.publisher.clone(),
+                    // Enhanced metadata (from MDMAI patterns)
+                    chunk_type: Some("text".to_string()), // Default; would be classified by TTRPGChunker
+                    chapter_title: None, // Would be populated by TTRPGChunker with hierarchy
+                    subsection_title: None, // Would be populated by TTRPGChunker with hierarchy
+                    section_path: None, // Would be populated by TTRPGChunker with hierarchy
+                    mechanic_type,
+                    semantic_keywords,
+                }
             })
             .collect();
 
@@ -141,8 +348,11 @@ impl MeilisearchPipeline {
         search_client.add_documents(index_name, documents).await?;
 
         log::info!(
-            "Ingested {} chunks from '{}' into index '{}'",
-            total_chunks, source_name, index_name
+            "Ingested {} chunks from '{}' into index '{}' [{}]",
+            total_chunks,
+            source_name,
+            index_name,
+            ttrpg_metadata.game_system.as_deref().unwrap_or("unknown system")
         );
 
         Ok(IngestionResult {
@@ -349,6 +559,7 @@ impl MeilisearchPipeline {
                 session_id: None,
                 created_at: now.clone(),
                 metadata: metadata.clone().unwrap_or_default(),
+                ..Default::default()
             })
             .collect();
 
@@ -392,6 +603,7 @@ impl MeilisearchPipeline {
                     session_id: Some(session_id.to_string()),
                     created_at: now.clone(),
                     metadata,
+                    ..Default::default()
                 }
             })
             .collect();
@@ -421,7 +633,15 @@ mod tests {
 
     #[test]
     fn test_chunk_text_small() {
-        let pipeline = MeilisearchPipeline::with_defaults();
+        // Use small min_chunk_size to accommodate test text
+        let pipeline = MeilisearchPipeline::new(PipelineConfig {
+            chunk_config: ChunkConfig {
+                chunk_size: 1000,
+                chunk_overlap: 200,
+                min_chunk_size: 5,  // Allow very small chunks for testing
+            },
+            ..Default::default()
+        });
         let chunks = pipeline.chunk_text("Small text.", "test", None);
         assert_eq!(chunks.len(), 1);
         assert_eq!(chunks[0].0, "Small text.");

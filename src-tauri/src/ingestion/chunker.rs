@@ -1,10 +1,14 @@
 //! Semantic Chunker Module
 //!
 //! Intelligent text chunking with sentence awareness, overlap, and page tracking.
+//! Uses configuration constants from the TTRPG vocabulary module for RAG-optimized chunking.
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use uuid::Uuid;
+
+// Import chunking configuration constants from vocabulary module
+use crate::ingestion::ttrpg::vocabulary::chunking_config;
 
 // ============================================================================
 // Configuration
@@ -28,12 +32,19 @@ pub struct ChunkConfig {
 }
 
 impl Default for ChunkConfig {
+    /// Default configuration using MDMAI-derived constants optimized for RAG.
+    ///
+    /// Values from `chunking_config`:
+    /// - target_size: 1200 chars (~300 tokens)
+    /// - min_size: 300 chars (avoid fragments)
+    /// - max_size: 2400 chars (~600 tokens)
+    /// - overlap_size: 150 chars (~40 tokens)
     fn default() -> Self {
         Self {
-            target_size: 1000,
-            min_size: 200,
-            max_size: 2000,
-            overlap_size: 100,
+            target_size: chunking_config::TARGET_CHUNK_SIZE,
+            min_size: chunking_config::MIN_CHUNK_SIZE,
+            max_size: chunking_config::MAX_CHUNK_SIZE,
+            overlap_size: chunking_config::CHUNK_OVERLAP,
             preserve_sentences: true,
             preserve_paragraphs: true,
         }
@@ -41,26 +52,55 @@ impl Default for ChunkConfig {
 }
 
 impl ChunkConfig {
-    /// Create config for small, focused chunks
+    /// Create config for small, focused chunks (half of default sizes).
+    /// Good for fine-grained search and short context windows.
     pub fn small() -> Self {
         Self {
-            target_size: 500,
-            min_size: 100,
-            max_size: 800,
-            overlap_size: 50,
+            target_size: chunking_config::TARGET_CHUNK_SIZE / 2,  // 600
+            min_size: chunking_config::MIN_CHUNK_SIZE / 2,        // 150
+            max_size: chunking_config::MAX_CHUNK_SIZE / 2,        // 1200
+            overlap_size: chunking_config::CHUNK_OVERLAP / 2,     // 75
             ..Default::default()
         }
     }
 
-    /// Create config for large chunks (better for context)
+    /// Create config for large chunks (double of default sizes).
+    /// Better for context-heavy RAG and longer documents.
     pub fn large() -> Self {
         Self {
-            target_size: 2000,
-            min_size: 500,
-            max_size: 4000,
-            overlap_size: 200,
+            target_size: chunking_config::TARGET_CHUNK_SIZE * 2,  // 2400
+            min_size: chunking_config::MIN_CHUNK_SIZE * 2,        // 600
+            max_size: chunking_config::MAX_CHUNK_SIZE * 2,        // 4800
+            overlap_size: chunking_config::CHUNK_OVERLAP * 2,     // 300
             ..Default::default()
         }
+    }
+
+    /// Create config from token counts (assuming ~4 chars/token).
+    ///
+    /// # Arguments
+    /// * `target_tokens` - Target chunk size in tokens
+    /// * `max_tokens` - Maximum chunk size in tokens
+    /// * `overlap_tokens` - Overlap size in tokens
+    pub fn from_tokens(target_tokens: usize, max_tokens: usize, overlap_tokens: usize) -> Self {
+        const CHARS_PER_TOKEN: usize = 4;
+        Self {
+            target_size: target_tokens * CHARS_PER_TOKEN,
+            min_size: (target_tokens / 4) * CHARS_PER_TOKEN,
+            max_size: max_tokens * CHARS_PER_TOKEN,
+            overlap_size: overlap_tokens * CHARS_PER_TOKEN,
+            ..Default::default()
+        }
+    }
+
+    /// Create config using the token-based constants from vocabulary config.
+    /// Uses TARGET_TOKENS (300), MAX_TOKENS (600), OVERLAP_TOKENS (40).
+    pub fn from_vocabulary_tokens() -> Self {
+        Self::from_tokens(
+            chunking_config::TARGET_TOKENS,
+            chunking_config::MAX_TOKENS,
+            chunking_config::OVERLAP_TOKENS,
+        )
     }
 }
 
@@ -69,7 +109,7 @@ impl ChunkConfig {
 // ============================================================================
 
 /// A chunk of content with metadata
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ContentChunk {
     /// Unique identifier
     pub id: String,
@@ -79,14 +119,34 @@ pub struct ContentChunk {
     pub content: String,
     /// Page number (if applicable)
     pub page_number: Option<u32>,
-    /// Section/chapter (if detected)
+    /// Section/chapter (if detected) - current deepest section
     pub section: Option<String>,
-    /// Chunk type (text, table, header, etc.)
+    /// Chunk type (text, table, header, stat_block, spell, monster, rule, narrative)
     pub chunk_type: String,
     /// Chunk index in document
     pub chunk_index: usize,
     /// Additional metadata
     pub metadata: HashMap<String, String>,
+
+    // =========================================================================
+    // Enhanced Metadata (from MDMAI patterns)
+    // =========================================================================
+
+    /// Chapter title (top-level section from TOC, e.g., "Chapter 3: Combat")
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chapter_title: Option<String>,
+
+    /// Subsection title (nested within section)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subsection_title: Option<String>,
+
+    /// Mechanic type for rules content (skill_check, combat, damage, healing, etc.)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mechanic_type: Option<String>,
+
+    /// Extracted semantic keywords for embedding boost
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub semantic_keywords: Vec<String>,
 }
 
 // ============================================================================
@@ -430,6 +490,11 @@ impl SemanticChunker {
             chunk_type: "text".to_string(),
             chunk_index,
             metadata: HashMap::new(),
+            // Enhanced metadata (initialized empty, populated by TTRPG pipeline)
+            chapter_title: None,
+            subsection_title: None,
+            mechanic_type: None,
+            semantic_keywords: Vec::new(),
         }
     }
 
@@ -451,7 +516,11 @@ impl Default for SemanticChunker {
 // TTRPG-Aware Configuration
 // ============================================================================
 
-use crate::ingestion::ttrpg::{ClassifiedElement, TTRPGElementType};
+use crate::ingestion::ttrpg::{
+    ClassifiedElement, TTRPGElementType,
+    detect_mechanic_type, extract_semantic_keywords,
+    detect_header_level as vocabulary_detect_header_level,
+};
 
 /// Extended chunk configuration with TTRPG-specific options
 #[derive(Debug, Clone)]
@@ -510,7 +579,7 @@ impl TTRPGChunkConfig {
 #[derive(Debug, Clone, Default)]
 pub struct SectionHierarchy {
     /// Stack of section titles (h1 at index 0, h2 at index 1, etc.)
-    sections: Vec<String>,
+    pub sections: Vec<String>,
 }
 
 impl SectionHierarchy {
@@ -755,13 +824,24 @@ impl TTRPGChunker {
     ) -> ContentChunk {
         let mut metadata = HashMap::new();
 
+        // Extract hierarchy components
+        let path = hierarchy.path();
+        let parents = hierarchy.parents();
+        let sections = &hierarchy.sections;
+
+        // Get chapter (level 1) and subsection (level 3+) if present
+        let chapter_title = sections.first().filter(|s| !s.is_empty()).cloned();
+        let subsection_title = if sections.len() > 2 {
+            sections.get(2).filter(|s| !s.is_empty()).cloned()
+        } else {
+            None
+        };
+
         if self.config.include_hierarchy {
-            let path = hierarchy.path();
             if !path.is_empty() {
-                metadata.insert("section_path".to_string(), path);
+                metadata.insert("section_path".to_string(), path.clone());
             }
 
-            let parents = hierarchy.parents();
             if !parents.is_empty() {
                 metadata.insert("parent_sections".to_string(), parents.join(" | "));
             }
@@ -770,15 +850,26 @@ impl TTRPGChunker {
         let idx = *chunk_index;
         *chunk_index += 1;
 
+        // Extract mechanic type and semantic keywords from content
+        let content_trimmed = content.trim();
+        let detected_mechanic_type = detect_mechanic_type(content_trimmed)
+            .map(|s| s.to_string());
+        let keywords = extract_semantic_keywords(content_trimmed, 10);
+
         ContentChunk {
             id: Uuid::new_v4().to_string(),
             source_id: source_id.to_string(),
-            content: content.trim().to_string(),
+            content: content_trimmed.to_string(),
             page_number,
             section: hierarchy.current().map(|s| s.to_string()),
             chunk_type: chunk_type.to_string(),
             chunk_index: idx,
             metadata,
+            // Enhanced hierarchy metadata
+            chapter_title,
+            subsection_title,
+            mechanic_type: detected_mechanic_type,
+            semantic_keywords: keywords,
         }
     }
 
@@ -800,8 +891,15 @@ impl TTRPGChunker {
         }
     }
 
-    /// Detect header level from text patterns
+    /// Detect header level from text patterns.
+    /// Uses the vocabulary module's `detect_header_level` function with fallback logic.
     fn detect_header_level(text: &str) -> usize {
+        // Use the vocabulary module's comprehensive header detection
+        if let Some(level) = vocabulary_detect_header_level(text) {
+            return level as usize;
+        }
+
+        // Fallback for headers not matched by vocabulary patterns
         let text_lower = text.to_lowercase().trim().to_string();
 
         // Chapter = level 1
@@ -814,10 +912,9 @@ impl TTRPGChunker {
             return 2;
         }
 
-        // All caps with numbers might be subsections
+        // All caps are typically major sections
         let letters: Vec<char> = text.chars().filter(|c| c.is_alphabetic()).collect();
         if !letters.is_empty() && letters.iter().all(|c| c.is_uppercase()) {
-            // All caps are typically major sections
             return 2;
         }
 
@@ -1113,5 +1210,79 @@ mod tests {
         assert_eq!(TTRPGChunker::detect_header_level("Appendix B"), 2);
         assert_eq!(TTRPGChunker::detect_header_level("MONSTERS"), 2);
         assert_eq!(TTRPGChunker::detect_header_level("Regular Header"), 3);
+    }
+
+    // ========================================================================
+    // Vocabulary Config Integration Tests
+    // ========================================================================
+
+    #[test]
+    fn test_chunk_config_default_uses_vocabulary_constants() {
+        let config = ChunkConfig::default();
+
+        // Should use chunking_config constants from vocabulary
+        assert_eq!(config.target_size, chunking_config::TARGET_CHUNK_SIZE);
+        assert_eq!(config.min_size, chunking_config::MIN_CHUNK_SIZE);
+        assert_eq!(config.max_size, chunking_config::MAX_CHUNK_SIZE);
+        assert_eq!(config.overlap_size, chunking_config::CHUNK_OVERLAP);
+
+        // Verify actual values (from MDMAI config)
+        assert_eq!(config.target_size, 1200);
+        assert_eq!(config.min_size, 300);
+        assert_eq!(config.max_size, 2400);
+        assert_eq!(config.overlap_size, 150);
+    }
+
+    #[test]
+    fn test_chunk_config_small() {
+        let config = ChunkConfig::small();
+
+        // Should be half of default
+        assert_eq!(config.target_size, chunking_config::TARGET_CHUNK_SIZE / 2);
+        assert_eq!(config.min_size, chunking_config::MIN_CHUNK_SIZE / 2);
+        assert_eq!(config.max_size, chunking_config::MAX_CHUNK_SIZE / 2);
+        assert_eq!(config.overlap_size, chunking_config::CHUNK_OVERLAP / 2);
+    }
+
+    #[test]
+    fn test_chunk_config_large() {
+        let config = ChunkConfig::large();
+
+        // Should be double of default
+        assert_eq!(config.target_size, chunking_config::TARGET_CHUNK_SIZE * 2);
+        assert_eq!(config.min_size, chunking_config::MIN_CHUNK_SIZE * 2);
+        assert_eq!(config.max_size, chunking_config::MAX_CHUNK_SIZE * 2);
+        assert_eq!(config.overlap_size, chunking_config::CHUNK_OVERLAP * 2);
+    }
+
+    #[test]
+    fn test_chunk_config_from_tokens() {
+        let config = ChunkConfig::from_tokens(100, 200, 25);
+
+        // 4 chars per token
+        assert_eq!(config.target_size, 400);
+        assert_eq!(config.max_size, 800);
+        assert_eq!(config.overlap_size, 100);
+        assert_eq!(config.min_size, 100); // target/4
+    }
+
+    #[test]
+    fn test_chunk_config_from_vocabulary_tokens() {
+        let config = ChunkConfig::from_vocabulary_tokens();
+
+        // Uses TOKEN constants: TARGET_TOKENS=300, MAX_TOKENS=600, OVERLAP_TOKENS=40
+        assert_eq!(config.target_size, chunking_config::TARGET_TOKENS * 4);
+        assert_eq!(config.max_size, chunking_config::MAX_TOKENS * 4);
+        assert_eq!(config.overlap_size, chunking_config::OVERLAP_TOKENS * 4);
+    }
+
+    #[test]
+    fn test_chunk_config_consistency() {
+        let config = ChunkConfig::default();
+
+        // Verify invariants
+        assert!(config.min_size < config.target_size, "min_size should be less than target_size");
+        assert!(config.target_size < config.max_size, "target_size should be less than max_size");
+        assert!(config.overlap_size < config.min_size, "overlap_size should be less than min_size");
     }
 }

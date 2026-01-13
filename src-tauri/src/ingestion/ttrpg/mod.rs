@@ -37,5 +37,29 @@ pub use attribute_extractor::{
     AttributeExtractor, TTRPGAttributes, AttributeMatch, AttributeSource,
     FilterableFields,
 };
-pub use vocabulary::{GameVocabulary, DnD5eVocabulary, Pf2eVocabulary};
+pub use vocabulary::{
+    GameVocabulary, DnD5eVocabulary, Pf2eVocabulary,
+    // Comprehensive vocabulary lists
+    GENRES, FANTASY_CLASSES, SCIFI_CLASSES, HORROR_CLASSES, MODERN_CLASSES,
+    FANTASY_RACES, SCIFI_RACES,
+    DND5E_TERMS, PF2E_TERMS, COC_TERMS, DELTA_GREEN_TERMS, BITD_TERMS,
+    SAVAGE_WORLDS_TERMS, FATE_TERMS, PBTA_TERMS, MOTHERSHIP_TERMS,
+    TRAVELLER_TERMS, GURPS_TERMS,
+    RULEBOOK_INDICATORS, ADVENTURE_INDICATORS, BESTIARY_INDICATORS,
+    SETTING_INDICATORS, PLAYER_OPTIONS_INDICATORS,
+    PUBLISHERS, WEAPONS, ARMOR, MOTIVATIONS, BACKGROUNDS,
+    // Vocabulary functions
+    count_vocabulary_matches, find_vocabulary_matches,
+    detect_genre_from_vocabulary, detect_content_category_from_vocabulary,
+    detect_publisher_from_vocabulary,
+    // Query processing (ported from MDMAI)
+    TTRPG_CORE_VOCABULARY, QUERY_EXPANSIONS, QUERY_SYNONYMS, MECHANIC_TYPE_KEYWORDS,
+    expand_query_term, expand_query, detect_mechanic_type, extract_semantic_keywords,
+    fuzzy_match, correct_spelling, correct_query_spelling,
+    // BM25 and search (ported from MDMAI)
+    BM25_STOP_WORDS, is_stop_word, filter_stop_words,
+    SOURCE_BOOK_PATTERNS, detect_source_book,
+    HEADER_PATTERNS, detect_header_level,
+    DICE_PATTERNS, TABLE_ROW_PATTERNS, contains_dice_notation, count_dice_notation,
+};
 pub use game_detector::{detect_game_system, detect_game_system_with_confidence, GameSystem, DetectionResult};
