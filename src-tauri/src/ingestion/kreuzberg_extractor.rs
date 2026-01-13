@@ -8,7 +8,8 @@ use kreuzberg::ExtractionConfig;
 use std::path::Path;
 use thiserror::Error;
 use tokio::process::Command;
-use std::process::Stdio;
+
+use super::extraction_settings::{ExtractionSettings, OcrBackend};
 
 // ============================================================================
 // Error Types
@@ -57,6 +58,8 @@ pub struct ExtractedContent {
     pub char_count: usize,
     /// Extracted pages (if enabled)
     pub pages: Option<Vec<Page>>,
+    /// Detected language (if language detection enabled)
+    pub detected_language: Option<String>,
 }
 
 /// Content of a single page
@@ -75,7 +78,7 @@ pub struct Page {
 /// Kreuzberg-based document extractor
 pub struct DocumentExtractor {
     config: ExtractionConfig,
-    ocr_enabled: bool,
+    settings: ExtractionSettings,
 }
 
 impl Default for DocumentExtractor {
@@ -89,26 +92,48 @@ impl DocumentExtractor {
     pub fn new() -> Self {
         Self {
             config: ExtractionConfig::default(),
-            ocr_enabled: false,
+            settings: ExtractionSettings::default(),
         }
+    }
+
+    /// Create an extractor with custom settings
+    pub fn with_settings(settings: ExtractionSettings) -> Self {
+        let config = settings.to_kreuzberg_config_basic();
+        Self { config, settings }
     }
 
     /// Create an extractor with OCR fallback enabled for scanned documents.
     /// Note: OCR is handled via external pdftoppm + tesseract due to
     /// kreuzberg OCR dependency conflicts with other crates.
     pub fn with_ocr() -> Self {
-        Self {
-            config: ExtractionConfig::default(),
-            ocr_enabled: true,
-        }
+        let mut settings = ExtractionSettings::default();
+        settings.ocr_enabled = true;
+        settings.ocr_backend = OcrBackend::External;
+        Self::with_settings(settings)
     }
 
     /// Create an extractor with forced OCR (always use external OCR)
     pub fn with_forced_ocr() -> Self {
-        Self {
-            config: ExtractionConfig::default(),
-            ocr_enabled: true,
-        }
+        let mut settings = ExtractionSettings::default();
+        settings.ocr_enabled = true;
+        settings.force_ocr = true;
+        settings.ocr_backend = OcrBackend::External;
+        Self::with_settings(settings)
+    }
+
+    /// Create an extractor optimized for TTRPG rulebooks
+    pub fn for_rulebooks() -> Self {
+        Self::with_settings(ExtractionSettings::for_rulebooks())
+    }
+
+    /// Create an extractor optimized for scanned documents
+    pub fn for_scanned_documents() -> Self {
+        Self::with_settings(ExtractionSettings::for_scanned_documents())
+    }
+
+    /// Get the current extraction settings
+    pub fn settings(&self) -> &ExtractionSettings {
+        &self.settings
     }
 
     /// Extract content from a file (async)
@@ -164,9 +189,11 @@ impl DocumentExtractor {
         // Check for fallback OCR
         // If we have minimal text for a PDF, and OCR is enabled, try our manual fallback
         let is_pdf = mime_type == "application/pdf";
-        let low_text = char_count < 500; // Heuristic: < 500 chars for a document usually means scanned
+        let low_text = char_count < self.settings.ocr_min_text_threshold;
+        let ocr_enabled = self.settings.ocr_enabled && self.settings.ocr_backend != OcrBackend::Disabled;
+        let should_ocr = self.settings.force_ocr || (is_pdf && low_text && ocr_enabled);
 
-        if is_pdf && low_text && self.ocr_enabled {
+        if should_ocr {
             log::warn!("Minimal text found ({}) in PDF. Attempting async fallback OCR...", char_count);
 
             if let Some(ref cb) = progress_callback {
@@ -191,6 +218,9 @@ impl DocumentExtractor {
             }
         }
 
+        // Extract detected language from metadata if available
+        let detected_language = result.metadata.language.clone();
+
         Ok(ExtractedContent {
             source_path: path_str,
             content: result.content,
@@ -203,6 +233,7 @@ impl DocumentExtractor {
                 page_number: p.page_number,
                 content: p.content,
             }).collect()),
+            detected_language,
         })
     }
 
@@ -287,13 +318,12 @@ impl DocumentExtractor {
                 cb(p, &format!("OCR processing page {}/{}", page_num, total_pages));
             }
 
-            // Run tesseract
-            // tesseract input.png stdout -l eng
+            // Run tesseract with configured language
             let output = Command::new("tesseract")
                 .arg(&img_path)
                 .arg("stdout")
                 .arg("-l")
-                .arg("eng") // Assumes English, maybe make configurable later
+                .arg(&self.settings.ocr_language)
                 .output()
                 .await
                 .map_err(|e| ExtractionError::IoError(e))?;
@@ -326,11 +356,12 @@ impl DocumentExtractor {
              source_path: path.to_string_lossy().to_string(),
              content: full_text.clone(),
              page_count: pages.len(),
-             title: None, // Lost metadata
+             title: None, // Lost metadata during OCR
              author: None,
              mime_type: "application/pdf".to_string(),
              char_count: full_text.len(),
              pages: Some(pages),
+             detected_language: Some(self.settings.ocr_language.clone()), // OCR language used
         })
     }
 
@@ -370,6 +401,8 @@ impl DocumentExtractor {
             page_count, char_count
         );
 
+        let detected_language = result.metadata.language.clone();
+
         Ok(ExtractedContent {
             source_path: String::new(),
             content: result.content,
@@ -382,6 +415,7 @@ impl DocumentExtractor {
                 page_number: p.page_number,
                 content: p.content,
             }).collect()),
+            detected_language,
         })
     }
 
@@ -486,7 +520,8 @@ mod tests {
 
         // Try without OCR first (for text-based PDFs)
         let extractor = DocumentExtractor::new();
-        let result = extractor.extract(pdf_path).await;
+        let cb: Option<fn(f32, &str)> = None;
+        let result = extractor.extract(pdf_path, cb).await;
 
         match result {
             Ok(content) => {
