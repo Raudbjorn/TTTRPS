@@ -66,13 +66,13 @@ pub type Result<T> = std::result::Result<T, SearchError>;
 // ============================================================================
 
 /// A searchable document chunk
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct SearchDocument {
     /// Unique document ID
     pub id: String,
     /// Text content
     pub content: String,
-    /// Source file or origin
+    /// Source file or origin (file path)
     pub source: String,
     /// Source type for categorization (rule, fiction, chat, document)
     #[serde(default)]
@@ -94,6 +94,67 @@ pub struct SearchDocument {
     /// Additional metadata
     #[serde(default)]
     pub metadata: HashMap<String, String>,
+
+    // =========================================================================
+    // TTRPG-Specific Embedding Metadata
+    // These fields are included in the documentTemplate for semantic search
+    // =========================================================================
+
+    /// Human-readable book/document title (e.g., "Delta Green: Handler's Guide")
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub book_title: Option<String>,
+
+    /// Game system display name (e.g., "Delta Green", "D&D 5th Edition")
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub game_system: Option<String>,
+
+    /// Game system machine ID (e.g., "delta_green", "dnd5e")
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub game_system_id: Option<String>,
+
+    /// Content category: rulebook, adventure, setting, supplement, bestiary, quickstart
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content_category: Option<String>,
+
+    /// Section/chapter title (e.g., "Chapter 3: Combat", "Appendix A: Monsters")
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub section_title: Option<String>,
+
+    /// Genre/theme (e.g., "cosmic horror", "fantasy", "sci-fi")
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub genre: Option<String>,
+
+    /// Publisher name (e.g., "Arc Dream Publishing", "Wizards of the Coast")
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub publisher: Option<String>,
+
+    // =========================================================================
+    // Enhanced Metadata (from MDMAI patterns)
+    // =========================================================================
+
+    /// Chunk type for content classification (text, stat_block, table, spell, monster, rule, narrative)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chunk_type: Option<String>,
+
+    /// Chapter title (top-level section from TOC)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chapter_title: Option<String>,
+
+    /// Subsection title (nested within section)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subsection_title: Option<String>,
+
+    /// Full section hierarchy path (e.g., "Chapter 1 > Monsters > Goblins")
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub section_path: Option<String>,
+
+    /// Mechanic type for rules content (skill_check, combat, damage, healing, sanity, etc.)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mechanic_type: Option<String>,
+
+    /// Extracted semantic keywords for embedding boost
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub semantic_keywords: Vec<String>,
 }
 
 /// A search result with score
@@ -220,6 +281,11 @@ impl SearchClient {
         &self.host
     }
 
+    /// Get the underlying Meilisearch client
+    pub fn get_client(&self) -> &Client {
+        &self.client
+    }
+
     /// Check if Meilisearch is healthy
     pub async fn health_check(&self) -> bool {
         // Use raw reqwest to avoid SDK parsing errors if version mismatch
@@ -340,6 +406,20 @@ impl SearchClient {
         embedder_name: &str,
         config: &EmbedderConfig,
     ) -> Result<()> {
+        // Rich document template for TTRPG content semantic embedding
+        // Uses Liquid templating with conditional fields for context-aware embedding
+        // Based on MDMAI patterns for optimal embedding quality
+        //
+        // Example output:
+        // "[STAT_BLOCK] [Delta Green] Agent's Handbook (rulebook, p.96) - Equipment > Weapons [combat] [cosmic horror]
+        //  Type: stat_block
+        //  Topics: firearms, damage, concealment
+        //  The standard handgun is a semi-automatic pistol..."
+        let document_template = r#"{% if doc.chunk_type and doc.chunk_type != "text" and doc.chunk_type != "narrative" %}[{{ doc.chunk_type | upcase }}] {% endif %}{% if doc.game_system %}[{{ doc.game_system }}] {% endif %}{% if doc.book_title %}{{ doc.book_title }}{% else %}{{ doc.source }}{% endif %}{% if doc.content_category %} ({{ doc.content_category }}{% if doc.page_number %}, p.{{ doc.page_number }}{% endif %}){% elsif doc.page_number %} (p.{{ doc.page_number }}){% endif %}{% if doc.section_path %} - {{ doc.section_path }}{% elsif doc.chapter_title %} - {{ doc.chapter_title }}{% if doc.section_title %} > {{ doc.section_title }}{% endif %}{% if doc.subsection_title %} > {{ doc.subsection_title }}{% endif %}{% elsif doc.section_title %} - {{ doc.section_title }}{% endif %}{% if doc.mechanic_type %} [{{ doc.mechanic_type }}]{% endif %}{% if doc.genre %} [{{ doc.genre }}]{% endif %}
+Type: {{ doc.chunk_type | default: "text" }}
+{% if doc.semantic_keywords.size > 0 %}Topics: {{ doc.semantic_keywords | join: ", " }}
+{% endif %}{{ doc.content | truncatewords: 300 }}"#;
+
         // Build embedder settings as JSON
         let embedder_json = match config {
             EmbedderConfig::OpenAI { api_key, model, dimensions } => {
@@ -348,7 +428,8 @@ impl SearchClient {
                     "apiKey": api_key,
                     "model": model.clone().unwrap_or_else(|| "text-embedding-3-small".to_string()),
                     "dimensions": dimensions.unwrap_or(1536),
-                    "documentTemplate": "{{doc.content}}"
+                    "documentTemplate": document_template,
+                    "documentTemplateMaxBytes": 4000
                 })
             }
             EmbedderConfig::Ollama { url, model } => {
@@ -356,14 +437,16 @@ impl SearchClient {
                     "source": "ollama",
                     "url": url,
                     "model": model,
-                    "documentTemplate": "{{doc.content}}"
+                    "documentTemplate": document_template,
+                    "documentTemplateMaxBytes": 4000
                 })
             }
             EmbedderConfig::HuggingFace { model } => {
                 serde_json::json!({
                     "source": "huggingFace",
                     "model": model,
-                    "documentTemplate": "{{doc.content}}"
+                    "documentTemplate": document_template,
+                    "documentTemplateMaxBytes": 4000
                 })
             }
             EmbedderConfig::OllamaRest { host, model, dimensions } => {
@@ -381,7 +464,8 @@ impl SearchClient {
                         "embedding": "{{embedding}}"
                     },
                     "dimensions": dimensions,
-                    "documentTemplate": "{{doc.content}}"
+                    "documentTemplate": document_template,
+                    "documentTemplateMaxBytes": 4000
                 })
             }
         };
@@ -1153,6 +1237,15 @@ impl TTRPGSearchDocument {
             session_id: None,
             created_at: chrono::Utc::now().to_rfc3339(),
             metadata: chunk.metadata.clone(),
+            // TTRPG metadata populated from game_system parameter
+            game_system: game_system.map(|s| {
+                // Try to get display name from game system
+                crate::ingestion::ttrpg::game_detector::GameSystem::from_str(s)
+                    .map(|gs| gs.display_name().to_string())
+                    .unwrap_or_else(|| s.to_string())
+            }),
+            game_system_id: game_system.map(|s| s.to_string()),
+            ..Default::default()
         };
 
         Self {
@@ -1209,6 +1302,7 @@ mod tests {
             session_id: None,
             created_at: "2024-01-01T00:00:00Z".to_string(),
             metadata: HashMap::new(),
+            ..Default::default()
         };
 
         let json = serde_json::to_string(&doc).unwrap();
@@ -1229,6 +1323,7 @@ mod tests {
             session_id: None,
             created_at: "2024-01-01T00:00:00Z".to_string(),
             metadata: HashMap::new(),
+            ..Default::default()
         };
 
         let mut doc = TTRPGSearchDocument::new(base, "stat_block");
@@ -1259,6 +1354,7 @@ mod tests {
             session_id: None,
             created_at: "2024-01-01T00:00:00Z".to_string(),
             metadata: HashMap::new(),
+            ..Default::default()
         };
 
         let mut doc = TTRPGSearchDocument::new(base, "spell");

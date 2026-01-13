@@ -14,6 +14,367 @@ use std::path::Path;
 use uuid::Uuid;
 
 // ============================================================================
+// Source Slug Generation
+// ============================================================================
+
+/// Maximum length for generated slugs (Meilisearch index name limit is 400)
+const MAX_SLUG_LENGTH: usize = 64;
+
+/// Generate a deterministic, filesystem-safe slug from a file path.
+///
+/// The slug is used as the base name for Meilisearch indexes:
+/// - `<slug>-raw` for raw page-level documents
+/// - `<slug>` for semantic chunks
+///
+/// # Rules
+/// - Lowercase alphanumeric characters and hyphens only
+/// - No consecutive hyphens
+/// - No leading/trailing hyphens
+/// - Deterministic: same input always produces same output
+/// - Truncated to MAX_SLUG_LENGTH characters
+///
+/// # Examples
+/// ```
+/// use std::path::Path;
+/// let slug = generate_source_slug(Path::new("Delta Green - Handler's Guide.pdf"), None);
+/// assert_eq!(slug, "delta-green-handlers-guide");
+/// ```
+pub fn generate_source_slug(path: &Path, title_override: Option<&str>) -> String {
+    // Use title override if provided, otherwise extract from filename
+    let base_name = title_override
+        .map(|s| s.to_string())
+        .or_else(|| {
+            path.file_stem()
+                .and_then(|s| s.to_str())
+                .map(|s| s.to_string())
+        })
+        .unwrap_or_else(|| "unnamed".to_string());
+
+    slugify(&base_name)
+}
+
+/// Convert any string to a clean slug.
+///
+/// Handles unicode by attempting transliteration of common characters,
+/// then falling back to stripping non-ASCII.
+pub fn slugify(input: &str) -> String {
+    let mut slug = String::with_capacity(input.len());
+    let mut last_was_hyphen = true; // Start true to avoid leading hyphen
+
+    for c in input.chars() {
+        match c {
+            // Direct passthrough for lowercase alphanumeric
+            'a'..='z' | '0'..='9' => {
+                slug.push(c);
+                last_was_hyphen = false;
+            }
+            // Convert uppercase to lowercase
+            'A'..='Z' => {
+                slug.push(c.to_ascii_lowercase());
+                last_was_hyphen = false;
+            }
+            // Common separators become hyphens
+            ' ' | '-' | '_' | '.' | '/' | '\\' | ':' | ',' | ';' | '(' | ')' | '[' | ']' => {
+                if !last_was_hyphen {
+                    slug.push('-');
+                    last_was_hyphen = true;
+                }
+            }
+            // Transliterate common unicode characters (lowercase and uppercase)
+            'á' | 'à' | 'ä' | 'â' | 'ã' | 'å' | 'Á' | 'À' | 'Ä' | 'Â' | 'Ã' | 'Å' => {
+                slug.push('a');
+                last_was_hyphen = false;
+            }
+            'é' | 'è' | 'ë' | 'ê' | 'É' | 'È' | 'Ë' | 'Ê' => {
+                slug.push('e');
+                last_was_hyphen = false;
+            }
+            'í' | 'ì' | 'ï' | 'î' | 'Í' | 'Ì' | 'Ï' | 'Î' => {
+                slug.push('i');
+                last_was_hyphen = false;
+            }
+            'ó' | 'ò' | 'ö' | 'ô' | 'õ' | 'ø' | 'Ó' | 'Ò' | 'Ö' | 'Ô' | 'Õ' | 'Ø' => {
+                slug.push('o');
+                last_was_hyphen = false;
+            }
+            'ú' | 'ù' | 'ü' | 'û' | 'Ú' | 'Ù' | 'Ü' | 'Û' => {
+                slug.push('u');
+                last_was_hyphen = false;
+            }
+            'ñ' | 'Ñ' => {
+                slug.push('n');
+                last_was_hyphen = false;
+            }
+            'ç' | 'Ç' => {
+                slug.push('c');
+                last_was_hyphen = false;
+            }
+            'ß' => {
+                slug.push_str("ss");
+                last_was_hyphen = false;
+            }
+            'æ' | 'Æ' => {
+                slug.push_str("ae");
+                last_was_hyphen = false;
+            }
+            'œ' | 'Œ' => {
+                slug.push_str("oe");
+                last_was_hyphen = false;
+            }
+            'þ' | 'Þ' => {
+                slug.push_str("th");
+                last_was_hyphen = false;
+            }
+            'ð' | 'Ð' => {
+                slug.push('d');
+                last_was_hyphen = false;
+            }
+            // Apostrophes and quotes are dropped (don't become hyphens)
+            // ASCII quotes
+            '\'' | '"' | '`' => {}
+            // Unicode curly quotes (using escape sequences)
+            '\u{2018}' | '\u{2019}' | '\u{201C}' | '\u{201D}' => {}
+            // Skip other characters
+            _ => {}
+        }
+    }
+
+    // Remove trailing hyphen
+    while slug.ends_with('-') {
+        slug.pop();
+    }
+
+    // Truncate to max length at word boundary if possible
+    if slug.len() > MAX_SLUG_LENGTH {
+        // Find last hyphen before limit
+        if let Some(pos) = slug[..MAX_SLUG_LENGTH].rfind('-') {
+            slug.truncate(pos);
+        } else {
+            slug.truncate(MAX_SLUG_LENGTH);
+        }
+    }
+
+    // Fallback for empty slugs
+    if slug.is_empty() {
+        slug = "unnamed".to_string();
+    }
+
+    slug
+}
+
+/// Generate the raw index name for a source slug
+pub fn raw_index_name(slug: &str) -> String {
+    format!("{}-raw", slug)
+}
+
+/// Generate the chunks index name for a source slug (same as slug)
+pub fn chunks_index_name(slug: &str) -> String {
+    slug.to_string()
+}
+
+// ============================================================================
+// Raw Document (Page-Level Storage)
+// ============================================================================
+
+/// Metadata specific to a single page
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct PageMetadata {
+    /// Character count for this page
+    #[serde(default)]
+    pub char_count: usize,
+    /// Word count for this page
+    #[serde(default)]
+    pub word_count: usize,
+    /// Whether page appears to contain images/figures
+    #[serde(default)]
+    pub has_images: bool,
+    /// Whether page appears to contain tables
+    #[serde(default)]
+    pub has_tables: bool,
+    /// Detected header/title on this page (if any)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub page_header: Option<String>,
+}
+
+impl PageMetadata {
+    /// Create page metadata from raw content
+    pub fn from_content(content: &str) -> Self {
+        let char_count = content.len();
+        let word_count = content.split_whitespace().count();
+
+        // Simple heuristics for detecting tables/images
+        let content_lower = content.to_lowercase();
+        let has_tables = content.contains('|') && content.lines().filter(|l| l.contains('|')).count() >= 2
+            || content_lower.contains("table ")
+            || content.lines().any(|l| l.chars().filter(|c| *c == '\t').count() >= 3);
+
+        let has_images = content_lower.contains("[image")
+            || content_lower.contains("figure ")
+            || content_lower.contains("illustration");
+
+        // Try to detect page header (first non-empty line if it looks like a title)
+        let page_header = content
+            .lines()
+            .find(|l| !l.trim().is_empty())
+            .filter(|l| {
+                let trimmed = l.trim();
+                // Looks like a header if: short, doesn't end with period, has capital letters
+                trimmed.len() < 100
+                    && !trimmed.ends_with('.')
+                    && trimmed.chars().any(|c| c.is_uppercase())
+            })
+            .map(|s| s.trim().to_string());
+
+        Self {
+            char_count,
+            word_count,
+            has_images,
+            has_tables,
+            page_header,
+        }
+    }
+}
+
+/// A raw page-level document stored in the `<slug>-raw` index.
+///
+/// This is the first stage of the two-phase ingestion pipeline.
+/// Raw documents preserve the original page structure for provenance tracking.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct RawDocument {
+    /// Deterministic ID: `<slug>-p<page_number>` (e.g., "delta-green-p001")
+    pub id: String,
+    /// The source slug this document belongs to
+    pub source_slug: String,
+    /// Raw text content of the page
+    pub raw_content: String,
+    /// Page number (1-indexed)
+    pub page_number: u32,
+    /// Page-specific metadata
+    #[serde(default)]
+    pub page_metadata: PageMetadata,
+    /// Timestamp when extracted
+    pub extracted_at: String,
+}
+
+impl RawDocument {
+    /// Create a new raw document from page content
+    pub fn new(slug: &str, page_number: u32, content: String) -> Self {
+        let id = format!("{}-p{:04}", slug, page_number);
+        let page_metadata = PageMetadata::from_content(&content);
+
+        Self {
+            id,
+            source_slug: slug.to_string(),
+            raw_content: content,
+            page_number,
+            page_metadata,
+            extracted_at: chrono::Utc::now().to_rfc3339(),
+        }
+    }
+
+    /// Generate a deterministic ID for a page
+    pub fn make_id(slug: &str, page_number: u32) -> String {
+        format!("{}-p{:04}", slug, page_number)
+    }
+}
+
+/// A semantic chunk stored in the `<slug>` index.
+///
+/// This is the second stage of the two-phase ingestion pipeline.
+/// Chunks reference their source raw documents for page number attribution.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ChunkedDocument {
+    /// Deterministic ID: `<slug>-c<chunk_index>` (e.g., "delta-green-c001")
+    pub id: String,
+    /// The source slug this chunk belongs to
+    pub source_slug: String,
+    /// Semantic chunk content (may span multiple pages)
+    pub content: String,
+    /// IDs of raw documents this chunk was derived from
+    /// Used for page number attribution in search results
+    pub source_raw_ids: Vec<String>,
+    /// Page range this chunk spans (derived from source_raw_ids)
+    pub page_start: u32,
+    pub page_end: u32,
+    /// Chunk index within this source
+    pub chunk_index: u32,
+    /// Timestamp when chunked
+    pub chunked_at: String,
+
+    // TTRPG-specific metadata (populated during chunking)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub book_title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub game_system: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub game_system_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content_category: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub section_title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mechanic_type: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub semantic_keywords: Vec<String>,
+}
+
+impl ChunkedDocument {
+    /// Create a new chunked document
+    pub fn new(
+        slug: &str,
+        chunk_index: u32,
+        content: String,
+        source_raw_ids: Vec<String>,
+    ) -> Self {
+        let id = format!("{}-c{:04}", slug, chunk_index);
+
+        // Extract page range from source IDs (format: slug-pNNNN)
+        let pages: Vec<u32> = source_raw_ids
+            .iter()
+            .filter_map(|id| {
+                id.rsplit_once("-p")
+                    .and_then(|(_, num)| num.parse().ok())
+            })
+            .collect();
+
+        let page_start = pages.iter().copied().min().unwrap_or(1);
+        let page_end = pages.iter().copied().max().unwrap_or(1);
+
+        Self {
+            id,
+            source_slug: slug.to_string(),
+            content,
+            source_raw_ids,
+            page_start,
+            page_end,
+            chunk_index,
+            chunked_at: chrono::Utc::now().to_rfc3339(),
+            book_title: None,
+            game_system: None,
+            game_system_id: None,
+            content_category: None,
+            section_title: None,
+            mechanic_type: None,
+            semantic_keywords: Vec::new(),
+        }
+    }
+
+    /// Generate a deterministic ID for a chunk
+    pub fn make_id(slug: &str, chunk_index: u32) -> String {
+        format!("{}-c{:04}", slug, chunk_index)
+    }
+
+    /// Set TTRPG metadata from extracted metadata
+    pub fn with_ttrpg_metadata(mut self, metadata: &TTRPGMetadata) -> Self {
+        self.book_title = metadata.book_title.clone();
+        self.game_system = metadata.game_system.clone();
+        self.game_system_id = metadata.game_system_id.clone();
+        self.content_category = metadata.content_category.clone();
+        self
+    }
+}
+
+// ============================================================================
 // TTRPG Metadata
 // ============================================================================
 
@@ -217,7 +578,7 @@ impl Default for PipelineConfig {
 // Pipeline Result
 // ============================================================================
 
-/// Result of processing a document
+/// Result of processing a document (legacy single-phase)
 #[derive(Debug, Clone)]
 pub struct IngestionResult {
     pub source: String,
@@ -225,6 +586,36 @@ pub struct IngestionResult {
     pub stored_chunks: usize,
     pub failed_chunks: usize,
     pub index_used: String,
+}
+
+/// Result of extracting raw pages (phase 1 of two-phase pipeline)
+#[derive(Debug, Clone)]
+pub struct ExtractionResult {
+    /// Generated slug for this source
+    pub slug: String,
+    /// Human-readable source name
+    pub source_name: String,
+    /// Index where raw pages were stored
+    pub raw_index: String,
+    /// Number of pages extracted
+    pub page_count: usize,
+    /// Total characters extracted
+    pub total_chars: usize,
+    /// Detected TTRPG metadata
+    pub ttrpg_metadata: TTRPGMetadata,
+}
+
+/// Result of chunking from raw pages (phase 2 of two-phase pipeline)
+#[derive(Debug, Clone)]
+pub struct ChunkingResult {
+    /// Source slug
+    pub slug: String,
+    /// Index where chunks were stored
+    pub chunks_index: String,
+    /// Number of chunks created
+    pub chunk_count: usize,
+    /// Number of raw pages consumed
+    pub pages_consumed: usize,
 }
 
 // ============================================================================
@@ -243,6 +634,319 @@ impl MeilisearchPipeline {
     pub fn with_defaults() -> Self {
         Self::new(PipelineConfig::default())
     }
+
+    // ========================================================================
+    // Two-Phase Pipeline: Extract → Raw → Chunk
+    // ========================================================================
+
+    /// Phase 1: Extract document content and store raw pages in `<slug>-raw` index.
+    ///
+    /// This creates a per-document index with one document per page, preserving
+    /// the original page structure for provenance tracking.
+    ///
+    /// # Arguments
+    /// * `search_client` - Meilisearch client for indexing
+    /// * `path` - Path to the document file
+    /// * `title_override` - Optional custom title (otherwise derived from filename)
+    ///
+    /// # Returns
+    /// `ExtractionResult` with slug, page count, and detected metadata
+    pub async fn extract_to_raw(
+        &self,
+        search_client: &SearchClient,
+        path: &Path,
+        title_override: Option<&str>,
+    ) -> Result<ExtractionResult, SearchError> {
+        // Generate deterministic slug from filename
+        let slug = generate_source_slug(path, title_override);
+        let raw_index = raw_index_name(&slug);
+
+        let source_name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("unknown")
+            .to_string();
+
+        log::info!("Extracting '{}' to raw index '{}'", source_name, raw_index);
+
+        // Ensure raw index exists with appropriate settings
+        search_client.ensure_index(&raw_index, Some("id")).await
+            .map_err(|e| SearchError::ConfigError(format!("Failed to create raw index: {}", e)))?;
+
+        // Extract content using kreuzberg
+        let extractor = DocumentExtractor::with_ocr();
+        let cb: Option<fn(f32, &str)> = None;
+        let extracted = extractor.extract(path, cb)
+            .await
+            .map_err(|e| SearchError::ConfigError(format!("Document extraction failed: {}", e)))?;
+
+        let total_chars = extracted.char_count;
+        let mut page_count = 0;
+        let mut raw_documents = Vec::new();
+
+        // Convert extracted pages to RawDocuments
+        if let Some(pages) = extracted.pages {
+            for page in pages {
+                let raw_doc = RawDocument::new(&slug, page.page_number as u32, page.content);
+                raw_documents.push(raw_doc);
+                page_count += 1;
+            }
+        } else {
+            // Single page fallback (no page structure)
+            let raw_doc = RawDocument::new(&slug, 1, extracted.content.clone());
+            raw_documents.push(raw_doc);
+            page_count = 1;
+        }
+
+        // Combine content sample for metadata detection
+        let content_sample: String = raw_documents
+            .iter()
+            .take(20)
+            .map(|d| d.raw_content.as_str())
+            .collect::<Vec<_>>()
+            .join(" ");
+
+        // Detect TTRPG metadata
+        let ttrpg_metadata = TTRPGMetadata::extract(path, &content_sample, "document");
+
+        log::info!(
+            "Extracted {} pages from '{}': system={:?}, category={:?}",
+            page_count,
+            source_name,
+            ttrpg_metadata.game_system,
+            ttrpg_metadata.content_category
+        );
+
+        // Store raw documents in Meilisearch
+        let index = search_client.get_client().index(&raw_index);
+        let task = index.add_documents(&raw_documents, Some("id")).await
+            .map_err(|e| SearchError::MeilisearchError(format!("Failed to add raw documents: {}", e)))?;
+
+        // Wait for indexing to complete
+        task.wait_for_completion(
+            search_client.get_client(),
+            Some(std::time::Duration::from_millis(100)),
+            Some(std::time::Duration::from_secs(60)),
+        ).await
+            .map_err(|e| SearchError::MeilisearchError(format!("Raw indexing failed: {}", e)))?;
+
+        log::info!("Stored {} raw pages in '{}'", page_count, raw_index);
+
+        Ok(ExtractionResult {
+            slug,
+            source_name,
+            raw_index,
+            page_count,
+            total_chars,
+            ttrpg_metadata,
+        })
+    }
+
+    /// Phase 2: Create semantic chunks from raw pages and store in `<slug>` index.
+    ///
+    /// Reads from the `<slug>-raw` index, applies semantic chunking that may span
+    /// multiple pages, and stores chunks with provenance tracking (source_raw_ids).
+    ///
+    /// # Arguments
+    /// * `search_client` - Meilisearch client
+    /// * `extraction` - Result from `extract_to_raw()`
+    ///
+    /// # Returns
+    /// `ChunkingResult` with chunk count and pages consumed
+    pub async fn chunk_from_raw(
+        &self,
+        search_client: &SearchClient,
+        extraction: &ExtractionResult,
+    ) -> Result<ChunkingResult, SearchError> {
+        let slug = &extraction.slug;
+        let raw_index = &extraction.raw_index;
+        let chunks_index = chunks_index_name(slug);
+
+        log::info!("Chunking from '{}' to '{}'", raw_index, chunks_index);
+
+        // Ensure chunks index exists
+        search_client.ensure_index(&chunks_index, Some("id")).await
+            .map_err(|e| SearchError::ConfigError(format!("Failed to create chunks index: {}", e)))?;
+
+        // Fetch all raw documents from the raw index
+        let index = search_client.get_client().index(raw_index);
+        let raw_docs: Vec<RawDocument> = index
+            .get_documents()
+            .await
+            .map_err(|e| SearchError::MeilisearchError(format!("Failed to fetch raw docs: {}", e)))?
+            .results;
+
+        if raw_docs.is_empty() {
+            return Err(SearchError::DocumentNotFound(format!(
+                "No raw documents found in '{}'", raw_index
+            )));
+        }
+
+        let pages_consumed = raw_docs.len();
+
+        // Sort by page number
+        let mut sorted_docs = raw_docs;
+        sorted_docs.sort_by_key(|d| d.page_number);
+
+        // Create chunks with provenance tracking
+        let chunks = self.create_chunks_with_provenance(slug, &sorted_docs, &extraction.ttrpg_metadata);
+
+        let chunk_count = chunks.len();
+
+        // Store chunks in Meilisearch
+        let chunks_idx = search_client.get_client().index(&chunks_index);
+        let task = chunks_idx.add_documents(&chunks, Some("id")).await
+            .map_err(|e| SearchError::MeilisearchError(format!("Failed to add chunks: {}", e)))?;
+
+        task.wait_for_completion(
+            search_client.get_client(),
+            Some(std::time::Duration::from_millis(100)),
+            Some(std::time::Duration::from_secs(60)),
+        ).await
+            .map_err(|e| SearchError::MeilisearchError(format!("Chunk indexing failed: {}", e)))?;
+
+        log::info!(
+            "Created {} chunks from {} pages in '{}'",
+            chunk_count, pages_consumed, chunks_index
+        );
+
+        Ok(ChunkingResult {
+            slug: slug.clone(),
+            chunks_index,
+            chunk_count,
+            pages_consumed,
+        })
+    }
+
+    /// Combined two-phase ingestion: extract + chunk in one call.
+    ///
+    /// Convenience method that runs both phases sequentially.
+    pub async fn ingest_two_phase(
+        &self,
+        search_client: &SearchClient,
+        path: &Path,
+        title_override: Option<&str>,
+    ) -> Result<(ExtractionResult, ChunkingResult), SearchError> {
+        let extraction = self.extract_to_raw(search_client, path, title_override).await?;
+        let chunking = self.chunk_from_raw(search_client, &extraction).await?;
+        Ok((extraction, chunking))
+    }
+
+    /// Create semantic chunks from raw documents with provenance tracking.
+    ///
+    /// Each chunk records which raw document IDs it was derived from,
+    /// enabling page number attribution in search results.
+    fn create_chunks_with_provenance(
+        &self,
+        slug: &str,
+        raw_docs: &[RawDocument],
+        metadata: &TTRPGMetadata,
+    ) -> Vec<ChunkedDocument> {
+        let config = &self.config.chunk_config;
+        let mut chunks = Vec::new();
+        let mut chunk_index = 0u32;
+
+        let mut current_content = String::new();
+        let mut current_source_ids: Vec<String> = Vec::new();
+
+        for doc in raw_docs {
+            let doc_content = doc.raw_content.trim();
+            if doc_content.is_empty() {
+                continue;
+            }
+
+            // Check if adding this page would exceed max chunk size
+            let would_exceed = current_content.len() + doc_content.len() + 1 > config.chunk_size * 2;
+
+            // If we have content and would exceed, save current chunk
+            if !current_content.is_empty() && would_exceed {
+                // Create chunk from accumulated content
+                let chunk = ChunkedDocument::new(
+                    slug,
+                    chunk_index,
+                    std::mem::take(&mut current_content),
+                    std::mem::take(&mut current_source_ids),
+                ).with_ttrpg_metadata(metadata);
+
+                chunks.push(chunk);
+                chunk_index += 1;
+            }
+
+            // Add page to current accumulation
+            if !current_content.is_empty() {
+                current_content.push('\n');
+            }
+            current_content.push_str(doc_content);
+            current_source_ids.push(doc.id.clone());
+
+            // If single page exceeds target, split it into smaller chunks
+            while current_content.len() > config.chunk_size {
+                // Find a good split point (sentence boundary, paragraph, or forced)
+                let split_at = self.find_split_point(&current_content, config.chunk_size);
+
+                let chunk_content = current_content[..split_at].to_string();
+                let chunk = ChunkedDocument::new(
+                    slug,
+                    chunk_index,
+                    chunk_content,
+                    current_source_ids.clone(), // Same source IDs for split chunks
+                ).with_ttrpg_metadata(metadata);
+
+                chunks.push(chunk);
+                chunk_index += 1;
+
+                // Keep overlap for continuity
+                let overlap_start = split_at.saturating_sub(config.chunk_overlap);
+                current_content = current_content[overlap_start..].to_string();
+            }
+        }
+
+        // Don't forget the last chunk
+        if current_content.len() >= config.min_chunk_size {
+            let chunk = ChunkedDocument::new(
+                slug,
+                chunk_index,
+                current_content,
+                current_source_ids,
+            ).with_ttrpg_metadata(metadata);
+            chunks.push(chunk);
+        }
+
+        chunks
+    }
+
+    /// Find a good split point in text, preferring sentence/paragraph boundaries.
+    fn find_split_point(&self, text: &str, target: usize) -> usize {
+        let search_range = text.get(..target.min(text.len())).unwrap_or(text);
+
+        // Prefer paragraph break
+        if let Some(pos) = search_range.rfind("\n\n") {
+            if pos > target / 2 {
+                return pos + 2;
+            }
+        }
+
+        // Then sentence boundary
+        for pattern in [". ", "! ", "? ", ".\n", "!\n", "?\n"] {
+            if let Some(pos) = search_range.rfind(pattern) {
+                if pos > target / 2 {
+                    return pos + pattern.len();
+                }
+            }
+        }
+
+        // Fallback to word boundary
+        if let Some(pos) = search_range.rfind(' ') {
+            return pos + 1;
+        }
+
+        // Last resort: hard cut
+        target.min(text.len())
+    }
+
+    // ========================================================================
+    // Legacy Single-Phase Pipeline
+    // ========================================================================
 
     /// Process a file and ingest into Meilisearch
     ///
@@ -631,6 +1335,115 @@ impl Default for MeilisearchPipeline {
 mod tests {
     use super::*;
 
+    // ========================================================================
+    // Slug Generation Tests
+    // ========================================================================
+
+    #[test]
+    fn test_slugify_basic() {
+        assert_eq!(slugify("Hello World"), "hello-world");
+        assert_eq!(slugify("simple"), "simple");
+        assert_eq!(slugify("UPPERCASE"), "uppercase");
+    }
+
+    #[test]
+    fn test_slugify_special_characters() {
+        assert_eq!(slugify("Delta Green - Handler's Guide"), "delta-green-handlers-guide");
+        assert_eq!(slugify("D&D 5th Edition"), "dd-5th-edition");
+        assert_eq!(slugify("Call of Cthulhu (7th Ed)"), "call-of-cthulhu-7th-ed");
+        assert_eq!(slugify("Monster Manual: Expanded"), "monster-manual-expanded");
+    }
+
+    #[test]
+    fn test_slugify_unicode() {
+        assert_eq!(slugify("Über"), "uber");
+        assert_eq!(slugify("naïve"), "naive");
+        assert_eq!(slugify("café"), "cafe");
+        assert_eq!(slugify("Müller"), "muller");
+        assert_eq!(slugify("Ægis"), "aegis");
+        assert_eq!(slugify("Þórr"), "thorr");
+    }
+
+    #[test]
+    fn test_slugify_consecutive_separators() {
+        assert_eq!(slugify("hello   world"), "hello-world");
+        assert_eq!(slugify("hello---world"), "hello-world");
+        assert_eq!(slugify("hello___world"), "hello-world");
+        assert_eq!(slugify("hello - world"), "hello-world");
+    }
+
+    #[test]
+    fn test_slugify_leading_trailing() {
+        assert_eq!(slugify("  hello  "), "hello");
+        assert_eq!(slugify("--hello--"), "hello");
+        assert_eq!(slugify("123_test"), "123-test");
+    }
+
+    #[test]
+    fn test_slugify_empty_and_special() {
+        assert_eq!(slugify(""), "unnamed");
+        assert_eq!(slugify("!!!"), "unnamed");
+        assert_eq!(slugify("'\""), "unnamed");
+    }
+
+    #[test]
+    fn test_slugify_long_input() {
+        let long_input = "This Is A Very Long Title That Exceeds The Maximum Slug Length And Should Be Truncated At A Word Boundary";
+        let slug = slugify(long_input);
+        assert!(slug.len() <= MAX_SLUG_LENGTH);
+        assert!(!slug.ends_with('-'));
+    }
+
+    #[test]
+    fn test_slugify_numbers() {
+        assert_eq!(slugify("5th Edition"), "5th-edition");
+        assert_eq!(slugify("2024"), "2024");
+        assert_eq!(slugify("D&D 3.5"), "dd-3-5");
+    }
+
+    #[test]
+    fn test_generate_source_slug_from_path() {
+        use std::path::Path;
+
+        let path = Path::new("/home/user/rpg/Delta Green - Handler's Guide.pdf");
+        assert_eq!(generate_source_slug(path, None), "delta-green-handlers-guide");
+
+        let path = Path::new("Monster_Manual_5e.pdf");
+        assert_eq!(generate_source_slug(path, None), "monster-manual-5e");
+    }
+
+    #[test]
+    fn test_generate_source_slug_with_override() {
+        use std::path::Path;
+
+        let path = Path::new("file123.pdf");
+        assert_eq!(
+            generate_source_slug(path, Some("Player's Handbook")),
+            "players-handbook"
+        );
+    }
+
+    #[test]
+    fn test_index_name_helpers() {
+        assert_eq!(raw_index_name("delta-green"), "delta-green-raw");
+        assert_eq!(chunks_index_name("delta-green"), "delta-green");
+    }
+
+    #[test]
+    fn test_slugify_deterministic() {
+        // Same input should always produce same output
+        let input = "Delta Green: Handler's Guide (2nd Printing)";
+        let slug1 = slugify(input);
+        let slug2 = slugify(input);
+        let slug3 = slugify(input);
+        assert_eq!(slug1, slug2);
+        assert_eq!(slug2, slug3);
+    }
+
+    // ========================================================================
+    // Chunking Tests
+    // ========================================================================
+
     #[test]
     fn test_chunk_text_small() {
         // Use small min_chunk_size to accommodate test text
@@ -665,5 +1478,116 @@ mod tests {
         for (_, page) in &chunks {
             assert_eq!(*page, Some(1));
         }
+    }
+
+    // ========================================================================
+    // Raw Document Tests
+    // ========================================================================
+
+    #[test]
+    fn test_raw_document_id_generation() {
+        assert_eq!(RawDocument::make_id("delta-green", 1), "delta-green-p0001");
+        assert_eq!(RawDocument::make_id("delta-green", 42), "delta-green-p0042");
+        assert_eq!(RawDocument::make_id("delta-green", 999), "delta-green-p0999");
+    }
+
+    #[test]
+    fn test_raw_document_creation() {
+        let content = "Chapter 1: Character Creation";
+        let doc = RawDocument::new("phb", 5, content.to_string());
+
+        assert_eq!(doc.id, "phb-p0005");
+        assert_eq!(doc.source_slug, "phb");
+        assert_eq!(doc.page_number, 5);
+        assert_eq!(doc.raw_content, content);
+        assert_eq!(doc.page_metadata.char_count, content.len());
+        assert_eq!(doc.page_metadata.word_count, 4); // "Chapter", "1:", "Character", "Creation"
+    }
+
+    #[test]
+    fn test_page_metadata_detection() {
+        // Test table detection
+        let table_content = "Name | HP | AC\nGoblin | 7 | 15\nOrc | 15 | 13";
+        let meta = PageMetadata::from_content(table_content);
+        assert!(meta.has_tables);
+
+        // Test image detection
+        let image_content = "See Figure 1.2 for details";
+        let meta = PageMetadata::from_content(image_content);
+        assert!(meta.has_images);
+
+        // Test header detection
+        let header_content = "Chapter 3: Combat\n\nThis section describes...";
+        let meta = PageMetadata::from_content(header_content);
+        assert_eq!(meta.page_header, Some("Chapter 3: Combat".to_string()));
+    }
+
+    // ========================================================================
+    // Chunked Document Tests
+    // ========================================================================
+
+    #[test]
+    fn test_chunked_document_id_generation() {
+        assert_eq!(ChunkedDocument::make_id("delta-green", 0), "delta-green-c0000");
+        assert_eq!(ChunkedDocument::make_id("delta-green", 42), "delta-green-c0042");
+    }
+
+    #[test]
+    fn test_chunked_document_page_range() {
+        let source_ids = vec![
+            "delta-green-p0005".to_string(),
+            "delta-green-p0006".to_string(),
+            "delta-green-p0007".to_string(),
+        ];
+
+        let chunk = ChunkedDocument::new(
+            "delta-green",
+            0,
+            "Some content spanning multiple pages".to_string(),
+            source_ids,
+        );
+
+        assert_eq!(chunk.page_start, 5);
+        assert_eq!(chunk.page_end, 7);
+        assert_eq!(chunk.source_raw_ids.len(), 3);
+    }
+
+    #[test]
+    fn test_chunked_document_single_page() {
+        let source_ids = vec!["phb-p0042".to_string()];
+
+        let chunk = ChunkedDocument::new(
+            "phb",
+            10,
+            "Content from single page".to_string(),
+            source_ids,
+        );
+
+        assert_eq!(chunk.page_start, 42);
+        assert_eq!(chunk.page_end, 42);
+        assert_eq!(chunk.id, "phb-c0010");
+    }
+
+    #[test]
+    fn test_chunked_document_with_metadata() {
+        let metadata = TTRPGMetadata {
+            book_title: Some("Player's Handbook".to_string()),
+            game_system: Some("D&D 5th Edition".to_string()),
+            game_system_id: Some("dnd5e".to_string()),
+            content_category: Some("rulebook".to_string()),
+            ..Default::default()
+        };
+
+        let chunk = ChunkedDocument::new(
+            "phb",
+            0,
+            "Content".to_string(),
+            vec!["phb-p0001".to_string()],
+        ).with_ttrpg_metadata(&metadata);
+
+        assert_eq!(chunk.book_title, Some("Player's Handbook".to_string()));
+        assert_eq!(chunk.game_system, Some("D&D 5th Edition".to_string()));
+        assert_eq!(chunk.game_system_id, Some("dnd5e".to_string()));
+        assert_eq!(chunk.content_category, Some("rulebook".to_string()));
     }
 }
