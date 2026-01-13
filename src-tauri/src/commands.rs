@@ -989,34 +989,100 @@ pub struct TwoPhaseIngestResult {
 /// which raw pages each chunk was derived from.
 #[tauri::command]
 pub async fn ingest_document_two_phase(
+    app: tauri::AppHandle,
     path: String,
     title_override: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<TwoPhaseIngestResult, String> {
-    use crate::core::meilisearch_pipeline::MeilisearchPipeline;
+    use tauri::Emitter;
+    use crate::core::meilisearch_pipeline::{MeilisearchPipeline, generate_source_slug};
 
-    let path_buf = std::path::Path::new(&path);
+    let path_buf = std::path::PathBuf::from(&path);
     if !path_buf.exists() {
         return Err(format!("File not found: {}", path));
     }
 
+    let source_name = path_buf
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("unknown")
+        .to_string();
+
+    // Generate slug for progress messages
+    let slug = generate_source_slug(&path_buf, title_override.as_deref());
+
+    log::info!("Starting two-phase ingestion for '{}' (slug: {})", source_name, slug);
+
+    // Emit initial progress
+    let _ = app.emit("ingest-progress", IngestProgress {
+        stage: "starting".to_string(),
+        progress: 0.0,
+        message: format!("Starting two-phase ingestion for {}...", source_name),
+        source_name: source_name.clone(),
+    });
+
     let pipeline = MeilisearchPipeline::with_defaults();
 
-    let (extraction, chunking) = pipeline
-        .ingest_two_phase(
-            &state.search_client,
-            path_buf,
-            title_override.as_deref(),
-        )
+    // Phase 1: Extract to raw pages
+    let _ = app.emit("ingest-progress", IngestProgress {
+        stage: "extracting".to_string(),
+        progress: 0.1,
+        message: format!("Phase 1: Extracting pages from {}...", source_name),
+        source_name: source_name.clone(),
+    });
+
+    let extraction = pipeline
+        .extract_to_raw(&state.search_client, &path_buf, title_override.as_deref())
         .await
-        .map_err(|e| format!("Two-phase ingestion failed: {}", e))?;
+        .map_err(|e| format!("Extraction failed: {}", e))?;
 
     log::info!(
-        "Two-phase ingestion complete: {} pages -> {} chunks in '{}'",
+        "Phase 1 complete: {} pages extracted to '{}' (system: {:?})",
         extraction.page_count,
-        chunking.chunk_count,
-        chunking.chunks_index
+        extraction.raw_index,
+        extraction.ttrpg_metadata.game_system
     );
+
+    let _ = app.emit("ingest-progress", IngestProgress {
+        stage: "extracted".to_string(),
+        progress: 0.5,
+        message: format!("Extracted {} pages, creating semantic chunks...", extraction.page_count),
+        source_name: source_name.clone(),
+    });
+
+    // Phase 2: Create semantic chunks
+    let _ = app.emit("ingest-progress", IngestProgress {
+        stage: "chunking".to_string(),
+        progress: 0.6,
+        message: format!("Phase 2: Creating semantic chunks for {}...", source_name),
+        source_name: source_name.clone(),
+    });
+
+    let chunking = pipeline
+        .chunk_from_raw(&state.search_client, &extraction)
+        .await
+        .map_err(|e| format!("Chunking failed: {}", e))?;
+
+    log::info!(
+        "Phase 2 complete: {} chunks created in '{}' from {} pages",
+        chunking.chunk_count,
+        chunking.chunks_index,
+        chunking.pages_consumed
+    );
+
+    // Done!
+    let _ = app.emit("ingest-progress", IngestProgress {
+        stage: "complete".to_string(),
+        progress: 1.0,
+        message: format!(
+            "Ingested {} pages → {} chunks (indexes: {}, {})",
+            extraction.page_count,
+            chunking.chunk_count,
+            extraction.raw_index,
+            chunking.chunks_index
+        ),
+        source_name: source_name.clone(),
+    });
 
     Ok(TwoPhaseIngestResult {
         slug: extraction.slug,
@@ -2800,18 +2866,6 @@ fn estimate_pdf_pages(path: &std::path::Path, file_size: u64) -> usize {
     // Fallback: estimate based on file size
     // Use 200KB per page as middle ground between text (50KB) and scanned (500KB+)
     (file_size / 200_000).max(1) as usize
-}
-
-/// Ingest a document with progress reporting via Tauri events
-#[tauri::command]
-pub async fn ingest_document_with_progress(
-    app: tauri::AppHandle,
-    path: String,
-    source_type: Option<String>,
-    state: State<'_, AppState>,
-) -> Result<IngestResult, String> {
-    // Delegate to the internal function that uses kreuzberg for fast extraction
-    ingest_document_with_progress_internal(path, source_type, app, state).await
 }
 
 /// List all documents from the library (persisted in Meilisearch)

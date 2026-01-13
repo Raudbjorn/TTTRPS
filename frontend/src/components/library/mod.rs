@@ -27,7 +27,7 @@ use crate::services::notification_service::{show_error, show_success, ToastActio
 use std::sync::Arc;
 
 use crate::bindings::{
-    check_meilisearch_health, ingest_document_with_progress, listen_event,
+    check_meilisearch_health, ingest_document_two_phase, listen_event,
     pick_document_file, hybrid_search, HybridSearchOptions,
     HybridSearchResultPayload, list_library_documents, LibraryDocument,
     rebuild_library_metadata,
@@ -562,42 +562,35 @@ pub fn Library() -> impl IntoView {
                     ingestion_status.set(format!("Starting {}...", filename));
 
                     let source_type = selected_source_type.get_untracked();
-                    let source_type_str = if source_type == SourceType::All {
-                        "documents".to_string()
-                    } else {
-                        source_type.as_str().to_string()
-                    };
 
-                    match ingest_document_with_progress(path.clone(), Some(source_type_str.clone()))
-                        .await
-                    {
+                    // Use two-phase ingestion pipeline
+                    match ingest_document_two_phase(path.clone(), None).await {
                         Ok(result) => {
-                            let doc_id = format!("doc-{}", documents.get().len() + 1);
                             let doc = SourceDocument {
-                                id: doc_id,
+                                id: result.slug.clone(),
                                 name: result.source_name.clone(),
                                 source_type,
                                 status: DocumentStatus::Indexed,
-                                chunk_count: result.character_count / 500,
+                                chunk_count: result.chunk_count,
                                 page_count: result.page_count,
-                                file_size_bytes: result.character_count,
+                                file_size_bytes: result.total_chars,
                                 ingested_at: Some(chrono_now()),
                                 file_path: Some(path),
-                                description: None,
-                                tags: Vec::new(),
+                                description: result.game_system.clone(),
+                                tags: result.content_category.map(|c| vec![c]).unwrap_or_default(),
                             };
                             documents.update(|docs| docs.push(doc));
-                            total_chunks.update(|c| *c += result.character_count / 500);
+                            total_chunks.update(|c| *c += result.chunk_count);
                             ingestion_status.set(format!(
-                                "Indexed {} ({} pages, {} chars)",
-                                result.source_name, result.page_count, result.character_count
+                                "Indexed '{}' → {} pages → {} chunks",
+                                result.source_name, result.page_count, result.chunk_count
                             ));
                             ingestion_progress.set(1.0);
                         }
                         Err(e) => {
                             ingestion_status.set(format!("Failed: {}", e));
                             ingestion_progress.set(0.0);
-                             show_error(
+                            show_error(
                                 "Ingestion Failed",
                                 Some(&format!("Could not process {}.\nReason: {}\n\nCheck file permissions or format.", filename, e)),
                                 None

@@ -720,17 +720,6 @@ pub struct IngestProgress {
     pub source_name: String,
 }
 
-/// Ingest document with progress reporting via events
-pub async fn ingest_document_with_progress(path: String, source_type: Option<String>) -> Result<IngestResult, String> {
-    #[derive(Serialize)]
-    #[serde(rename_all = "camelCase")]
-    struct Args {
-        path: String,
-        source_type: Option<String>,
-    }
-    invoke("ingest_document_with_progress", &Args { path, source_type }).await
-}
-
 /// Result of two-phase document ingestion with per-document indexes
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TwoPhaseIngestResult {
