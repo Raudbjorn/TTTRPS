@@ -8,6 +8,8 @@
 //! - **Random Table Parsing**: Extracting roll tables with probability distributions
 //! - **Attribute Extraction**: Identifying game-specific terms with confidence scores
 //! - **Game System Detection**: Auto-detecting D&D 5e, Pathfinder, etc.
+//! - **Cross-Reference Detection**: Extracting page, chapter, section, table, and figure references
+//! - **Dice Expression Extraction**: Parsing dice notation (2d6+3), DCs, and modifiers
 //!
 //! # Example
 //!
@@ -24,13 +26,18 @@
 //! ```
 
 pub mod classifier;
+pub mod content_mode;
 pub mod stat_block;
 pub mod random_table;
 pub mod vocabulary;
 pub mod attribute_extractor;
 pub mod game_detector;
+pub mod boundary_scorer;
+pub mod cross_reference;
+pub mod dice_extractor;
 
 pub use classifier::{TTRPGClassifier, TTRPGElementType, ClassifiedElement};
+pub use content_mode::{ContentMode, ContentModeClassifier, ContentModeResult};
 pub use stat_block::{StatBlockParser, StatBlockData, AbilityScores, Feature, Speed};
 pub use random_table::{RandomTableParser, RandomTableData, TableEntry};
 pub use attribute_extractor::{
@@ -63,3 +70,9 @@ pub use vocabulary::{
     DICE_PATTERNS, TABLE_ROW_PATTERNS, contains_dice_notation, count_dice_notation,
 };
 pub use game_detector::{detect_game_system, detect_game_system_with_confidence, GameSystem, DetectionResult};
+pub use boundary_scorer::{BoundaryScorer, BoundaryType, BoundaryMatch};
+pub use cross_reference::{CrossReferenceExtractor, CrossReference, ReferenceType, ReferenceSummary};
+pub use dice_extractor::{
+    DiceExtractor, DiceExpression, DifficultyCheck, StandaloneModifier,
+    DiceExtractionResult, STANDARD_DIE_SIDES,
+};

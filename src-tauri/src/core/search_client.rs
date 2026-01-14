@@ -155,6 +155,42 @@ pub struct SearchDocument {
     /// Extracted semantic keywords for embedding boost
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub semantic_keywords: Vec<String>,
+
+    // =========================================================================
+    // Enhanced TTRPG Metadata (v2 - semantic chunking improvements)
+    // =========================================================================
+
+    /// Element type classification (stat_block, random_table, spell, etc.)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub element_type: Option<String>,
+
+    /// Numeric section depth (0 = root, 1 = chapter, 2 = section, etc.)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub section_depth: Option<u32>,
+
+    /// Parent section titles for breadcrumb navigation
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub parent_sections: Vec<String>,
+
+    /// Cross-references detected in this chunk (e.g., ["page:47", "chapter:3"])
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cross_refs: Vec<String>,
+
+    /// Content mode: crunch, fluff, mixed, example, optional, fiction
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content_mode: Option<String>,
+
+    /// Extracted dice expressions (e.g., ["2d6", "1d20+5"])
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub dice_expressions: Vec<String>,
+
+    /// Classification confidence score (0.0 to 1.0)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub classification_confidence: Option<f32>,
+
+    /// Context-injected content for embeddings (section path + type prefix)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub embedding_content: Option<String>,
 }
 
 /// A search result with score
@@ -1108,10 +1144,41 @@ Type: {{ doc.chunk_type | default: "text" }}
         // Create index if it doesn't exist
         let index = self.ensure_index(index_name, Some("id")).await?;
 
-        // Configure settings for chunked document indexes
+        // Configure settings for chunked document indexes with v2 enhanced metadata
         let settings = Settings::new()
-            .with_searchable_attributes(["content", "source_slug", "book_title", "game_system"])
-            .with_sortable_attributes(["page_start", "chunk_index"]);
+            .with_searchable_attributes([
+                "content",
+                "embedding_content",  // Context-injected content for better semantic search
+                "source_slug",
+                "book_title",
+                "game_system",
+                "section_path",
+                "semantic_keywords",
+            ])
+            .with_filterable_attributes([
+                // v2 enhanced TTRPG filters
+                "element_type",       // stat_block, random_table, spell, item, etc.
+                "content_mode",       // crunch, fluff, mixed, example, optional, fiction
+                "section_depth",      // 0=root, 1=chapter, 2=section, etc.
+                "parent_sections",    // ["Chapter 1", "Monsters"]
+                "cross_refs",         // ["page:47", "chapter:3"]
+                "dice_expressions",   // ["2d6", "1d20+5"]
+                // Existing TTRPG metadata
+                "game_system",
+                "game_system_id",
+                "content_category",   // rulebook, adventure, setting, bestiary
+                "mechanic_type",      // skill_check, combat, damage, etc.
+                // Page/chunk tracking
+                "page_start",
+                "page_end",
+                "source_slug",
+            ])
+            .with_sortable_attributes([
+                "page_start",
+                "chunk_index",
+                "section_depth",
+                "classification_confidence",
+            ]);
 
         let task = index.set_settings(&settings).await?;
         task.wait_for_completion(
