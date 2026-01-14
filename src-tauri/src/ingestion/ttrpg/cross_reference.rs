@@ -281,13 +281,30 @@ impl CrossReferenceExtractor {
         ReferenceSummary::from_references(&refs)
     }
 
-    fn extract_page_refs(&self, text: &str, results: &mut Vec<CrossReference>) {
-        for (pattern, confidence) in &self.patterns.page_patterns {
+    /// Helper method to extract references by type using the provided patterns.
+    ///
+    /// This consolidates the common extraction logic for all reference types,
+    /// reducing code duplication and improving maintainability.
+    fn extract_refs_by_type(
+        &self,
+        text: &str,
+        results: &mut Vec<CrossReference>,
+        ref_type: ReferenceType,
+        patterns: &[(Regex, f32)],
+    ) {
+        for (pattern, confidence) in patterns {
             for caps in pattern.captures_iter(text) {
                 if let (Some(full_match), Some(target)) = (caps.get(0), caps.get(1)) {
+                    let target_str = target.as_str().trim().to_string();
+
+                    // Skip very short section names (likely false positives)
+                    if ref_type == ReferenceType::Section && target_str.len() < 3 {
+                        continue;
+                    }
+
                     results.push(CrossReference::new(
-                        ReferenceType::Page,
-                        target.as_str().to_string(),
+                        ref_type,
+                        target_str,
                         full_match.as_str().to_string(),
                         *confidence,
                         full_match.start(),
@@ -296,78 +313,26 @@ impl CrossReferenceExtractor {
                 }
             }
         }
+    }
+
+    fn extract_page_refs(&self, text: &str, results: &mut Vec<CrossReference>) {
+        self.extract_refs_by_type(text, results, ReferenceType::Page, &self.patterns.page_patterns);
     }
 
     fn extract_chapter_refs(&self, text: &str, results: &mut Vec<CrossReference>) {
-        for (pattern, confidence) in &self.patterns.chapter_patterns {
-            for caps in pattern.captures_iter(text) {
-                if let (Some(full_match), Some(target)) = (caps.get(0), caps.get(1)) {
-                    results.push(CrossReference::new(
-                        ReferenceType::Chapter,
-                        target.as_str().to_string(),
-                        full_match.as_str().to_string(),
-                        *confidence,
-                        full_match.start(),
-                        full_match.end(),
-                    ));
-                }
-            }
-        }
+        self.extract_refs_by_type(text, results, ReferenceType::Chapter, &self.patterns.chapter_patterns);
     }
 
     fn extract_section_refs(&self, text: &str, results: &mut Vec<CrossReference>) {
-        for (pattern, confidence) in &self.patterns.section_patterns {
-            for caps in pattern.captures_iter(text) {
-                if let (Some(full_match), Some(target)) = (caps.get(0), caps.get(1)) {
-                    let section_name = target.as_str().trim().to_string();
-                    // Skip very short section names (likely false positives)
-                    if section_name.len() >= 3 {
-                        results.push(CrossReference::new(
-                            ReferenceType::Section,
-                            section_name,
-                            full_match.as_str().to_string(),
-                            *confidence,
-                            full_match.start(),
-                            full_match.end(),
-                        ));
-                    }
-                }
-            }
-        }
+        self.extract_refs_by_type(text, results, ReferenceType::Section, &self.patterns.section_patterns);
     }
 
     fn extract_table_refs(&self, text: &str, results: &mut Vec<CrossReference>) {
-        for (pattern, confidence) in &self.patterns.table_patterns {
-            for caps in pattern.captures_iter(text) {
-                if let (Some(full_match), Some(target)) = (caps.get(0), caps.get(1)) {
-                    results.push(CrossReference::new(
-                        ReferenceType::Table,
-                        target.as_str().to_string(),
-                        full_match.as_str().to_string(),
-                        *confidence,
-                        full_match.start(),
-                        full_match.end(),
-                    ));
-                }
-            }
-        }
+        self.extract_refs_by_type(text, results, ReferenceType::Table, &self.patterns.table_patterns);
     }
 
     fn extract_figure_refs(&self, text: &str, results: &mut Vec<CrossReference>) {
-        for (pattern, confidence) in &self.patterns.figure_patterns {
-            for caps in pattern.captures_iter(text) {
-                if let (Some(full_match), Some(target)) = (caps.get(0), caps.get(1)) {
-                    results.push(CrossReference::new(
-                        ReferenceType::Figure,
-                        target.as_str().to_string(),
-                        full_match.as_str().to_string(),
-                        *confidence,
-                        full_match.start(),
-                        full_match.end(),
-                    ));
-                }
-            }
-        }
+        self.extract_refs_by_type(text, results, ReferenceType::Figure, &self.patterns.figure_patterns);
     }
 
     /// Remove duplicate and overlapping references, keeping highest confidence.

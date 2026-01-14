@@ -291,46 +291,34 @@ impl BoundaryScorer {
 
     /// Remove duplicate boundaries that are too close together,
     /// keeping the one with the highest score.
+    ///
+    /// Optimized O(N) algorithm: iterates through sorted boundaries once,
+    /// replacing the last added boundary if a higher-scored one is found
+    /// within the minimum gap.
     fn deduplicate_boundaries(&self, boundaries: &mut Vec<BoundaryMatch>) {
         if boundaries.len() < 2 {
             return;
         }
 
-        let mut result = Vec::with_capacity(boundaries.len());
-        let mut last_pos: Option<usize> = None;
-        let mut last_score: f32 = 0.0;
-        let mut last_idx: Option<usize> = None;
+        let mut deduped = Vec::with_capacity(boundaries.len());
+        deduped.push(boundaries[0].clone());
 
-        for (idx, boundary) in boundaries.iter().enumerate() {
-            match last_pos {
-                Some(pos) if boundary.position.saturating_sub(pos) < self.min_boundary_gap => {
-                    // Too close to previous - keep the higher scored one
-                    if boundary.score > last_score {
-                        if let Some(prev_idx) = last_idx {
-                            // Remove the previous lower-scored boundary
-                            if let Some(r_idx) = result.iter().position(|b: &BoundaryMatch| {
-                                b.position == boundaries[prev_idx].position
-                            }) {
-                                result.remove(r_idx);
-                            }
-                        }
-                        result.push(boundary.clone());
-                        last_pos = Some(boundary.position);
-                        last_score = boundary.score;
-                        last_idx = Some(idx);
-                    }
-                    // Otherwise keep the previous one
+        for boundary in boundaries.iter().skip(1) {
+            // Safe unwrap: we just pushed an element above
+            let last_boundary = deduped.last_mut().unwrap();
+
+            if boundary.position.saturating_sub(last_boundary.position) < self.min_boundary_gap {
+                // Too close to previous - keep the one with the higher score
+                if boundary.score > last_boundary.score {
+                    *last_boundary = boundary.clone();
                 }
-                _ => {
-                    result.push(boundary.clone());
-                    last_pos = Some(boundary.position);
-                    last_score = boundary.score;
-                    last_idx = Some(idx);
-                }
+            } else {
+                // Far enough apart - add as new boundary
+                deduped.push(boundary.clone());
             }
         }
 
-        *boundaries = result;
+        *boundaries = deduped;
     }
 
     /// Find the best split point within a window around the target position.

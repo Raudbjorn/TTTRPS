@@ -21,6 +21,73 @@ use std::path::Path;
 use uuid::Uuid;
 
 // ============================================================================
+// Classification Context (Shared Classifiers)
+// ============================================================================
+
+/// Holds all classifiers for v2 enhanced TTRPG content analysis.
+///
+/// Creating classifiers once and reusing them improves performance when
+/// processing many chunks, as the regex patterns are compiled only once.
+pub struct ClassificationContext {
+    pub classifier: TTRPGClassifier,
+    pub mode_classifier: ContentModeClassifier,
+    pub cross_ref_extractor: CrossReferenceExtractor,
+    pub dice_extractor: DiceExtractor,
+}
+
+impl Default for ClassificationContext {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ClassificationContext {
+    /// Create a new classification context with all classifiers initialized.
+    pub fn new() -> Self {
+        Self {
+            classifier: TTRPGClassifier::new(),
+            mode_classifier: ContentModeClassifier::new(),
+            cross_ref_extractor: CrossReferenceExtractor::new(),
+            dice_extractor: DiceExtractor::new(),
+        }
+    }
+
+    /// Classify content and return structured results for a chunk.
+    pub fn classify_content(&self, content: &str, page: u32) -> ClassificationResult {
+        let classified = self.classifier.classify(content, page);
+        let mode_result = self.mode_classifier.classify(content);
+        let cross_refs: Vec<String> = self.cross_ref_extractor
+            .extract(content)
+            .iter()
+            .map(|r| format!("{}:{}", r.ref_type.as_str(), r.ref_target))
+            .collect();
+        let dice_result = self.dice_extractor.extract(content);
+        let dice_expressions: Vec<String> = dice_result
+            .expressions
+            .iter()
+            .map(|e| e.to_canonical())
+            .collect();
+
+        ClassificationResult {
+            element_type: classified.element_type.as_str().to_string(),
+            classification_confidence: classified.confidence,
+            content_mode: mode_result.mode.as_str().to_string(),
+            cross_refs,
+            dice_expressions,
+        }
+    }
+}
+
+/// Result of classifying content using the ClassificationContext.
+pub struct ClassificationResult {
+    pub element_type: String,
+    pub classification_confidence: f32,
+    pub content_mode: String,
+    pub cross_refs: Vec<String>,
+    pub dice_expressions: Vec<String>,
+}
+
+// ============================================================================
 // Source Slug Generation
 // ============================================================================
 
@@ -438,34 +505,27 @@ impl ChunkedDocument {
     /// - Cross-references (page, chapter, section links)
     /// - Dice expressions
     /// - Context-injected embedding content
-    pub fn with_enhanced_classification(mut self) -> Self {
-        // Classify element type
-        let classifier = TTRPGClassifier::new();
-        let classified = classifier.classify(&self.content, self.page_start);
-        self.element_type = Some(classified.element_type.as_str().to_string());
-        self.classification_confidence = Some(classified.confidence);
+    ///
+    /// Note: Creates new classifiers for each call. For batch processing,
+    /// prefer `with_classification_context()` which accepts a shared context.
+    pub fn with_enhanced_classification(self) -> Self {
+        let ctx = ClassificationContext::new();
+        self.with_classification_context(&ctx)
+    }
 
-        // Classify content mode (crunch/fluff/mixed)
-        let mode_classifier = ContentModeClassifier::new();
-        let mode_result = mode_classifier.classify(&self.content);
-        self.content_mode = Some(mode_result.mode.as_str().to_string());
+    /// Apply enhanced classification using a shared context.
+    ///
+    /// This is more efficient than `with_enhanced_classification()` when
+    /// processing multiple chunks, as the classifiers are created once
+    /// and reused across all chunks.
+    pub fn with_classification_context(mut self, ctx: &ClassificationContext) -> Self {
+        let result = ctx.classify_content(&self.content, self.page_start);
 
-        // Extract cross-references
-        let cross_ref_extractor = CrossReferenceExtractor::new();
-        let cross_refs = cross_ref_extractor.extract(&self.content);
-        self.cross_refs = cross_refs
-            .iter()
-            .map(|r| format!("{}:{}", r.ref_type.as_str(), r.ref_target))
-            .collect();
-
-        // Extract dice expressions
-        let dice_extractor = DiceExtractor::new();
-        let dice_result = dice_extractor.extract(&self.content);
-        self.dice_expressions = dice_result
-            .expressions
-            .iter()
-            .map(|e| e.to_canonical())
-            .collect();
+        self.element_type = Some(result.element_type);
+        self.classification_confidence = Some(result.classification_confidence);
+        self.content_mode = Some(result.content_mode);
+        self.cross_refs = result.cross_refs;
+        self.dice_expressions = result.dice_expressions;
 
         // Generate context-injected embedding content
         self.embedding_content = Some(self.generate_embedding_content());
@@ -1530,6 +1590,10 @@ impl MeilisearchPipeline {
 
         // Build SearchDocuments with rich TTRPG metadata for semantic embedding
         let now = Utc::now().to_rfc3339();
+
+        // Create shared classification context once for all chunks
+        let classification_ctx = ClassificationContext::new();
+
         let documents: Vec<SearchDocument> = chunks
             .into_iter()
             .enumerate()
@@ -1538,22 +1602,8 @@ impl MeilisearchPipeline {
                 let mechanic_type = detect_mechanic_type(&content).map(|s| s.to_string());
                 let semantic_keywords = extract_semantic_keywords(&content, 10);
 
-                // Classify content for v2 enhanced metadata
-                let classifier = TTRPGClassifier::new();
-                let classified = classifier.classify(&content, page.unwrap_or(1));
-                let mode_classifier = ContentModeClassifier::new();
-                let mode_result = mode_classifier.classify(&content);
-                let cross_ref_extractor = CrossReferenceExtractor::new();
-                let cross_refs: Vec<String> = cross_ref_extractor.extract(&content)
-                    .iter()
-                    .map(|r| format!("{}:{}", r.ref_type.as_str(), r.ref_target))
-                    .collect();
-                let dice_extractor = DiceExtractor::new();
-                let dice_result = dice_extractor.extract(&content);
-                let dice_expressions: Vec<String> = dice_result.expressions
-                    .iter()
-                    .map(|e| e.to_canonical())
-                    .collect();
+                // Classify content using shared context (avoids creating classifiers per chunk)
+                let classification = classification_ctx.classify_content(&content, page.unwrap_or(1));
 
                 SearchDocument {
                     id: format!("{}-{}", Uuid::new_v4(), i),
@@ -1575,20 +1625,20 @@ impl MeilisearchPipeline {
                     genre: ttrpg_metadata.genre.clone(),
                     publisher: ttrpg_metadata.publisher.clone(),
                     // Enhanced metadata (from MDMAI patterns)
-                    chunk_type: Some(classified.element_type.as_str().to_string()),
+                    chunk_type: Some(classification.element_type.clone()),
                     chapter_title: None, // Would be populated by TTRPGChunker with hierarchy
                     subsection_title: None, // Would be populated by TTRPGChunker with hierarchy
                     section_path: None, // Would be populated by TTRPGChunker with hierarchy
                     mechanic_type,
                     semantic_keywords,
                     // v2 enhanced TTRPG metadata
-                    element_type: Some(classified.element_type.as_str().to_string()),
+                    element_type: Some(classification.element_type),
                     section_depth: None,
                     parent_sections: Vec::new(),
-                    cross_refs,
-                    content_mode: Some(mode_result.mode.as_str().to_string()),
-                    dice_expressions,
-                    classification_confidence: Some(classified.confidence),
+                    cross_refs: classification.cross_refs,
+                    content_mode: Some(classification.content_mode),
+                    dice_expressions: classification.dice_expressions,
+                    classification_confidence: Some(classification.classification_confidence),
                     embedding_content: None, // Generated on-demand if needed
                 }
             })

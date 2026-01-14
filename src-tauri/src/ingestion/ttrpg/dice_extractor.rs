@@ -259,21 +259,6 @@ static DICE_EXPR_PATTERN: Lazy<Regex> = Lazy::new(|| {
     .expect("Failed to compile dice expression regex")
 });
 
-/// Pattern for complex dice expressions with multiple dice: "2d6 + 1d4 + 3"
-/// This matches the full expression including intermediate operators
-static COMPLEX_DICE_PATTERN: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(
-        r"(?ix)
-        (?:\d+)?d(?:\d+|%)              # First dice
-        (?:
-            \s*[+\-−–]\s*               # Operator
-            (?:\d+d(?:\d+|%)|\d+)       # Another dice or flat number
-        )+
-        ",
-    )
-    .expect("Failed to compile complex dice pattern regex")
-});
-
 /// Pattern for DC (Difficulty Class): "DC 15", "DC 18 Wisdom", "difficulty class 12"
 static DC_PATTERN: Lazy<Regex> = Lazy::new(|| {
     Regex::new(
@@ -314,48 +299,18 @@ static MODIFIER_PATTERN: Lazy<Regex> = Lazy::new(|| {
     .expect("Failed to compile modifier pattern regex")
 });
 
-/// Pattern for damage expressions: "2d6 + 3 fire damage", "1d8 radiant damage"
-static DAMAGE_PATTERN: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(
-        r"(?ix)
-        (?P<dice>(?:\d+)?d(?:\d+|%)(?:\s*[+\-−–]\s*\d+)?)
-        \s+
-        (?P<type>
-            fire|cold|lightning|thunder|acid|poison|necrotic|radiant|
-            force|psychic|bludgeoning|piercing|slashing|
-            healing|temporary\s+hit\s+points?
-        )?
-        \s*
-        damage
-        ",
-    )
-    .expect("Failed to compile damage pattern regex")
-});
-
 // ============================================================================
 // Extractor
 // ============================================================================
 
 /// Extracts dice notation, difficulty checks, and modifiers from text.
 #[derive(Debug, Clone, Default)]
-pub struct DiceExtractor {
-    /// Whether to extract complex multi-dice expressions as single units
-    extract_complex: bool,
-}
+pub struct DiceExtractor;
 
 impl DiceExtractor {
-    /// Create a new dice extractor with default settings.
+    /// Create a new dice extractor.
     pub fn new() -> Self {
-        Self {
-            extract_complex: true,
-        }
-    }
-
-    /// Create an extractor that only extracts simple dice expressions.
-    pub fn simple_only() -> Self {
-        Self {
-            extract_complex: false,
-        }
+        Self
     }
 
     /// Extract all dice-related content from text.
@@ -364,7 +319,15 @@ impl DiceExtractor {
 
         result.expressions = self.extract_dice_expressions(text);
         result.difficulty_checks = self.extract_difficulty_checks(text);
-        result.modifiers = self.extract_modifiers(text);
+
+        // Extract modifiers, filtering out those that overlap with dice expressions
+        // to prevent double-counting (e.g., "+3" in "2d6+3" should not also be a modifier)
+        let dice_ranges: Vec<(usize, usize)> = DICE_EXPR_PATTERN
+            .find_iter(text)
+            .map(|m| (m.start(), m.end()))
+            .collect();
+
+        result.modifiers = self.extract_modifiers_filtered(text, &dice_ranges);
 
         result
     }
@@ -442,13 +405,31 @@ impl DiceExtractor {
         checks
     }
 
-    /// Extract standalone modifiers from text.
-    fn extract_modifiers(&self, text: &str) -> Vec<StandaloneModifier> {
+    /// Extract standalone modifiers from text, filtering out those that overlap
+    /// with dice expression ranges to prevent double-counting.
+    fn extract_modifiers_filtered(
+        &self,
+        text: &str,
+        dice_ranges: &[(usize, usize)],
+    ) -> Vec<StandaloneModifier> {
         let mut modifiers = Vec::new();
 
         for caps in MODIFIER_PATTERN.captures_iter(text) {
-            let raw_text = caps.get(0).map(|m| m.as_str().to_string()).unwrap_or_default();
+            let full_match = match caps.get(0) {
+                Some(m) => m,
+                None => continue,
+            };
 
+            // Skip if this modifier overlaps with any dice expression
+            let overlaps_dice = dice_ranges.iter().any(|(start, end)| {
+                full_match.start() < *end && full_match.end() > *start
+            });
+
+            if overlaps_dice {
+                continue;
+            }
+
+            let raw_text = full_match.as_str().to_string();
             let sign = caps.name("sign").map(|m| m.as_str()).unwrap_or("+");
             let value: i32 = caps
                 .name("value")
