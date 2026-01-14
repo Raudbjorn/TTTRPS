@@ -6,8 +6,15 @@
 
 use crate::core::search_client::{SearchClient, SearchDocument, SearchError, LibraryDocumentMetadata};
 use crate::ingestion::kreuzberg_extractor::DocumentExtractor;
-use crate::ingestion::ttrpg::game_detector::{detect_game_system_with_confidence, GameSystem};
-use crate::ingestion::ttrpg::{detect_mechanic_type, extract_semantic_keywords};
+use crate::ingestion::ttrpg::game_detector::detect_game_system_with_confidence;
+use crate::ingestion::ttrpg::{
+    detect_mechanic_type, extract_semantic_keywords,
+    // v2 enhanced modules
+    TTRPGClassifier,
+    CrossReferenceExtractor,
+    ContentModeClassifier,
+    DiceExtractor,
+};
 use chrono::Utc;
 use std::collections::HashMap;
 use std::path::Path;
@@ -316,6 +323,46 @@ pub struct ChunkedDocument {
     pub mechanic_type: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub semantic_keywords: Vec<String>,
+
+    // =========================================================================
+    // Enhanced TTRPG Metadata (v2 - semantic chunking improvements)
+    // =========================================================================
+
+    /// Element type classification (stat_block, random_table, spell, etc.)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub element_type: Option<String>,
+
+    /// Full section hierarchy path (e.g., "Chapter 1 > Monsters > Goblins")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub section_path: Option<String>,
+
+    /// Numeric section depth (0 = root, 1 = chapter, 2 = section, etc.)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub section_depth: Option<u32>,
+
+    /// Parent section titles for breadcrumb navigation
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub parent_sections: Vec<String>,
+
+    /// Cross-references detected in this chunk (serialized JSON array)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub cross_refs: Vec<String>,
+
+    /// Content mode: crunch, fluff, mixed, example, optional, fiction
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content_mode: Option<String>,
+
+    /// Extracted dice expressions (e.g., ["2d6", "1d20+5"])
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub dice_expressions: Vec<String>,
+
+    /// Classification confidence score (0.0 to 1.0)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub classification_confidence: Option<f32>,
+
+    /// Context-injected content for embeddings (section path + type prefix)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub embedding_content: Option<String>,
 }
 
 impl ChunkedDocument {
@@ -356,6 +403,16 @@ impl ChunkedDocument {
             section_title: None,
             mechanic_type: None,
             semantic_keywords: Vec::new(),
+            // v2 enhanced metadata
+            element_type: None,
+            section_path: None,
+            section_depth: None,
+            parent_sections: Vec::new(),
+            cross_refs: Vec::new(),
+            content_mode: None,
+            dice_expressions: Vec::new(),
+            classification_confidence: None,
+            embedding_content: None,
         }
     }
 
@@ -371,6 +428,101 @@ impl ChunkedDocument {
         self.game_system_id = metadata.game_system_id.clone();
         self.content_category = metadata.content_category.clone();
         self
+    }
+
+    /// Apply enhanced classification and metadata extraction to this chunk.
+    ///
+    /// This uses the v2 semantic chunking modules to enrich the chunk with:
+    /// - Element type classification (stat block, table, spell, etc.)
+    /// - Content mode (crunch/fluff/mixed)
+    /// - Cross-references (page, chapter, section links)
+    /// - Dice expressions
+    /// - Context-injected embedding content
+    pub fn with_enhanced_classification(mut self) -> Self {
+        // Classify element type
+        let classifier = TTRPGClassifier::new();
+        let classified = classifier.classify(&self.content, self.page_start);
+        self.element_type = Some(classified.element_type.as_str().to_string());
+        self.classification_confidence = Some(classified.confidence);
+
+        // Classify content mode (crunch/fluff/mixed)
+        let mode_classifier = ContentModeClassifier::new();
+        let mode_result = mode_classifier.classify(&self.content);
+        self.content_mode = Some(mode_result.mode.as_str().to_string());
+
+        // Extract cross-references
+        let cross_ref_extractor = CrossReferenceExtractor::new();
+        let cross_refs = cross_ref_extractor.extract(&self.content);
+        self.cross_refs = cross_refs
+            .iter()
+            .map(|r| format!("{}:{}", r.ref_type.as_str(), r.ref_target))
+            .collect();
+
+        // Extract dice expressions
+        let dice_extractor = DiceExtractor::new();
+        let dice_result = dice_extractor.extract(&self.content);
+        self.dice_expressions = dice_result
+            .expressions
+            .iter()
+            .map(|e| e.to_canonical())
+            .collect();
+
+        // Generate context-injected embedding content
+        self.embedding_content = Some(self.generate_embedding_content());
+
+        self
+    }
+
+    /// Set section hierarchy information
+    pub fn with_section_hierarchy(
+        mut self,
+        path: Option<String>,
+        depth: Option<u32>,
+        parents: Vec<String>,
+    ) -> Self {
+        self.section_path = path;
+        self.section_depth = depth;
+        self.parent_sections = parents;
+        self
+    }
+
+    /// Generate context-injected content for better embeddings.
+    ///
+    /// Prepends structured context (section path, element type, game system)
+    /// to the chunk content to improve semantic search relevance.
+    pub fn generate_embedding_content(&self) -> String {
+        let mut context_parts = Vec::new();
+
+        // Add section path if available
+        if let Some(ref path) = self.section_path {
+            context_parts.push(format!("[Section: {}]", path));
+        } else if let Some(ref title) = self.section_title {
+            context_parts.push(format!("[Section: {}]", title));
+        }
+
+        // Add element type
+        if let Some(ref elem_type) = self.element_type {
+            context_parts.push(format!("[Type: {}]", elem_type));
+        }
+
+        // Add game system
+        if let Some(ref system) = self.game_system {
+            context_parts.push(format!("[System: {}]", system));
+        }
+
+        // Add content mode if not generic
+        if let Some(ref mode) = self.content_mode {
+            if mode != "mixed" {
+                context_parts.push(format!("[Mode: {}]", mode));
+            }
+        }
+
+        // Combine context with content
+        if context_parts.is_empty() {
+            self.content.clone()
+        } else {
+            format!("{} {}", context_parts.join(" "), self.content)
+        }
     }
 }
 
@@ -1224,13 +1376,15 @@ impl MeilisearchPipeline {
 
             // If we have content and would exceed, save current chunk
             if !current_content.is_empty() && would_exceed {
-                // Create chunk from accumulated content
+                // Create chunk from accumulated content with v2 enhanced metadata
                 let chunk = ChunkedDocument::new(
                     slug,
                     chunk_index,
                     std::mem::take(&mut current_content),
                     std::mem::take(&mut current_source_ids),
-                ).with_ttrpg_metadata(metadata);
+                )
+                .with_ttrpg_metadata(metadata)
+                .with_enhanced_classification();
 
                 chunks.push(chunk);
                 chunk_index += 1;
@@ -1254,7 +1408,9 @@ impl MeilisearchPipeline {
                     chunk_index,
                     chunk_content,
                     current_source_ids.clone(), // Same source IDs for split chunks
-                ).with_ttrpg_metadata(metadata);
+                )
+                .with_ttrpg_metadata(metadata)
+                .with_enhanced_classification();
 
                 chunks.push(chunk);
                 chunk_index += 1;
@@ -1272,7 +1428,9 @@ impl MeilisearchPipeline {
                 chunk_index,
                 current_content,
                 current_source_ids,
-            ).with_ttrpg_metadata(metadata);
+            )
+            .with_ttrpg_metadata(metadata)
+            .with_enhanced_classification();
             chunks.push(chunk);
         }
 
@@ -1380,9 +1538,26 @@ impl MeilisearchPipeline {
                 let mechanic_type = detect_mechanic_type(&content).map(|s| s.to_string());
                 let semantic_keywords = extract_semantic_keywords(&content, 10);
 
+                // Classify content for v2 enhanced metadata
+                let classifier = TTRPGClassifier::new();
+                let classified = classifier.classify(&content, page.unwrap_or(1));
+                let mode_classifier = ContentModeClassifier::new();
+                let mode_result = mode_classifier.classify(&content);
+                let cross_ref_extractor = CrossReferenceExtractor::new();
+                let cross_refs: Vec<String> = cross_ref_extractor.extract(&content)
+                    .iter()
+                    .map(|r| format!("{}:{}", r.ref_type.as_str(), r.ref_target))
+                    .collect();
+                let dice_extractor = DiceExtractor::new();
+                let dice_result = dice_extractor.extract(&content);
+                let dice_expressions: Vec<String> = dice_result.expressions
+                    .iter()
+                    .map(|e| e.to_canonical())
+                    .collect();
+
                 SearchDocument {
                     id: format!("{}-{}", Uuid::new_v4(), i),
-                    content,
+                    content: content.clone(),
                     source: source_name.clone(),
                     source_type: source_type.to_string(),
                     page_number: page,
@@ -1400,12 +1575,21 @@ impl MeilisearchPipeline {
                     genre: ttrpg_metadata.genre.clone(),
                     publisher: ttrpg_metadata.publisher.clone(),
                     // Enhanced metadata (from MDMAI patterns)
-                    chunk_type: Some("text".to_string()), // Default; would be classified by TTRPGChunker
+                    chunk_type: Some(classified.element_type.as_str().to_string()),
                     chapter_title: None, // Would be populated by TTRPGChunker with hierarchy
                     subsection_title: None, // Would be populated by TTRPGChunker with hierarchy
                     section_path: None, // Would be populated by TTRPGChunker with hierarchy
                     mechanic_type,
                     semantic_keywords,
+                    // v2 enhanced TTRPG metadata
+                    element_type: Some(classified.element_type.as_str().to_string()),
+                    section_depth: None,
+                    parent_sections: Vec::new(),
+                    cross_refs,
+                    content_mode: Some(mode_result.mode.as_str().to_string()),
+                    dice_expressions,
+                    classification_confidence: Some(classified.confidence),
+                    embedding_content: None, // Generated on-demand if needed
                 }
             })
             .collect();
