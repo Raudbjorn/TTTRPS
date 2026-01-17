@@ -205,14 +205,15 @@ impl<S: TokenStorage> OAuthFlow<S> {
         let state = generate_state();
 
         let mut url = Url::parse(&self.config.authorize_url)?;
+        // Parameters must be in alphabetical order for Claude's OAuth endpoint
         url.query_pairs_mut()
-            .append_pair("code", "true")
-            .append_pair("response_type", "code")
             .append_pair("client_id", &self.config.client_id)
-            .append_pair("redirect_uri", &self.config.redirect_uri)
-            .append_pair("scope", &self.config.scopes.join(" "))
+            .append_pair("code", "true")
             .append_pair("code_challenge", &pkce.challenge)
             .append_pair("code_challenge_method", pkce.method)
+            .append_pair("redirect_uri", &self.config.redirect_uri)
+            .append_pair("response_type", "code")
+            .append_pair("scope", &self.config.scopes.join(" "))
             .append_pair("state", &state);
 
         let flow_state = OAuthFlowState {
