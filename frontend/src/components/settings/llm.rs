@@ -263,6 +263,8 @@ pub fn LLMSettingsView() -> impl IntoView {
     let claude_gate_status = RwSignal::new(ClaudeGateStatus::default());
     let claude_gate_loading = RwSignal::new(false);
     let claude_gate_storage = RwSignal::new(ClaudeGateStorageBackend::Auto);
+    let claude_gate_auth_code = RwSignal::new(String::new());
+    let claude_gate_awaiting_code = RwSignal::new(false);
 
     // Proxy status
     let proxy_running = RwSignal::new(false);
@@ -386,6 +388,17 @@ pub fn LLMSettingsView() -> impl IntoView {
             // Check Gemini CLI extension status
             if let Ok(ext_status) = check_gemini_cli_extension().await {
                 gemini_cli_extension.set(ext_status);
+            }
+
+            // Check Claude Gate OAuth status
+            match claude_gate_get_status().await {
+                Ok(status) => {
+                    statuses.insert("claude-gate".to_string(), status.authenticated);
+                    claude_gate_status.set(status);
+                }
+                Err(_) => {
+                    statuses.insert("claude-gate".to_string(), false);
+                }
             }
 
             provider_statuses.set(statuses);
@@ -1010,73 +1023,141 @@ pub fn LLMSettingsView() -> impl IntoView {
                                                 </select>
                                             </div>
 
-                                            // Action buttons
-                                            <div class="flex flex-wrap gap-2 pt-2">
+                                            // Action buttons and auth code input
+                                            <div class="flex flex-col gap-3 pt-2">
+                                                // Auth code input (shown when awaiting code)
                                                 {move || {
-                                                    let s = claude_gate_status.get();
-                                                    let loading = claude_gate_loading.get();
-                                                    if !s.authenticated {
+                                                    if claude_gate_awaiting_code.get() {
                                                         view! {
-                                                            <button
-                                                                class="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--accent-primary)] text-white hover:opacity-90 transition-opacity disabled:opacity-50"
-                                                                disabled=loading
-                                                                on:click=move |_| {
-                                                                    spawn_local(async move {
-                                                                        claude_gate_loading.set(true);
-                                                                        match claude_gate_start_oauth().await {
-                                                                            Ok(url) => {
-                                                                                // Open browser to authorization URL
-                                                                                if let Some(window) = web_sys::window() {
-                                                                                    if window.open_with_url(&url).is_err() {
-                                                                                        show_error("Browser Open Failed", Some("Could not open the authentication URL."), None);
-                                                                                    } else {
-                                                                                        show_success("Login Started", Some("Complete authentication in your browser"));
-                                                                                    }
-                                                                                } else {
-                                                                                    show_error("Browser Open Failed", Some("Could not access browser window."), None);
-                                                                                }
-                                                                            }
-                                                                            Err(e) => show_error("OAuth Failed", Some(&e), None),
+                                                            <div class="flex flex-col gap-2 p-3 rounded-lg bg-[var(--bg-elevated)] border border-[var(--border-subtle)]">
+                                                                <p class="text-xs text-[var(--text-secondary)]">
+                                                                    "After authorizing in your browser, paste the authorization code here:"
+                                                                </p>
+                                                                <div class="flex gap-2">
+                                                                    <input
+                                                                        type="text"
+                                                                        placeholder="Paste authorization code..."
+                                                                        class="flex-1 px-3 py-1.5 text-sm rounded-lg bg-[var(--bg-deep)] border border-[var(--border-subtle)] text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--accent-primary)]"
+                                                                        prop:value=move || claude_gate_auth_code.get()
+                                                                        on:input=move |ev| {
+                                                                            claude_gate_auth_code.set(event_target_value(&ev));
                                                                         }
-                                                                        claude_gate_loading.set(false);
-                                                                    });
-                                                                }
-                                                            >
-                                                                "Login with Claude"
-                                                            </button>
+                                                                    />
+                                                                    <button
+                                                                        class="px-3 py-1.5 text-xs font-medium rounded-lg bg-green-500/20 text-green-400 hover:bg-green-500/30 transition-colors disabled:opacity-50"
+                                                                        disabled=move || claude_gate_loading.get() || claude_gate_auth_code.get().is_empty()
+                                                                        on:click=move |_| {
+                                                                            let code = claude_gate_auth_code.get();
+                                                                            spawn_local(async move {
+                                                                                claude_gate_loading.set(true);
+                                                                                match claude_gate_complete_oauth(code, None).await {
+                                                                                    Ok(result) => {
+                                                                                        if result.success {
+                                                                                            show_success("Login Complete", Some("Successfully authenticated with Claude"));
+                                                                                            claude_gate_awaiting_code.set(false);
+                                                                                            claude_gate_auth_code.set(String::new());
+                                                                                            refresh_claude_gate_status();
+                                                                                        } else {
+                                                                                            show_error("OAuth Failed", result.error.as_deref(), None);
+                                                                                        }
+                                                                                    }
+                                                                                    Err(e) => show_error("OAuth Failed", Some(&e), None),
+                                                                                }
+                                                                                claude_gate_loading.set(false);
+                                                                            });
+                                                                        }
+                                                                    >
+                                                                        "Complete Login"
+                                                                    </button>
+                                                                    <button
+                                                                        class="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--bg-surface)] text-[var(--text-muted)] hover:bg-[var(--bg-elevated)] transition-colors"
+                                                                        on:click=move |_| {
+                                                                            claude_gate_awaiting_code.set(false);
+                                                                            claude_gate_auth_code.set(String::new());
+                                                                        }
+                                                                    >
+                                                                        "Cancel"
+                                                                    </button>
+                                                                </div>
+                                                            </div>
                                                         }.into_any()
                                                     } else {
-                                                        view! {
-                                                            <button
-                                                                class="px-3 py-1.5 text-xs font-medium rounded-lg bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors disabled:opacity-50"
-                                                                disabled=loading
-                                                                on:click=move |_| {
-                                                                    spawn_local(async move {
-                                                                        claude_gate_loading.set(true);
-                                                                        match claude_gate_logout().await {
-                                                                            Ok(_) => {
-                                                                                show_success("Logged Out", None);
-                                                                                refresh_claude_gate_status();
-                                                                            }
-                                                                            Err(e) => show_error("Logout Failed", Some(&e), None),
-                                                                        }
-                                                                        claude_gate_loading.set(false);
-                                                                    });
-                                                                }
-                                                            >
-                                                                "Logout"
-                                                            </button>
-                                                        }.into_any()
+                                                        view! { <span /> }.into_any()
                                                     }
                                                 }}
 
-                                                <button
-                                                    class="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--bg-elevated)] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] transition-colors disabled:opacity-50"
-                                                    disabled=move || claude_gate_loading.get()
-                                                    on:click=move |_| refresh_claude_gate_status()
-                                                >
-                                                    {move || if claude_gate_loading.get() { "Checking..." } else { "Refresh Status" }}
-                                                </button>
+                                                // Main action buttons
+                                                <div class="flex flex-wrap gap-2">
+                                                    {move || {
+                                                        let s = claude_gate_status.get();
+                                                        let loading = claude_gate_loading.get();
+                                                        let awaiting = claude_gate_awaiting_code.get();
+                                                        if !s.authenticated && !awaiting {
+                                                            view! {
+                                                                <button
+                                                                    class="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--accent-primary)] text-white hover:opacity-90 transition-opacity disabled:opacity-50"
+                                                                    disabled=loading
+                                                                    on:click=move |_| {
+                                                                        spawn_local(async move {
+                                                                            claude_gate_loading.set(true);
+                                                                            match claude_gate_start_oauth().await {
+                                                                                Ok(url) => {
+                                                                                    // Open browser to authorization URL
+                                                                                    if let Some(window) = web_sys::window() {
+                                                                                        if window.open_with_url(&url).is_err() {
+                                                                                            show_error("Browser Open Failed", Some("Could not open the authentication URL."), None);
+                                                                                        } else {
+                                                                                            show_success("Login Started", Some("Complete authentication in your browser, then paste the code below"));
+                                                                                            claude_gate_awaiting_code.set(true);
+                                                                                        }
+                                                                                    } else {
+                                                                                        show_error("Browser Open Failed", Some("Could not access browser window."), None);
+                                                                                    }
+                                                                                }
+                                                                                Err(e) => show_error("OAuth Failed", Some(&e), None),
+                                                                            }
+                                                                            claude_gate_loading.set(false);
+                                                                        });
+                                                                    }
+                                                                >
+                                                                    "Login with Claude"
+                                                                </button>
+                                                            }.into_any()
+                                                        } else if s.authenticated {
+                                                            view! {
+                                                                <button
+                                                                    class="px-3 py-1.5 text-xs font-medium rounded-lg bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors disabled:opacity-50"
+                                                                    disabled=loading
+                                                                    on:click=move |_| {
+                                                                        spawn_local(async move {
+                                                                            claude_gate_loading.set(true);
+                                                                            match claude_gate_logout().await {
+                                                                                Ok(_) => {
+                                                                                    show_success("Logged Out", None);
+                                                                                    refresh_claude_gate_status();
+                                                                                }
+                                                                                Err(e) => show_error("Logout Failed", Some(&e), None),
+                                                                            }
+                                                                            claude_gate_loading.set(false);
+                                                                        });
+                                                                    }
+                                                                >
+                                                                    "Logout"
+                                                                </button>
+                                                            }.into_any()
+                                                        } else {
+                                                            view! { <span /> }.into_any()
+                                                        }
+                                                    }}
+
+                                                    <button
+                                                        class="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--bg-elevated)] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] transition-colors disabled:opacity-50"
+                                                        disabled=move || claude_gate_loading.get()
+                                                        on:click=move |_| refresh_claude_gate_status()
+                                                    >
+                                                        {move || if claude_gate_loading.get() { "Checking..." } else { "Refresh Status" }}
+                                                    </button>
+                                                </div>
                                             </div>
 
                                             // Link to extraction settings

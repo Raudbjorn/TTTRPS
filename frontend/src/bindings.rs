@@ -4872,14 +4872,21 @@ pub async fn claude_gate_start_oauth() -> Result<String, String> {
     invoke_no_args("claude_gate_start_oauth").await
 }
 
+/// Response from completing OAuth flow
+#[derive(Debug, Clone, Deserialize)]
+pub struct ClaudeGateOAuthCompleteResponse {
+    pub success: bool,
+    pub error: Option<String>,
+}
+
 /// Complete OAuth flow with authorization code
-pub async fn claude_gate_complete_oauth(code: String, state: Option<String>) -> Result<(), String> {
+pub async fn claude_gate_complete_oauth(code: String, oauth_state: Option<String>) -> Result<ClaudeGateOAuthCompleteResponse, String> {
     #[derive(Serialize)]
     struct Args {
         code: String,
-        state: Option<String>,
+        oauth_state: Option<String>,
     }
-    invoke_void("claude_gate_complete_oauth", &Args { code, state }).await
+    invoke("claude_gate_complete_oauth", &Args { code, oauth_state }).await
 }
 
 /// Logout from Claude Gate (remove stored token)
