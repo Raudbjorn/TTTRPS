@@ -211,14 +211,14 @@ pub fn ExtractionSettingsView() -> impl IntoView {
                                                     is_loading.set(true);
                                                     match claude_gate_start_oauth().await {
                                                         Ok(url) => {
-                                                            if let Err(_) = web_sys::window()
-                                                                .and_then(|w| w.open_with_url(&url).ok())
-                                                                .flatten()
-                                                                .ok_or("Failed")
-                                                            {
-                                                                show_error("Browser Open Failed", None, None);
+                                                            if let Some(window) = web_sys::window() {
+                                                                if window.open_with_url(&url).is_err() {
+                                                                    show_error("Browser Open Failed", Some("Could not open the authentication URL."), None);
+                                                                } else {
+                                                                    show_success("Login Started", Some("Complete authentication in your browser"));
+                                                                }
                                                             } else {
-                                                                show_success("Login Started", Some("Complete authentication in your browser"));
+                                                                show_error("Browser Open Failed", Some("Could not access browser window."), None);
                                                             }
                                                         }
                                                         Err(e) => show_error("OAuth Failed", Some(&e), None),
