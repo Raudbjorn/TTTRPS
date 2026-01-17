@@ -4710,9 +4710,31 @@ pub enum OcrBackend {
     Disabled,
 }
 
+/// Text extraction provider selection
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum TextExtractionProvider {
+    /// Use kreuzberg for fast local extraction (default)
+    #[default]
+    Kreuzberg,
+    /// Use Claude API for extraction (better quality, requires API auth)
+    ClaudeGate,
+}
+
+impl TextExtractionProvider {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Kreuzberg => "kreuzberg",
+            Self::ClaudeGate => "claude_gate",
+        }
+    }
+}
+
 /// Document extraction settings
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExtractionSettings {
+    // Provider Settings
+    pub text_extraction_provider: TextExtractionProvider,
     // OCR Settings
     pub ocr_enabled: bool,
     pub ocr_backend: OcrBackend,
@@ -4734,11 +4756,15 @@ pub struct ExtractionSettings {
     // Caching
     pub use_cache: bool,
     pub max_concurrent_extractions: usize,
+    // Large PDF Handling
+    pub large_pdf_page_threshold: usize,
+    pub large_pdf_chunk_size: usize,
 }
 
 impl Default for ExtractionSettings {
     fn default() -> Self {
         Self {
+            text_extraction_provider: TextExtractionProvider::default(),
             ocr_enabled: true,
             ocr_backend: OcrBackend::External,
             force_ocr: false,
@@ -4754,6 +4780,8 @@ impl Default for ExtractionSettings {
             max_image_dimension: 4096,
             use_cache: true,
             max_concurrent_extractions: 4,
+            large_pdf_page_threshold: 500,
+            large_pdf_chunk_size: 100,
         }
     }
 }
@@ -4855,9 +4883,9 @@ pub struct ClaudeGateStatus {
     /// Storage backend being used
     pub storage_backend: String,
     /// Token expiration timestamp (Unix seconds)
-    pub expires_at: Option<i64>,
+    pub token_expires_at: Option<i64>,
     /// Human-readable time until expiry
-    pub expires_in_human: Option<String>,
+    pub expiration_display: Option<String>,
     /// Error message if any
     pub error: Option<String>,
 }
@@ -4867,8 +4895,17 @@ pub async fn claude_gate_get_status() -> Result<ClaudeGateStatus, String> {
     invoke_no_args("claude_gate_get_status").await
 }
 
-/// Start OAuth flow - returns the authorization URL to open in browser
-pub async fn claude_gate_start_oauth() -> Result<String, String> {
+/// Response from starting OAuth flow
+#[derive(Debug, Clone, Deserialize)]
+pub struct ClaudeGateOAuthStartResponse {
+    /// URL to open in user's browser for OAuth authorization
+    pub auth_url: String,
+    /// State parameter for CSRF protection (pass back to complete_oauth)
+    pub state: String,
+}
+
+/// Start OAuth flow - returns the authorization URL and CSRF state
+pub async fn claude_gate_start_oauth() -> Result<ClaudeGateOAuthStartResponse, String> {
     invoke_no_args("claude_gate_start_oauth").await
 }
 

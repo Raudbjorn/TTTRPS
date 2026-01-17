@@ -8,40 +8,24 @@ use wasm_bindgen_futures::spawn_local;
 
 use crate::bindings::{
     claude_gate_get_status, claude_gate_start_oauth, claude_gate_complete_oauth,
-    claude_gate_logout, ClaudeGateStatus,
+    claude_gate_logout, ClaudeGateStatus, ClaudeGateOAuthStartResponse,
+    get_extraction_settings, save_extraction_settings, ExtractionSettings, TextExtractionProvider,
 };
 use crate::components::design_system::{Card, Badge, BadgeVariant};
 use crate::services::notification_service::{show_error, show_success};
-
-/// Extraction provider options
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
-pub enum ExtractionProvider {
-    /// Kreuzberg - local extraction with bundled pdfium
-    #[default]
-    Kreuzberg,
-    /// Claude Gate - uses Claude API for extraction
-    ClaudeGate,
-}
-
-impl std::fmt::Display for ExtractionProvider {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ExtractionProvider::Kreuzberg => write!(f, "Kreuzberg"),
-            ExtractionProvider::ClaudeGate => write!(f, "Claude Gate"),
-        }
-    }
-}
 
 /// Settings view for text extraction providers.
 #[component]
 pub fn ExtractionSettingsView() -> impl IntoView {
     // State
-    let selected_provider = RwSignal::new(ExtractionProvider::Kreuzberg);
+    let selected_provider = RwSignal::new(TextExtractionProvider::Kreuzberg);
+    let extraction_settings = RwSignal::new(ExtractionSettings::default());
     let claude_gate_status = RwSignal::new(ClaudeGateStatus::default());
     let is_loading = RwSignal::new(false);
     let auth_code = RwSignal::new(String::new());
     let awaiting_code = RwSignal::new(false);
     let oauth_url = RwSignal::new(Option::<String>::None);
+    let oauth_csrf_state = RwSignal::new(Option::<String>::None);
 
     // Refresh Claude Gate status
     let refresh_status = move || {
@@ -55,8 +39,31 @@ pub fn ExtractionSettingsView() -> impl IntoView {
         });
     };
 
-    // Initial load
+    // Save provider selection to backend
+    let save_provider = move |provider: TextExtractionProvider| {
+        spawn_local(async move {
+            // Get current settings, update provider, and save
+            match get_extraction_settings().await {
+                Ok(mut settings) => {
+                    settings.text_extraction_provider = provider;
+                    if let Err(e) = save_extraction_settings(settings).await {
+                        show_error("Save Failed", Some(&e), None);
+                    }
+                }
+                Err(e) => show_error("Load Settings Failed", Some(&e), None),
+            }
+        });
+    };
+
+    // Initial load - get extraction settings and Claude Gate status
     Effect::new(move |_| {
+        spawn_local(async move {
+            // Load extraction settings
+            if let Ok(settings) = get_extraction_settings().await {
+                selected_provider.set(settings.text_extraction_provider);
+                extraction_settings.set(settings);
+            }
+        });
         refresh_status();
     });
 
@@ -76,13 +83,16 @@ pub fn ExtractionSettingsView() -> impl IntoView {
                     <button
                         class=move || format!(
                             "relative p-4 rounded-xl border-2 text-left transition-all duration-300 hover:scale-[1.02] group {}",
-                            if selected_provider.get() == ExtractionProvider::Kreuzberg {
+                            if selected_provider.get() == TextExtractionProvider::Kreuzberg {
                                 "border-[var(--accent-primary)] bg-[var(--bg-elevated)] ring-2 ring-[var(--accent-primary)]/20 shadow-lg"
                             } else {
                                 "border-[var(--border-subtle)] hover:border-[var(--border-strong)] bg-[var(--bg-surface)] hover:bg-[var(--bg-elevated)]"
                             }
                         )
-                        on:click=move |_| selected_provider.set(ExtractionProvider::Kreuzberg)
+                        on:click=move |_| {
+                            selected_provider.set(TextExtractionProvider::Kreuzberg);
+                            save_provider(TextExtractionProvider::Kreuzberg);
+                        }
                     >
                         <div class="flex items-center justify-between mb-2">
                             <span class="font-medium text-[var(--text-primary)] group-hover:text-[var(--accent-primary)] transition-colors">
@@ -101,7 +111,7 @@ pub fn ExtractionSettingsView() -> impl IntoView {
                         </div>
 
                         // Active indicator
-                        {move || if selected_provider.get() == ExtractionProvider::Kreuzberg {
+                        {move || if selected_provider.get() == TextExtractionProvider::Kreuzberg {
                             view! {
                                 <div class="absolute top-3 right-3 text-[var(--accent-primary)] animate-fade-in">
                                     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -119,13 +129,16 @@ pub fn ExtractionSettingsView() -> impl IntoView {
                     <button
                         class=move || format!(
                             "relative p-4 rounded-xl border-2 text-left transition-all duration-300 hover:scale-[1.02] group {}",
-                            if selected_provider.get() == ExtractionProvider::ClaudeGate {
+                            if selected_provider.get() == TextExtractionProvider::ClaudeGate {
                                 "border-orange-400 bg-[var(--bg-elevated)] ring-2 ring-orange-400/20 shadow-lg"
                             } else {
                                 "border-[var(--border-subtle)] hover:border-[var(--border-strong)] bg-[var(--bg-surface)] hover:bg-[var(--bg-elevated)]"
                             }
                         )
-                        on:click=move |_| selected_provider.set(ExtractionProvider::ClaudeGate)
+                        on:click=move |_| {
+                            selected_provider.set(TextExtractionProvider::ClaudeGate);
+                            save_provider(TextExtractionProvider::ClaudeGate);
+                        }
                     >
                         <div class="flex items-center justify-between mb-2">
                             <span class="font-medium text-[var(--text-primary)] group-hover:text-orange-400 transition-colors">
@@ -147,7 +160,7 @@ pub fn ExtractionSettingsView() -> impl IntoView {
                         </div>
 
                         // Active indicator
-                        {move || if selected_provider.get() == ExtractionProvider::ClaudeGate {
+                        {move || if selected_provider.get() == TextExtractionProvider::ClaudeGate {
                             view! {
                                 <div class="absolute top-3 right-3 text-orange-400 animate-fade-in">
                                     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -164,7 +177,7 @@ pub fn ExtractionSettingsView() -> impl IntoView {
             </Card>
 
             // Claude Gate Authentication Section (shown when Claude Gate is selected)
-            {move || if selected_provider.get() == ExtractionProvider::ClaudeGate {
+            {move || if selected_provider.get() == TextExtractionProvider::ClaudeGate {
                 let status = claude_gate_status.get();
                 view! {
                     <Card class="p-6 space-y-4 border-orange-400/30">
@@ -173,7 +186,7 @@ pub fn ExtractionSettingsView() -> impl IntoView {
                             {if status.authenticated {
                                 view! {
                                     <Badge variant=BadgeVariant::Success>
-                                        {status.expires_in_human.clone().unwrap_or_else(|| "Authenticated".to_string())}
+                                        {status.expiration_display.clone().unwrap_or_else(|| "Authenticated".to_string())}
                                     </Badge>
                                 }.into_any()
                             } else {
@@ -266,15 +279,17 @@ pub fn ExtractionSettingsView() -> impl IntoView {
                                                     disabled=move || is_loading.get() || auth_code.get().is_empty()
                                                     on:click=move |_| {
                                                         let code = auth_code.get();
+                                                        let csrf_state = oauth_csrf_state.get();
                                                         spawn_local(async move {
                                                             is_loading.set(true);
-                                                            match claude_gate_complete_oauth(code, None).await {
+                                                            match claude_gate_complete_oauth(code, csrf_state).await {
                                                                 Ok(result) => {
                                                                     if result.success {
                                                                         show_success("Login Complete", Some("Successfully authenticated with Claude"));
                                                                         awaiting_code.set(false);
                                                                         auth_code.set(String::new());
                                                                         oauth_url.set(None);
+                                                                        oauth_csrf_state.set(None);
                                                                         refresh_status();
                                                                     } else {
                                                                         show_error("OAuth Failed", result.error.as_deref(), None);
@@ -294,6 +309,7 @@ pub fn ExtractionSettingsView() -> impl IntoView {
                                                         awaiting_code.set(false);
                                                         auth_code.set(String::new());
                                                         oauth_url.set(None);
+                                                        oauth_csrf_state.set(None);
                                                     }
                                                 >
                                                     "Cancel"
@@ -321,11 +337,13 @@ pub fn ExtractionSettingsView() -> impl IntoView {
                                                     spawn_local(async move {
                                                         is_loading.set(true);
                                                         match claude_gate_start_oauth().await {
-                                                            Ok(url) => {
+                                                            Ok(response) => {
                                                                 // Store URL for display if popup is blocked
-                                                                oauth_url.set(Some(url.clone()));
+                                                                oauth_url.set(Some(response.auth_url.clone()));
+                                                                // Store CSRF state for verification
+                                                                oauth_csrf_state.set(Some(response.state));
                                                                 if let Some(window) = web_sys::window() {
-                                                                    match window.open_with_url(&url) {
+                                                                    match window.open_with_url(&response.auth_url) {
                                                                         Ok(Some(_)) => {
                                                                             show_success("Login Started", Some("Complete authentication in your browser, then paste the code below"));
                                                                             awaiting_code.set(true);

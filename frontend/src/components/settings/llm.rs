@@ -16,7 +16,7 @@ use crate::bindings::{
     // Claude Gate OAuth
     claude_gate_get_status, claude_gate_start_oauth, claude_gate_complete_oauth,
     claude_gate_logout, claude_gate_set_storage_backend,
-    ClaudeGateStatus, ClaudeGateStorageBackend,
+    ClaudeGateStatus, ClaudeGateStorageBackend, ClaudeGateOAuthStartResponse,
     // Gemini CLI
     check_gemini_cli_status, launch_gemini_cli_login, check_gemini_cli_extension,
     install_gemini_cli_extension, GeminiCliStatus, GeminiCliExtensionStatus,
@@ -332,6 +332,7 @@ pub fn LLMSettingsView() -> impl IntoView {
     let claude_gate_auth_code = RwSignal::new(String::new());
     let claude_gate_awaiting_code = RwSignal::new(false);
     let claude_gate_oauth_url = RwSignal::new(Option::<String>::None);
+    let claude_gate_csrf_state = RwSignal::new(Option::<String>::None);
 
     // Consolidated UI state derived from individual signals.
     // This provides a state machine view for cleaner conditional logic.
@@ -1071,7 +1072,7 @@ pub fn LLMSettingsView() -> impl IntoView {
                                                 <div class="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium bg-blue-500/20 text-blue-400">
                                                     {move || format!("Storage: {}", claude_gate_status.get().storage_backend)}
                                                 </div>
-                                                {move || claude_gate_status.get().expires_in_human.map(|exp| view! {
+                                                {move || claude_gate_status.get().expiration_display.map(|exp| view! {
                                                     <div class="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium bg-gray-500/20 text-gray-400">
                                                         {format!("Expires: {}", exp)}
                                                     </div>
@@ -1183,15 +1184,17 @@ pub fn LLMSettingsView() -> impl IntoView {
                                                                         disabled=move || claude_gate_loading.get() || claude_gate_auth_code.get().is_empty()
                                                                         on:click=move |_| {
                                                                             let code = claude_gate_auth_code.get();
+                                                                            let csrf_state = claude_gate_csrf_state.get();
                                                                             spawn_local(async move {
                                                                                 claude_gate_loading.set(true);
-                                                                                match claude_gate_complete_oauth(code, None).await {
+                                                                                match claude_gate_complete_oauth(code, csrf_state).await {
                                                                                     Ok(result) => {
                                                                                         if result.success {
                                                                                             show_success("Login Complete", Some("Successfully authenticated with Claude"));
                                                                                             claude_gate_awaiting_code.set(false);
                                                                                             claude_gate_auth_code.set(String::new());
                                                                                             claude_gate_oauth_url.set(None);
+                                                                                            claude_gate_csrf_state.set(None);
                                                                                             refresh_claude_gate_status();
                                                                                         } else {
                                                                                             show_error("OAuth Failed", result.error.as_deref(), None);
@@ -1211,6 +1214,7 @@ pub fn LLMSettingsView() -> impl IntoView {
                                                                             claude_gate_awaiting_code.set(false);
                                                                             claude_gate_auth_code.set(String::new());
                                                                             claude_gate_oauth_url.set(None);
+                                                                            claude_gate_csrf_state.set(None);
                                                                         }
                                                                     >
                                                                         "Cancel"
@@ -1238,12 +1242,14 @@ pub fn LLMSettingsView() -> impl IntoView {
                                                                         spawn_local(async move {
                                                                             claude_gate_loading.set(true);
                                                                             match claude_gate_start_oauth().await {
-                                                                                Ok(url) => {
+                                                                                Ok(response) => {
                                                                                     // Store URL for display if popup is blocked
-                                                                                    claude_gate_oauth_url.set(Some(url.clone()));
+                                                                                    claude_gate_oauth_url.set(Some(response.auth_url.clone()));
+                                                                                    // Store CSRF state for verification
+                                                                                    claude_gate_csrf_state.set(Some(response.state));
                                                                                     // Open browser to authorization URL
                                                                                     if let Some(window) = web_sys::window() {
-                                                                                        match window.open_with_url(&url) {
+                                                                                        match window.open_with_url(&response.auth_url) {
                                                                                             Ok(Some(_)) => {
                                                                                                 show_success("Login Started", Some("Complete authentication in your browser, then paste the code below"));
                                                                                                 claude_gate_awaiting_code.set(true);
