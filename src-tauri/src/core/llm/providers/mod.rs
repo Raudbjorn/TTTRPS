@@ -165,7 +165,7 @@ impl ProviderConfig {
                 Arc::new(GeminiCliProvider::with_config(model.clone(), *timeout_secs))
             }
             ProviderConfig::ClaudeGate { storage_backend, model, max_tokens } => {
-                // Attempt to create the provider; panic on failure since we're in a non-async context
+                // Attempt to create the provider; fall back to memory storage on failure
                 // In practice, the caller should validate configuration beforehand
                 match ClaudeGateProvider::from_storage_name(storage_backend, model.clone(), *max_tokens) {
                     Ok(provider) => Arc::new(provider),

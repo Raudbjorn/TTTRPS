@@ -580,9 +580,13 @@ impl ClaudeGateProvider {
             "memory" => StorageBackend::Memory,
             "auto" => StorageBackend::Auto,
             _ => {
+                #[cfg(feature = "keyring")]
+                let valid_options = "file, keyring, memory, auto";
+                #[cfg(not(feature = "keyring"))]
+                let valid_options = "file, memory, auto";
                 return Err(LLMError::NotConfigured(format!(
-                    "Unknown storage backend: {}. Valid options: file, keyring, memory, auto",
-                    name
+                    "Unknown storage backend: {}. Valid options: {}",
+                    name, valid_options
                 )));
             }
         };
