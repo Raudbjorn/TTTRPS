@@ -64,8 +64,9 @@ pub struct ClaudeClient<S: TokenStorage> {
     http_client: reqwest::Client,
     /// Base URL for API requests.
     base_url: String,
-    /// Cached access token (for performance).
-    cached_token: Arc<RwLock<Option<String>>>,
+    /// Cached token info (for performance and proactive refresh).
+    /// Stores the full TokenInfo to enable checking `needs_refresh()`.
+    cached_token: Arc<RwLock<Option<TokenInfo>>>,
 }
 
 impl<S: TokenStorage + 'static> ClaudeClient<S> {
@@ -135,23 +136,32 @@ impl<S: TokenStorage + 'static> ClaudeClient<S> {
     }
 
     /// Get a valid access token, refreshing if necessary.
+    ///
+    /// Proactively refreshes tokens ~5 minutes before expiry to avoid
+    /// request failures due to mid-request token expiration.
     async fn get_access_token(&self) -> Result<String> {
-        // Try cache first
+        // Try cache first - but check if it needs refresh
         {
             let cached = self.cached_token.read().await;
-            if let Some(ref token) = *cached {
-                return Ok(token.clone());
+            if let Some(ref token_info) = *cached {
+                if !token_info.needs_refresh() {
+                    debug!("Using cached token (expires in {} seconds)", token_info.time_until_expiry());
+                    return Ok(token_info.access_token.clone());
+                }
+                debug!("Cached token needs refresh (expires in {} seconds)", token_info.time_until_expiry());
             }
         }
 
-        // Get token from OAuth flow (handles refresh)
+        // Get fresh token from OAuth flow (handles refresh automatically)
         let oauth = self.oauth.read().await;
-        let token = oauth.get_access_token().await?;
+        let access_token = oauth.get_access_token().await?;
 
-        // Cache it
-        *self.cached_token.write().await = Some(token.clone());
+        // Load the full token info to cache for future refresh checks
+        if let Some(token_info) = oauth.storage().load().await? {
+            *self.cached_token.write().await = Some(token_info);
+        }
 
-        Ok(token)
+        Ok(access_token)
     }
 
     /// Create a messages request builder.

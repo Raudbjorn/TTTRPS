@@ -158,6 +158,13 @@ pub struct ExtractionSettings {
     pub use_cache: bool,
     /// Maximum concurrent extractions
     pub max_concurrent_extractions: usize,
+
+    // ========== Large PDF Handling ==========
+    /// Page count threshold above which to use chunked extraction
+    /// PDFs larger than this will be extracted in chunks to avoid memory pressure
+    pub large_pdf_page_threshold: usize,
+    /// Number of pages to extract per chunk for large PDFs
+    pub large_pdf_chunk_size: usize,
 }
 
 impl Default for ExtractionSettings {
@@ -192,6 +199,10 @@ impl Default for ExtractionSettings {
             // Caching
             use_cache: true,
             max_concurrent_extractions: 4,
+
+            // Large PDF handling
+            large_pdf_page_threshold: 500,
+            large_pdf_chunk_size: 100,
         }
     }
 }
@@ -216,6 +227,8 @@ impl ExtractionSettings {
             max_image_dimension: 4096,
             use_cache: true,
             max_concurrent_extractions: 4,
+            large_pdf_page_threshold: 500,
+            large_pdf_chunk_size: 100,
         }
     }
 
@@ -238,6 +251,8 @@ impl ExtractionSettings {
             max_image_dimension: 4096,
             use_cache: true,
             max_concurrent_extractions: 2, // OCR is CPU intensive
+            large_pdf_page_threshold: 500,
+            large_pdf_chunk_size: 100,
         }
     }
 
@@ -260,6 +275,8 @@ impl ExtractionSettings {
             max_image_dimension: 2048,
             use_cache: true,
             max_concurrent_extractions: 8,
+            large_pdf_page_threshold: 500,
+            large_pdf_chunk_size: 100,
         }
     }
 
@@ -282,6 +299,8 @@ impl ExtractionSettings {
             max_image_dimension: 4096,
             use_cache: true,
             max_concurrent_extractions: 2, // Respect API rate limits
+            large_pdf_page_threshold: 500,
+            large_pdf_chunk_size: 100,
         }
     }
 

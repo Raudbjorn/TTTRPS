@@ -47,6 +47,72 @@ pub enum LLMProvider {
     GeminiCli,
 }
 
+/// Consolidated UI state machine for Claude Gate authentication.
+/// This provides a cleaner view of the authentication flow state.
+#[derive(Clone, PartialEq, Debug)]
+pub enum ClaudeGateUiState {
+    /// Initial idle state, not performing any operation
+    Idle,
+    /// Loading - checking status, starting OAuth, completing auth, or logging out
+    Loading,
+    /// Waiting for user to input authorization code from browser
+    AwaitingCode,
+    /// Authenticated successfully
+    Authenticated,
+    /// Error state with message
+    Error(String),
+}
+
+impl ClaudeGateUiState {
+    /// Derive the UI state from the individual signals.
+    /// This consolidates the fragmented state into a single state machine view.
+    pub fn derive(
+        status: &ClaudeGateStatus,
+        is_loading: bool,
+        awaiting_code: bool,
+    ) -> Self {
+        if is_loading {
+            return ClaudeGateUiState::Loading;
+        }
+        if awaiting_code {
+            return ClaudeGateUiState::AwaitingCode;
+        }
+        if let Some(ref error) = status.error {
+            return ClaudeGateUiState::Error(error.clone());
+        }
+        if status.authenticated {
+            return ClaudeGateUiState::Authenticated;
+        }
+        ClaudeGateUiState::Idle
+    }
+
+    /// Check if currently in a loading state
+    pub fn is_loading(&self) -> bool {
+        matches!(self, ClaudeGateUiState::Loading)
+    }
+
+    /// Check if authenticated
+    pub fn is_authenticated(&self) -> bool {
+        matches!(self, ClaudeGateUiState::Authenticated)
+    }
+
+    /// Check if awaiting user input
+    pub fn is_awaiting_code(&self) -> bool {
+        matches!(self, ClaudeGateUiState::AwaitingCode)
+    }
+
+    /// Get the display string for the current state
+    pub fn display(&self) -> &str {
+        match self {
+            ClaudeGateUiState::Idle => "Ready to authenticate",
+            ClaudeGateUiState::Loading => "Loading...",
+            ClaudeGateUiState::AwaitingCode => "Waiting for auth code",
+            ClaudeGateUiState::Authenticated => "Authenticated",
+            ClaudeGateUiState::Error(_) => "Error",
+        }
+    }
+}
+
 impl std::fmt::Display for LLMProvider {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -259,12 +325,25 @@ pub fn LLMSettingsView() -> impl IntoView {
     });
     let gemini_cli_loading = RwSignal::new(false);
 
-    // Claude Gate OAuth status
+    // Claude Gate OAuth status (individual signals for backward compatibility)
     let claude_gate_status = RwSignal::new(ClaudeGateStatus::default());
     let claude_gate_loading = RwSignal::new(false);
     let claude_gate_storage = RwSignal::new(ClaudeGateStorageBackend::Auto);
     let claude_gate_auth_code = RwSignal::new(String::new());
     let claude_gate_awaiting_code = RwSignal::new(false);
+
+    // Consolidated UI state derived from individual signals.
+    // This provides a state machine view for cleaner conditional logic.
+    // Usage: claude_gate_ui_state.get().is_loading(), .is_authenticated(), etc.
+    // Can also be used in views: {move || claude_gate_ui_state.get().display()}
+    // Note: Prefixed with _ to suppress unused warning until UI is fully migrated.
+    let _claude_gate_ui_state = Memo::new(move |_| {
+        ClaudeGateUiState::derive(
+            &claude_gate_status.get(),
+            claude_gate_loading.get(),
+            claude_gate_awaiting_code.get(),
+        )
+    });
 
     // Proxy status
     let proxy_running = RwSignal::new(false);
@@ -965,8 +1044,9 @@ pub fn LLMSettingsView() -> impl IntoView {
                                     }.into_any()
                                 } else if selected_provider.get() == LLMProvider::ClaudeGate {
                                     // Claude Gate OAuth status panel
-                                    let status = claude_gate_status.get();
-                                    let is_loading = claude_gate_loading.get();
+                                    // Note: Signals are accessed directly in closures for reactivity
+                                    let _status = claude_gate_status.get();
+                                    let _is_loading = claude_gate_loading.get();
                                     view! {
                                         <div class="p-4 rounded-lg bg-[var(--bg-deep)] border border-[var(--border-subtle)] space-y-3">
                                             // Status indicators
