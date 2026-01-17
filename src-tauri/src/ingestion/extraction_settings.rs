@@ -1,9 +1,44 @@
 //! Extraction Settings
 //!
-//! Configurable settings for document extraction using kreuzberg.
+//! Configurable settings for document extraction using kreuzberg or Claude.
 //! These settings control OCR, chunking, quality processing, and language detection.
 
 use serde::{Deserialize, Serialize};
+
+/// Text extraction provider selection
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum TextExtractionProvider {
+    /// Use kreuzberg for fast local extraction (default)
+    #[default]
+    Kreuzberg,
+    /// Use Claude API for extraction (better quality, requires API auth)
+    ClaudeGate,
+}
+
+impl TextExtractionProvider {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Kreuzberg => "kreuzberg",
+            Self::ClaudeGate => "claude_gate",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Self {
+        match s.to_lowercase().as_str() {
+            "claude_gate" | "claudegate" | "claude" => Self::ClaudeGate,
+            _ => Self::Kreuzberg,
+        }
+    }
+
+    /// Human-readable display name
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            Self::Kreuzberg => "Kreuzberg (Local)",
+            Self::ClaudeGate => "Claude API",
+        }
+    }
+}
 
 /// Token reduction aggressiveness levels
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -78,6 +113,10 @@ impl OcrBackend {
 /// Document extraction settings
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExtractionSettings {
+    // ========== Provider Settings ==========
+    /// Text extraction provider to use
+    pub text_extraction_provider: TextExtractionProvider,
+
     // ========== OCR Settings ==========
     /// Whether to enable OCR fallback for scanned documents
     pub ocr_enabled: bool,
@@ -124,6 +163,9 @@ pub struct ExtractionSettings {
 impl Default for ExtractionSettings {
     fn default() -> Self {
         Self {
+            // Provider default
+            text_extraction_provider: TextExtractionProvider::default(),
+
             // OCR defaults
             ocr_enabled: true,
             ocr_backend: OcrBackend::External,
@@ -158,6 +200,7 @@ impl ExtractionSettings {
     /// Create settings optimized for TTRPG rulebook extraction
     pub fn for_rulebooks() -> Self {
         Self {
+            text_extraction_provider: TextExtractionProvider::Kreuzberg,
             ocr_enabled: true,
             ocr_backend: OcrBackend::External,
             force_ocr: false,
@@ -179,6 +222,7 @@ impl ExtractionSettings {
     /// Create settings optimized for scanned documents
     pub fn for_scanned_documents() -> Self {
         Self {
+            text_extraction_provider: TextExtractionProvider::Kreuzberg,
             ocr_enabled: true,
             ocr_backend: OcrBackend::External,
             force_ocr: true, // Always use OCR for scanned docs
@@ -200,6 +244,7 @@ impl ExtractionSettings {
     /// Create settings for quick extraction (minimal processing)
     pub fn quick() -> Self {
         Self {
+            text_extraction_provider: TextExtractionProvider::Kreuzberg,
             ocr_enabled: false,
             ocr_backend: OcrBackend::Disabled,
             force_ocr: false,
@@ -215,6 +260,28 @@ impl ExtractionSettings {
             max_image_dimension: 2048,
             use_cache: true,
             max_concurrent_extractions: 8,
+        }
+    }
+
+    /// Create settings for Claude-based extraction (high quality, slower)
+    pub fn with_claude() -> Self {
+        Self {
+            text_extraction_provider: TextExtractionProvider::ClaudeGate,
+            ocr_enabled: false, // Claude handles scanned docs natively
+            ocr_backend: OcrBackend::Disabled,
+            force_ocr: false,
+            ocr_language: "eng".to_string(),
+            ocr_min_text_threshold: 500,
+            chunking_enabled: false,
+            max_chunk_chars: 1500,
+            chunk_overlap: 300,
+            quality_processing: false, // Claude output is already clean
+            token_reduction: TokenReductionLevel::Off,
+            language_detection: true,
+            image_dpi: 300,
+            max_image_dimension: 4096,
+            use_cache: true,
+            max_concurrent_extractions: 2, // Respect API rate limits
         }
     }
 

@@ -3,10 +3,14 @@ pub mod llm;
 pub mod voice;
 pub mod data;
 pub mod model_selection;
+pub mod extraction;
+pub mod embedding;
 
 use leptos::prelude::*;
 pub use llm::LLMProvider;
 pub use model_selection::ModelSelectionDashboard;
+pub use extraction::{ExtractionSettingsView, ExtractionProvider};
+pub use embedding::{EmbeddingSettingsView, EmbeddingProvider, SemanticAnalysisProvider};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum SettingsTab {

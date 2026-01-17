@@ -13,6 +13,10 @@ use crate::bindings::{
     // Claude Code CLI
     get_claude_code_status, claude_code_login, claude_code_logout,
     claude_code_install_cli, claude_code_install_skill, ClaudeCodeStatus,
+    // Claude Gate OAuth
+    claude_gate_get_status, claude_gate_start_oauth, claude_gate_complete_oauth,
+    claude_gate_logout, claude_gate_set_storage_backend,
+    ClaudeGateStatus, ClaudeGateStorageBackend,
     // Gemini CLI
     check_gemini_cli_status, launch_gemini_cli_login, check_gemini_cli_extension,
     install_gemini_cli_extension, GeminiCliStatus, GeminiCliExtensionStatus,
@@ -39,6 +43,7 @@ pub enum LLMProvider {
     DeepSeek,
     ClaudeCode,
     ClaudeDesktop,
+    ClaudeGate,
     GeminiCli,
 }
 
@@ -57,6 +62,7 @@ impl std::fmt::Display for LLMProvider {
             LLMProvider::DeepSeek => write!(f, "DeepSeek"),
             LLMProvider::ClaudeCode => write!(f, "Claude Code"),
             LLMProvider::ClaudeDesktop => write!(f, "Claude Desktop"),
+            LLMProvider::ClaudeGate => write!(f, "Claude Gate"),
             LLMProvider::GeminiCli => write!(f, "Gemini CLI"),
         }
     }
@@ -77,6 +83,7 @@ impl LLMProvider {
             LLMProvider::DeepSeek => "deepseek".to_string(),
             LLMProvider::ClaudeCode => "claude-code".to_string(),
             LLMProvider::ClaudeDesktop => "claude-desktop".to_string(),
+            LLMProvider::ClaudeGate => "claude-gate".to_string(),
             LLMProvider::GeminiCli => "gemini-cli".to_string(),
         }
     }
@@ -94,6 +101,7 @@ impl LLMProvider {
             "DeepSeek" | "deepseek" => LLMProvider::DeepSeek,
             "ClaudeCode" | "claude-code" => LLMProvider::ClaudeCode,
             "ClaudeDesktop" | "claude-desktop" => LLMProvider::ClaudeDesktop,
+            "ClaudeGate" | "claude-gate" => LLMProvider::ClaudeGate,
             "GeminiCli" | "gemini-cli" => LLMProvider::GeminiCli,
             _ => LLMProvider::Ollama,
         }
@@ -113,6 +121,7 @@ impl LLMProvider {
             LLMProvider::DeepSeek => "sk-...",
             LLMProvider::ClaudeCode => "Uses CLI authentication",
             LLMProvider::ClaudeDesktop => "Uses Desktop authentication",
+            LLMProvider::ClaudeGate => "Uses OAuth authentication",
             LLMProvider::GeminiCli => "Uses Google account authentication",
         }
     }
@@ -122,6 +131,7 @@ impl LLMProvider {
             LLMProvider::Ollama => "Ollama Host",
             LLMProvider::ClaudeCode => "Status",
             LLMProvider::ClaudeDesktop => "Status",
+            LLMProvider::ClaudeGate => "Status",
             LLMProvider::GeminiCli => "Status",
             _ => "API Key",
         }
@@ -141,6 +151,7 @@ impl LLMProvider {
             LLMProvider::DeepSeek => "deepseek-chat",
             LLMProvider::ClaudeCode => "claude-sonnet-4-20250514",
             LLMProvider::ClaudeDesktop => "claude-sonnet-4-20250514",
+            LLMProvider::ClaudeGate => "claude-sonnet-4-20250514",
             LLMProvider::GeminiCli => "gemini-3-pro-preview",
         }
     }
@@ -159,6 +170,7 @@ impl LLMProvider {
             LLMProvider::Ollama => Some("https://ollama.com/download"),
             LLMProvider::ClaudeCode => None, // Uses CLI authentication
             LLMProvider::ClaudeDesktop => None, // Uses Desktop authentication
+            LLMProvider::ClaudeGate => None, // Uses OAuth authentication
             LLMProvider::GeminiCli => None, // Uses Google account authentication
         }
     }
@@ -172,6 +184,7 @@ impl LLMProvider {
             LLMProvider::OpenRouter => "text-violet-400",
             LLMProvider::ClaudeCode => "text-orange-400", // Anthropic Sienna
             LLMProvider::ClaudeDesktop => "text-orange-400", // Anthropic Sienna
+            LLMProvider::ClaudeGate => "text-orange-400", // Anthropic Sienna
             LLMProvider::GeminiCli => "text-blue-400", // Gemini Blue
             _ => "text-[var(--accent-primary)]",
         }
@@ -245,6 +258,11 @@ pub fn LLMSettingsView() -> impl IntoView {
         message: String::new(),
     });
     let gemini_cli_loading = RwSignal::new(false);
+
+    // Claude Gate OAuth status
+    let claude_gate_status = RwSignal::new(ClaudeGateStatus::default());
+    let claude_gate_loading = RwSignal::new(false);
+    let claude_gate_storage = RwSignal::new(ClaudeGateStorageBackend::Auto);
 
     // Proxy status
     let proxy_running = RwSignal::new(false);
@@ -415,6 +433,31 @@ pub fn LLMSettingsView() -> impl IntoView {
         });
     };
 
+    // Refresh Claude Gate OAuth status
+    let refresh_claude_gate_status = move || {
+        claude_gate_loading.set(true);
+        spawn_local(async move {
+            match claude_gate_get_status().await {
+                Ok(status) => {
+                    let is_ready = status.authenticated;
+                    provider_statuses.update(|map| { map.insert("claude-gate".to_string(), is_ready); });
+                    // Update storage backend signal from status
+                    let backend = match status.storage_backend.as_str() {
+                        "keyring" => ClaudeGateStorageBackend::Keyring,
+                        "file" => ClaudeGateStorageBackend::File,
+                        _ => ClaudeGateStorageBackend::Auto,
+                    };
+                    claude_gate_storage.set(backend);
+                    claude_gate_status.set(status);
+                }
+                Err(e) => {
+                    show_error("Claude Gate Status", Some(&e), None);
+                }
+            }
+            claude_gate_loading.set(false);
+        });
+    };
+
     // --- On Mount ---
     Effect::new(move |_| {
         check_providers();
@@ -484,10 +527,10 @@ pub fn LLMSettingsView() -> impl IntoView {
              is_saving.set(true);
              save_status.set("Saving...".to_string());
              spawn_local(async move {
-                 // ClaudeCode, ClaudeDesktop, and GeminiCli don't need API keys - they use CLI/Desktop/Google auth
+                 // ClaudeCode, ClaudeDesktop, ClaudeGate, and GeminiCli don't need API keys - they use CLI/Desktop/OAuth/Google auth
                  let needs_api_key = !matches!(
                      provider,
-                     LLMProvider::Ollama | LLMProvider::ClaudeCode | LLMProvider::ClaudeDesktop | LLMProvider::GeminiCli
+                     LLMProvider::Ollama | LLMProvider::ClaudeCode | LLMProvider::ClaudeDesktop | LLMProvider::ClaudeGate | LLMProvider::GeminiCli
                  );
                  let key_to_save = if needs_api_key && !key_or_host.is_empty() {
                       match save_api_key(provider.to_string_key(), key_or_host.clone()).await {
@@ -544,8 +587,8 @@ pub fn LLMSettingsView() -> impl IntoView {
                  model_name.set("llama3.2".to_string());
                  fetch_ollama_models("http://localhost:11434".to_string());
             },
-            LLMProvider::ClaudeCode | LLMProvider::ClaudeDesktop => {
-                 // No API key needed - uses CLI/Desktop authentication
+            LLMProvider::ClaudeCode | LLMProvider::ClaudeDesktop | LLMProvider::ClaudeGate => {
+                 // No API key needed - uses CLI/Desktop/OAuth authentication
                  api_key_or_host.set(String::new());
                  model_name.set(p.default_model().to_string());
                  cloud_models.set(Vec::new());
@@ -574,6 +617,7 @@ pub fn LLMSettingsView() -> impl IntoView {
         LLMProvider::OpenAI,
         LLMProvider::Claude,
         LLMProvider::ClaudeCode,
+        LLMProvider::ClaudeGate,
         LLMProvider::Gemini,
         LLMProvider::GeminiCli,
         LLMProvider::OpenRouter,
@@ -616,6 +660,7 @@ pub fn LLMSettingsView() -> impl IntoView {
                                     LLMProvider::Ollama => "Running locally on your machine.",
                                     LLMProvider::ClaudeCode => "Uses Claude Code CLI authentication.",
                                     LLMProvider::ClaudeDesktop => "Uses Claude Desktop authentication.",
+                                    LLMProvider::ClaudeGate => "Uses Anthropic OAuth authentication.",
                                     LLMProvider::GeminiCli => "Uses Google account authentication (free tier).",
                                     _ => "Cloud-based inference.",
                                 }}
@@ -895,6 +940,152 @@ pub fn LLMSettingsView() -> impl IntoView {
                                                         view! { <span></span> }.into_any()
                                                     }
                                                 }}
+                                            </div>
+                                        </div>
+                                    }.into_any()
+                                } else if selected_provider.get() == LLMProvider::ClaudeGate {
+                                    // Claude Gate OAuth status panel
+                                    let status = claude_gate_status.get();
+                                    let is_loading = claude_gate_loading.get();
+                                    view! {
+                                        <div class="p-4 rounded-lg bg-[var(--bg-deep)] border border-[var(--border-subtle)] space-y-3">
+                                            // Status indicators
+                                            <div class="flex flex-wrap gap-2">
+                                                <div class=move || {
+                                                    let s = claude_gate_status.get();
+                                                    format!(
+                                                        "flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium {}",
+                                                        if s.authenticated { "bg-green-500/20 text-green-400" } else { "bg-yellow-500/20 text-yellow-400" }
+                                                    )
+                                                }>
+                                                    <span class=move || {
+                                                        let s = claude_gate_status.get();
+                                                        format!(
+                                                            "w-2 h-2 rounded-full {}",
+                                                            if s.authenticated { "bg-green-400" } else { "bg-yellow-400" }
+                                                        )
+                                                    }></span>
+                                                    {move || if claude_gate_status.get().authenticated { "Authenticated" } else { "Not Authenticated" }}
+                                                </div>
+                                                <div class="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium bg-blue-500/20 text-blue-400">
+                                                    {move || format!("Storage: {}", claude_gate_status.get().storage_backend)}
+                                                </div>
+                                                {move || claude_gate_status.get().expires_in_human.map(|exp| view! {
+                                                    <div class="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium bg-gray-500/20 text-gray-400">
+                                                        {format!("Expires: {}", exp)}
+                                                    </div>
+                                                })}
+                                            </div>
+
+                                            // Error message if any
+                                            {move || claude_gate_status.get().error.map(|e| view! {
+                                                <p class="text-xs text-red-400">{e}</p>
+                                            })}
+
+                                            // Storage backend selector
+                                            <div class="pt-2">
+                                                <label class="block text-xs text-[var(--text-muted)] mb-1">"Token Storage"</label>
+                                                <select
+                                                    class="w-full p-2 rounded-lg bg-[var(--bg-elevated)] border border-[var(--border-subtle)] text-[var(--text-primary)] text-xs outline-none focus:border-[var(--accent-primary)]"
+                                                    style="color-scheme: dark;"
+                                                    prop:value=move || claude_gate_storage.get().to_string()
+                                                    on:change=move |ev| {
+                                                        let val = event_target_value(&ev);
+                                                        let backend = match val.as_str() {
+                                                            "Keyring" => ClaudeGateStorageBackend::Keyring,
+                                                            "File" => ClaudeGateStorageBackend::File,
+                                                            _ => ClaudeGateStorageBackend::Auto,
+                                                        };
+                                                        claude_gate_storage.set(backend.clone());
+                                                        spawn_local(async move {
+                                                            if let Err(e) = claude_gate_set_storage_backend(backend).await {
+                                                                show_error("Storage Change Failed", Some(&e), None);
+                                                            }
+                                                        });
+                                                    }
+                                                >
+                                                    <option value="Auto" class="bg-[var(--bg-elevated)] text-[var(--text-primary)]">"Auto (recommended)"</option>
+                                                    <option value="Keyring" class="bg-[var(--bg-elevated)] text-[var(--text-primary)]">"System Keyring"</option>
+                                                    <option value="File" class="bg-[var(--bg-elevated)] text-[var(--text-primary)]">"File (~/.config/cld/auth.json)"</option>
+                                                </select>
+                                            </div>
+
+                                            // Action buttons
+                                            <div class="flex flex-wrap gap-2 pt-2">
+                                                {move || {
+                                                    let s = claude_gate_status.get();
+                                                    let loading = claude_gate_loading.get();
+                                                    if !s.authenticated {
+                                                        view! {
+                                                            <button
+                                                                class="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--accent-primary)] text-white hover:opacity-90 transition-opacity disabled:opacity-50"
+                                                                disabled=loading
+                                                                on:click=move |_| {
+                                                                    spawn_local(async move {
+                                                                        claude_gate_loading.set(true);
+                                                                        match claude_gate_start_oauth().await {
+                                                                            Ok(url) => {
+                                                                                // Open browser to authorization URL
+                                                                                if let Err(e) = web_sys::window()
+                                                                                    .and_then(|w| w.open_with_url(&url).ok())
+                                                                                    .flatten()
+                                                                                    .ok_or("Failed to open browser")
+                                                                                {
+                                                                                    show_error("Browser Open Failed", Some(e), None);
+                                                                                } else {
+                                                                                    show_success("Login Started", Some("Complete authentication in your browser"));
+                                                                                }
+                                                                            }
+                                                                            Err(e) => show_error("OAuth Failed", Some(&e), None),
+                                                                        }
+                                                                        claude_gate_loading.set(false);
+                                                                    });
+                                                                }
+                                                            >
+                                                                "Login with Claude"
+                                                            </button>
+                                                        }.into_any()
+                                                    } else {
+                                                        view! {
+                                                            <button
+                                                                class="px-3 py-1.5 text-xs font-medium rounded-lg bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors disabled:opacity-50"
+                                                                disabled=loading
+                                                                on:click=move |_| {
+                                                                    spawn_local(async move {
+                                                                        claude_gate_loading.set(true);
+                                                                        match claude_gate_logout().await {
+                                                                            Ok(_) => {
+                                                                                show_success("Logged Out", None);
+                                                                                refresh_claude_gate_status();
+                                                                            }
+                                                                            Err(e) => show_error("Logout Failed", Some(&e), None),
+                                                                        }
+                                                                        claude_gate_loading.set(false);
+                                                                    });
+                                                                }
+                                                            >
+                                                                "Logout"
+                                                            </button>
+                                                        }.into_any()
+                                                    }
+                                                }}
+
+                                                <button
+                                                    class="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--bg-elevated)] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] transition-colors disabled:opacity-50"
+                                                    disabled=move || claude_gate_loading.get()
+                                                    on:click=move |_| refresh_claude_gate_status()
+                                                >
+                                                    {move || if claude_gate_loading.get() { "Checking..." } else { "Refresh Status" }}
+                                                </button>
+                                            </div>
+
+                                            // Link to extraction settings
+                                            <div class="pt-2 border-t border-[var(--border-subtle)]">
+                                                <p class="text-xs text-[var(--text-muted)]">
+                                                    "Claude Gate can also be used for document extraction. Configure in "
+                                                    <span class="text-[var(--accent-primary)]">"Extraction Settings"</span>
+                                                    "."
+                                                </p>
                                             </div>
                                         </div>
                                     }.into_any()

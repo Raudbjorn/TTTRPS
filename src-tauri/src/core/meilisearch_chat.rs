@@ -1499,6 +1499,7 @@ impl MeilisearchChatClient {
                 timeout_secs: Some(*timeout_secs),
             },
             ProviderConfig::GeminiCli { .. } => return Err("Gemini CLI not supported for Meilisearch chat yet".to_string()),
+            ProviderConfig::ClaudeGate { .. } => return Err("Claude Gate (OAuth) not supported for Meilisearch chat yet".to_string()),
             ProviderConfig::Meilisearch { .. } => return Err("Recursive Meilisearch configuration".to_string()),
         };
 
@@ -1724,6 +1725,9 @@ impl DMChatManager {
             },
             // Handle GeminiCLI as generic or unsupported for now if no direct map
             ProviderConfig::GeminiCli { .. } => return Err("Gemini CLI not supported for Meilisearch chat yet".to_string()),
+
+            // Claude Gate (OAuth) requires special handling that's not yet implemented
+            ProviderConfig::ClaudeGate { .. } => return Err("Claude Gate (OAuth) not supported for Meilisearch chat yet".to_string()),
 
             // Meilisearch provider is for using Meilisearch as a provider, creating a loop if we configure it here
             ProviderConfig::Meilisearch { .. } => return Err("Recursive Meilisearch configuration".to_string()),

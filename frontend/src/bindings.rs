@@ -4819,3 +4819,79 @@ pub async fn get_extraction_presets() -> Result<Vec<ExtractionPreset>, String> {
 pub async fn check_ocr_availability() -> Result<OcrAvailability, String> {
     invoke_no_args("check_ocr_availability").await
 }
+
+// ============================================================================
+// Claude Gate OAuth Commands
+// ============================================================================
+
+/// Storage backend options for Claude Gate tokens
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum ClaudeGateStorageBackend {
+    /// Auto-select best available (keyring if available, else file)
+    #[default]
+    Auto,
+    /// System keyring (GNOME Keyring, macOS Keychain, Windows Credential Manager)
+    Keyring,
+    /// File-based storage (~/.config/cld/auth.json)
+    File,
+}
+
+impl std::fmt::Display for ClaudeGateStorageBackend {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ClaudeGateStorageBackend::Auto => write!(f, "Auto"),
+            ClaudeGateStorageBackend::Keyring => write!(f, "Keyring"),
+            ClaudeGateStorageBackend::File => write!(f, "File"),
+        }
+    }
+}
+
+/// Status of Claude Gate OAuth authentication
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ClaudeGateStatus {
+    /// Whether the user is authenticated
+    pub authenticated: bool,
+    /// Storage backend being used
+    pub storage_backend: String,
+    /// Token expiration timestamp (Unix seconds)
+    pub expires_at: Option<i64>,
+    /// Human-readable time until expiry
+    pub expires_in_human: Option<String>,
+    /// Error message if any
+    pub error: Option<String>,
+}
+
+/// Get Claude Gate OAuth status
+pub async fn claude_gate_get_status() -> Result<ClaudeGateStatus, String> {
+    invoke_no_args("claude_gate_get_status").await
+}
+
+/// Start OAuth flow - returns the authorization URL to open in browser
+pub async fn claude_gate_start_oauth() -> Result<String, String> {
+    invoke_no_args("claude_gate_start_oauth").await
+}
+
+/// Complete OAuth flow with authorization code
+pub async fn claude_gate_complete_oauth(code: String, state: Option<String>) -> Result<(), String> {
+    #[derive(Serialize)]
+    struct Args {
+        code: String,
+        state: Option<String>,
+    }
+    invoke_void("claude_gate_complete_oauth", &Args { code, state }).await
+}
+
+/// Logout from Claude Gate (remove stored token)
+pub async fn claude_gate_logout() -> Result<(), String> {
+    invoke_void_no_args("claude_gate_logout").await
+}
+
+/// Set storage backend for Claude Gate tokens
+pub async fn claude_gate_set_storage_backend(backend: ClaudeGateStorageBackend) -> Result<(), String> {
+    #[derive(Serialize)]
+    struct Args {
+        backend: ClaudeGateStorageBackend,
+    }
+    invoke_void("claude_gate_set_storage_backend", &Args { backend }).await
+}

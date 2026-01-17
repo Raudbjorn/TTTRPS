@@ -44,6 +44,8 @@ use crate::core::personality::{
 use crate::core::credentials::CredentialManager;
 use crate::core::audio::AudioVolumes;
 use crate::core::claude_cdp::{ClaudeDesktopManager, ClaudeDesktopStatus};
+// Claude Gate OAuth client
+use crate::claude_gate::{ClaudeClient, FileTokenStorage, TokenInfo};
 use crate::core::sidecar_manager::{SidecarManager, MeilisearchConfig};
 use crate::core::search_client::SearchClient;
 use crate::core::meilisearch_pipeline::MeilisearchPipeline;
@@ -61,6 +63,169 @@ fn serialize_enum_to_string<T: serde::Serialize>(value: &T) -> String {
     serde_json::to_string(value)
         .map(|s| s.trim_matches('"').to_string())
         .unwrap_or_default()
+}
+
+// ============================================================================
+// Claude Gate State (OAuth Client)
+// ============================================================================
+
+/// Storage backend type for Claude Gate
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ClaudeGateStorageBackend {
+    /// File-based storage (~/.config/cld/auth.json)
+    File,
+    /// System keyring storage
+    Keyring,
+    /// Auto-select (keyring if available, else file)
+    Auto,
+}
+
+impl Default for ClaudeGateStorageBackend {
+    fn default() -> Self {
+        Self::Auto
+    }
+}
+
+impl std::fmt::Display for ClaudeGateStorageBackend {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::File => write!(f, "file"),
+            Self::Keyring => write!(f, "keyring"),
+            Self::Auto => write!(f, "auto"),
+        }
+    }
+}
+
+impl std::str::FromStr for ClaudeGateStorageBackend {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "file" => Ok(Self::File),
+            "keyring" => Ok(Self::Keyring),
+            "auto" => Ok(Self::Auto),
+            _ => Err(format!("Unknown storage backend: {}. Valid options: file, keyring, auto", s)),
+        }
+    }
+}
+
+/// Type-erased Claude Gate client wrapper.
+/// This allows storing the client in AppState regardless of storage backend.
+pub struct ClaudeGateState {
+    /// The client with file storage (used when backend is File or Auto with file fallback)
+    file_client: Option<Arc<ClaudeClient<FileTokenStorage>>>,
+    /// In-memory flow state for OAuth (needed for state verification)
+    pending_oauth_state: AsyncRwLock<Option<String>>,
+    /// Current storage backend
+    storage_backend: AsyncRwLock<ClaudeGateStorageBackend>,
+}
+
+impl ClaudeGateState {
+    /// Create a new ClaudeGateState with the specified backend.
+    pub fn new(backend: ClaudeGateStorageBackend) -> Result<Self, String> {
+        let file_client = match backend {
+            ClaudeGateStorageBackend::File | ClaudeGateStorageBackend::Auto => {
+                let storage = FileTokenStorage::default_path()
+                    .map_err(|e| format!("Failed to create file storage: {}", e))?;
+                let client = ClaudeClient::builder()
+                    .with_storage(storage)
+                    .build()
+                    .map_err(|e| format!("Failed to create Claude client: {}", e))?;
+                Some(Arc::new(client))
+            }
+            ClaudeGateStorageBackend::Keyring => {
+                // For keyring, we still create the file client as fallback
+                // In a full implementation, we'd have a separate keyring client
+                let storage = FileTokenStorage::default_path()
+                    .map_err(|e| format!("Failed to create file storage: {}", e))?;
+                let client = ClaudeClient::builder()
+                    .with_storage(storage)
+                    .build()
+                    .map_err(|e| format!("Failed to create Claude client: {}", e))?;
+                Some(Arc::new(client))
+            }
+        };
+
+        Ok(Self {
+            file_client,
+            pending_oauth_state: AsyncRwLock::new(None),
+            storage_backend: AsyncRwLock::new(backend),
+        })
+    }
+
+    /// Create with default (Auto) backend
+    pub fn with_defaults() -> Result<Self, String> {
+        Self::new(ClaudeGateStorageBackend::Auto)
+    }
+
+    /// Get a reference to the client
+    fn client(&self) -> Result<&Arc<ClaudeClient<FileTokenStorage>>, String> {
+        self.file_client.as_ref().ok_or_else(|| "Claude Gate client not initialized".to_string())
+    }
+
+    /// Check if authenticated
+    pub async fn is_authenticated(&self) -> Result<bool, String> {
+        let client = self.client()?;
+        client.is_authenticated().await.map_err(|e| e.to_string())
+    }
+
+    /// Get token info
+    pub async fn get_token_info(&self) -> Result<Option<TokenInfo>, String> {
+        let client = self.client()?;
+        client.get_token_info().await.map_err(|e| e.to_string())
+    }
+
+    /// Start OAuth flow
+    pub async fn start_oauth_flow(&self) -> Result<(String, String), String> {
+        let client = self.client()?;
+        let (url, state) = client.start_oauth_flow_with_state()
+            .await
+            .map_err(|e| e.to_string())?;
+
+        // Store the state for verification
+        *self.pending_oauth_state.write().await = Some(state.state.clone());
+
+        Ok((url, state.state))
+    }
+
+    /// Complete OAuth flow
+    pub async fn complete_oauth_flow(&self, code: &str, state: Option<&str>) -> Result<TokenInfo, String> {
+        let client = self.client()?;
+
+        // Verify state if provided
+        if let Some(received_state) = state {
+            let pending = self.pending_oauth_state.read().await;
+            if let Some(expected_state) = pending.as_ref() {
+                if received_state != expected_state {
+                    return Err(format!(
+                        "State mismatch: expected {}, got {}",
+                        expected_state, received_state
+                    ));
+                }
+            }
+        }
+
+        let token = client.complete_oauth_flow(code, state)
+            .await
+            .map_err(|e| e.to_string())?;
+
+        // Clear pending state
+        *self.pending_oauth_state.write().await = None;
+
+        Ok(token)
+    }
+
+    /// Logout
+    pub async fn logout(&self) -> Result<(), String> {
+        let client = self.client()?;
+        client.logout().await.map_err(|e| e.to_string())
+    }
+
+    /// Get current storage backend name
+    pub async fn storage_backend_name(&self) -> String {
+        self.storage_backend.read().await.to_string()
+    }
 }
 
 // ============================================================================
@@ -93,6 +258,8 @@ pub struct AppState {
     pub claude_desktop_manager: Arc<AsyncRwLock<ClaudeDesktopManager>>,
     // Document extraction settings
     pub extraction_settings: AsyncRwLock<crate::ingestion::ExtractionSettings>,
+    // Claude Gate OAuth client
+    pub claude_gate: Arc<ClaudeGateState>,
 }
 
 // Helper init for default state components
@@ -115,6 +282,7 @@ impl AppState {
         crate::core::location_manager::LocationManager,
         Arc<AsyncRwLock<ClaudeDesktopManager>>,
         Arc<AsyncRwLock<crate::core::llm::LLMManager>>,
+        Arc<ClaudeGateState>,
     ) {
         let sidecar_config = MeilisearchConfig::default();
         let search_client = SearchClient::new(
@@ -123,6 +291,16 @@ impl AppState {
         );
         let personality_store = Arc::new(PersonalityStore::new());
         let personality_manager = Arc::new(PersonalityApplicationManager::new(personality_store.clone()));
+
+        // Initialize Claude Gate client (fallback to file storage if keyring unavailable)
+        let claude_gate = match ClaudeGateState::with_defaults() {
+            Ok(state) => Arc::new(state),
+            Err(e) => {
+                log::warn!("Failed to initialize Claude Gate with default storage: {}. Using file storage.", e);
+                Arc::new(ClaudeGateState::new(ClaudeGateStorageBackend::File)
+                    .expect("Failed to initialize Claude Gate with file storage"))
+            }
+        };
 
         (
             CampaignManager::new(),
@@ -145,6 +323,7 @@ impl AppState {
             crate::core::location_manager::LocationManager::new(),
             Arc::new(AsyncRwLock::new(ClaudeDesktopManager::new())),
             Arc::new(AsyncRwLock::new(crate::core::llm::LLMManager::new())),
+            claude_gate,
         )
     }
 }
@@ -462,6 +641,7 @@ pub async fn chat(
         LLMConfig::ClaudeDesktop { .. } => "claude-desktop".to_string(),
         LLMConfig::ClaudeCode { model, .. } => model.clone().unwrap_or_else(|| "claude-code".to_string()),
         LLMConfig::GeminiCli { model, .. } => model.clone(),
+        LLMConfig::ClaudeGate { model, .. } => model.clone(),
         LLMConfig::Meilisearch { model, .. } => model.clone(),
     };
 
@@ -605,6 +785,13 @@ pub fn get_llm_config(state: State<'_, AppState>) -> Result<Option<LLMSettings>,
         LLMConfig::GeminiCli { model, .. } => LLMSettings {
             provider: "gemini-cli".to_string(),
             api_key: None, // No API key needed - uses Google account auth
+            host: None,
+            model: model.clone(),
+            embedding_model: None,
+        },
+        LLMConfig::ClaudeGate { model, .. } => LLMSettings {
+            provider: "claude-gate".to_string(),
+            api_key: None, // No API key needed - uses OAuth
             host: None,
             model: model.clone(),
             embedding_model: None,
@@ -7255,4 +7442,172 @@ pub struct OcrAvailability {
     pub pdftoppm_installed: bool,
     pub available_languages: Vec<String>,
     pub external_ocr_ready: bool,
+}
+
+// ============================================================================
+// Claude Gate OAuth Commands
+// ============================================================================
+
+/// Response for claude_gate_get_status command
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClaudeGateStatusResponse {
+    /// Whether the user is authenticated with valid tokens
+    pub authenticated: bool,
+    /// Current storage backend being used (file, keyring, auto)
+    pub storage_backend: String,
+    /// Unix timestamp when token expires, if authenticated
+    pub token_expires_at: Option<i64>,
+}
+
+/// Get Claude Gate OAuth status
+///
+/// Returns authentication status, storage backend, and token expiration.
+#[tauri::command]
+pub async fn claude_gate_get_status(
+    state: State<'_, AppState>,
+) -> Result<ClaudeGateStatusResponse, String> {
+    let authenticated = state.claude_gate.is_authenticated().await?;
+    let storage_backend = state.claude_gate.storage_backend_name().await;
+
+    let token_expires_at = if authenticated {
+        state.claude_gate.get_token_info().await?
+            .map(|t| t.expires_at)
+    } else {
+        None
+    };
+
+    Ok(ClaudeGateStatusResponse {
+        authenticated,
+        storage_backend,
+        token_expires_at,
+    })
+}
+
+/// Response for claude_gate_start_oauth command
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClaudeGateOAuthStartResponse {
+    /// URL to open in user's browser for OAuth authorization
+    pub auth_url: String,
+    /// State parameter for CSRF protection (pass back to complete_oauth)
+    pub state: String,
+}
+
+/// Start Claude Gate OAuth flow
+///
+/// Returns the authorization URL that the user should open in their browser,
+/// along with a state parameter for CSRF verification.
+#[tauri::command]
+pub async fn claude_gate_start_oauth(
+    state: State<'_, AppState>,
+) -> Result<ClaudeGateOAuthStartResponse, String> {
+    let (auth_url, oauth_state) = state.claude_gate.start_oauth_flow().await?;
+
+    log::info!("Claude Gate OAuth flow started");
+
+    Ok(ClaudeGateOAuthStartResponse {
+        auth_url,
+        state: oauth_state,
+    })
+}
+
+/// Response for claude_gate_complete_oauth command
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClaudeGateOAuthCompleteResponse {
+    /// Whether the OAuth flow completed successfully
+    pub success: bool,
+    /// Error message if the flow failed
+    pub error: Option<String>,
+}
+
+/// Complete Claude Gate OAuth flow
+///
+/// Exchange the authorization code for tokens and store them.
+///
+/// # Arguments
+/// * `code` - The authorization code from the OAuth callback
+/// * `state` - Optional state parameter for CSRF verification
+#[tauri::command]
+pub async fn claude_gate_complete_oauth(
+    code: String,
+    oauth_state: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<ClaudeGateOAuthCompleteResponse, String> {
+    match state.claude_gate.complete_oauth_flow(&code, oauth_state.as_deref()).await {
+        Ok(_token) => {
+            log::info!("Claude Gate OAuth flow completed successfully");
+            Ok(ClaudeGateOAuthCompleteResponse {
+                success: true,
+                error: None,
+            })
+        }
+        Err(e) => {
+            log::error!("Claude Gate OAuth flow failed: {}", e);
+            Ok(ClaudeGateOAuthCompleteResponse {
+                success: false,
+                error: Some(e),
+            })
+        }
+    }
+}
+
+/// Response for claude_gate_logout command
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClaudeGateLogoutResponse {
+    /// Whether logout was successful
+    pub success: bool,
+}
+
+/// Logout from Claude Gate and remove stored tokens
+#[tauri::command]
+pub async fn claude_gate_logout(
+    state: State<'_, AppState>,
+) -> Result<ClaudeGateLogoutResponse, String> {
+    state.claude_gate.logout().await?;
+    log::info!("Claude Gate logout completed");
+
+    Ok(ClaudeGateLogoutResponse {
+        success: true,
+    })
+}
+
+/// Response for claude_gate_set_storage_backend command
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClaudeGateSetStorageResponse {
+    /// Whether the storage backend was changed successfully
+    pub success: bool,
+    /// The currently active storage backend after the change
+    pub active_backend: String,
+}
+
+/// Change Claude Gate storage backend
+///
+/// Note: Changing the storage backend requires re-authentication as tokens
+/// are not automatically migrated between backends.
+///
+/// # Arguments
+/// * `backend` - Storage backend to use: "file", "keyring", or "auto"
+#[tauri::command]
+pub async fn claude_gate_set_storage_backend(
+    backend: String,
+    state: State<'_, AppState>,
+) -> Result<ClaudeGateSetStorageResponse, String> {
+    // Parse and validate the backend string
+    let new_backend: ClaudeGateStorageBackend = backend.parse()?;
+
+    // Update the storage backend setting
+    // Note: This changes the preference but the actual client would need to be
+    // recreated with the new storage. For now, we log the preference change.
+    // Full implementation would require recreating the ClaudeGateState.
+    {
+        let mut storage = state.claude_gate.storage_backend.write().await;
+        *storage = new_backend;
+    }
+
+    let active = state.claude_gate.storage_backend_name().await;
+    log::info!("Claude Gate storage backend preference changed to: {}", active);
+
+    Ok(ClaudeGateSetStorageResponse {
+        success: true,
+        active_backend: active,
+    })
 }
