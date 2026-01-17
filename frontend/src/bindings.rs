@@ -4939,3 +4939,18 @@ pub async fn claude_gate_set_storage_backend(backend: ClaudeGateStorageBackend) 
     }
     invoke_void("claude_gate_set_storage_backend", &Args { backend }).await
 }
+
+// ============================================================================
+// Utility Commands
+// ============================================================================
+
+/// Open a URL in the system's default browser
+///
+/// Uses Tauri's shell plugin to open URLs properly on all platforms.
+pub async fn open_url_in_browser(url: String) -> Result<(), String> {
+    #[derive(Serialize)]
+    struct Args {
+        url: String,
+    }
+    invoke_void("open_url_in_browser", &Args { url }).await
+}

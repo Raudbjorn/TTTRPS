@@ -10,6 +10,7 @@ use crate::bindings::{
     claude_gate_get_status, claude_gate_start_oauth, claude_gate_complete_oauth,
     claude_gate_logout, ClaudeGateStatus, ClaudeGateOAuthStartResponse,
     get_extraction_settings, save_extraction_settings, ExtractionSettings, TextExtractionProvider,
+    open_url_in_browser,
 };
 use crate::components::design_system::{Card, Badge, BadgeVariant};
 use crate::services::notification_service::{show_error, show_success};
@@ -338,29 +339,20 @@ pub fn ExtractionSettingsView() -> impl IntoView {
                                                         is_loading.set(true);
                                                         match claude_gate_start_oauth().await {
                                                             Ok(response) => {
-                                                                // Store URL for display if popup is blocked
+                                                                // Store URL for display if browser fails to open
                                                                 oauth_url.set(Some(response.auth_url.clone()));
                                                                 // Store CSRF state for verification
                                                                 oauth_csrf_state.set(Some(response.state));
-                                                                if let Some(window) = web_sys::window() {
-                                                                    match window.open_with_url(&response.auth_url) {
-                                                                        Ok(Some(_)) => {
-                                                                            show_success("Login Started", Some("Complete authentication in your browser, then paste the code below"));
-                                                                            awaiting_code.set(true);
-                                                                        }
-                                                                        Ok(None) => {
-                                                                            // Popup was blocked - show URL for manual copy
-                                                                            show_error("Popup Blocked", Some("Your browser blocked the popup. Copy the URL shown below."), None);
-                                                                            awaiting_code.set(true);
-                                                                        }
-                                                                        Err(_) => {
-                                                                            show_error("Browser Open Failed", Some("Copy the URL shown below and paste it in your browser."), None);
-                                                                            awaiting_code.set(true);
-                                                                        }
+                                                                // Open URL using Tauri's shell plugin
+                                                                match open_url_in_browser(response.auth_url).await {
+                                                                    Ok(_) => {
+                                                                        show_success("Login Started", Some("Complete authentication in your browser, then paste the code below"));
+                                                                        awaiting_code.set(true);
                                                                     }
-                                                                } else {
-                                                                    show_error("Browser Open Failed", Some("Copy the URL shown below."), None);
-                                                                    awaiting_code.set(true);
+                                                                    Err(e) => {
+                                                                        show_error("Browser Open Failed", Some(&format!("{}. Copy the URL shown below.", e)), None);
+                                                                        awaiting_code.set(true);
+                                                                    }
                                                                 }
                                                             }
                                                             Err(e) => show_error("OAuth Failed", Some(&e), None),

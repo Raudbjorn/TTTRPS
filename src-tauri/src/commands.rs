@@ -7729,3 +7729,21 @@ pub async fn claude_gate_set_storage_backend(
         active_backend: active,
     })
 }
+
+// ============================================================================
+// Utility Commands
+// ============================================================================
+
+/// Open a URL in the system's default browser
+///
+/// Uses Tauri's shell plugin to open URLs properly on all platforms.
+#[tauri::command]
+pub async fn open_url_in_browser(
+    url: String,
+    app_handle: tauri::AppHandle,
+) -> Result<(), String> {
+    use tauri_plugin_shell::ShellExt;
+
+    app_handle.shell().open(&url, None)
+        .map_err(|e| format!("Failed to open URL: {}", e))
+}

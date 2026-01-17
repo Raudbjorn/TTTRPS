@@ -15,7 +15,7 @@ use crate::bindings::{
     claude_code_install_cli, claude_code_install_skill, ClaudeCodeStatus,
     // Claude Gate OAuth
     claude_gate_get_status, claude_gate_start_oauth, claude_gate_complete_oauth,
-    claude_gate_logout, claude_gate_set_storage_backend,
+    claude_gate_logout, claude_gate_set_storage_backend, open_url_in_browser,
     ClaudeGateStatus, ClaudeGateStorageBackend, ClaudeGateOAuthStartResponse,
     // Gemini CLI
     check_gemini_cli_status, launch_gemini_cli_login, check_gemini_cli_extension,
@@ -1243,30 +1243,20 @@ pub fn LLMSettingsView() -> impl IntoView {
                                                                             claude_gate_loading.set(true);
                                                                             match claude_gate_start_oauth().await {
                                                                                 Ok(response) => {
-                                                                                    // Store URL for display if popup is blocked
+                                                                                    // Store URL for display if browser fails to open
                                                                                     claude_gate_oauth_url.set(Some(response.auth_url.clone()));
                                                                                     // Store CSRF state for verification
                                                                                     claude_gate_csrf_state.set(Some(response.state));
-                                                                                    // Open browser to authorization URL
-                                                                                    if let Some(window) = web_sys::window() {
-                                                                                        match window.open_with_url(&response.auth_url) {
-                                                                                            Ok(Some(_)) => {
-                                                                                                show_success("Login Started", Some("Complete authentication in your browser, then paste the code below"));
-                                                                                                claude_gate_awaiting_code.set(true);
-                                                                                            }
-                                                                                            Ok(None) => {
-                                                                                                // Popup was blocked - show URL for manual copy
-                                                                                                show_error("Popup Blocked", Some("Your browser blocked the popup. Copy the URL shown below and paste it in your browser."), None);
-                                                                                                claude_gate_awaiting_code.set(true);
-                                                                                            }
-                                                                                            Err(_) => {
-                                                                                                show_error("Browser Open Failed", Some("Could not open the authentication URL. Copy the URL shown below and paste it in your browser."), None);
-                                                                                                claude_gate_awaiting_code.set(true);
-                                                                                            }
+                                                                                    // Open URL using Tauri's shell plugin
+                                                                                    match open_url_in_browser(response.auth_url).await {
+                                                                                        Ok(_) => {
+                                                                                            show_success("Login Started", Some("Complete authentication in your browser, then paste the code below"));
+                                                                                            claude_gate_awaiting_code.set(true);
                                                                                         }
-                                                                                    } else {
-                                                                                        show_error("Browser Open Failed", Some("Could not access browser window. Copy the URL shown below."), None);
-                                                                                        claude_gate_awaiting_code.set(true);
+                                                                                        Err(e) => {
+                                                                                            show_error("Browser Open Failed", Some(&format!("{}. Copy the URL shown below.", e)), None);
+                                                                                            claude_gate_awaiting_code.set(true);
+                                                                                        }
                                                                                     }
                                                                                 }
                                                                                 Err(e) => show_error("OAuth Failed", Some(&e), None),

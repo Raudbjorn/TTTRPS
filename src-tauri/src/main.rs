@@ -582,6 +582,9 @@ fn main() {
             commands::claude_gate_complete_oauth,
             commands::claude_gate_logout,
             commands::claude_gate_set_storage_backend,
+
+            // Utility Commands
+            commands::open_url_in_browser,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
