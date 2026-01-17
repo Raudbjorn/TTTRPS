@@ -18,6 +18,7 @@ pub enum SettingsTab {
     Intelligence,
     Voice,
     Data,
+    Extraction,
 }
 
 #[component]
@@ -69,6 +70,13 @@ pub fn SettingsShell() -> impl IntoView {
                         label="Data & Library"
                         desc="Storage & Indexing"
                     />
+                    <TabButton
+                        tab=SettingsTab::Extraction
+                        active_tab=active_tab
+                        icon="file"
+                        label="Extraction"
+                        desc="Document Processing"
+                    />
                 </nav>
 
                 <div class="p-4 border-t border-[var(--border-subtle)] text-xs text-[var(--text-muted)] text-center">
@@ -85,6 +93,7 @@ pub fn SettingsShell() -> impl IntoView {
                             SettingsTab::Intelligence => view! { <llm::LLMSettingsView /> }.into_any(),
                             SettingsTab::Voice => view! { <voice::VoiceSettingsView /> }.into_any(),
                             SettingsTab::Data => view! { <data::DataSettingsView /> }.into_any(),
+                            SettingsTab::Extraction => view! { <extraction::ExtractionSettingsView /> }.into_any(),
                         }}
                     </div>
                 </div>
@@ -122,6 +131,7 @@ fn TabButton(
                         "brain" => view! { <i class="las la-brain"></i> }.into_any(),
                         "mic" => view! { <i class="las la-microphone"></i> }.into_any(),
                         "database" => view! { <i class="las la-database"></i> }.into_any(),
+                        "file" => view! { <i class="las la-file-alt"></i> }.into_any(),
                         _ => view! { <i></i> }.into_any()
                     }}
                 </span>

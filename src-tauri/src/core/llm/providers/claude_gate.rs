@@ -682,16 +682,26 @@ impl ClaudeGateProvider {
     // ========================================================================
 
     /// Convert ChatRequest messages to claude_gate Message format
+    /// Convert ChatRequest messages to claude_gate Message format.
+    ///
+    /// Note: System messages are filtered out here because Claude API expects
+    /// the system prompt to be passed separately via the `system` parameter,
+    /// not as part of the messages array. The system prompt is extracted from
+    /// `request.system_prompt` and passed directly to the API.
     fn convert_messages(&self, request: &ChatRequest) -> Vec<crate::claude_gate::Message> {
         request
             .messages
             .iter()
-            .filter(|m| m.role != MessageRole::System)
+            .filter(|m| m.role != MessageRole::System) // System messages go via separate API parameter
             .map(|msg| {
                 let role = match msg.role {
                     MessageRole::User => GateRole::User,
                     MessageRole::Assistant => GateRole::Assistant,
-                    MessageRole::System => GateRole::User, // Should be filtered above
+                    // System messages are filtered above; this arm exists for exhaustiveness
+                    MessageRole::System => {
+                        tracing::warn!("System message reached convert_messages unexpectedly");
+                        GateRole::User
+                    }
                 };
 
                 crate::claude_gate::Message::with_content(

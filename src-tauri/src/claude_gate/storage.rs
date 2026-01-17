@@ -764,7 +764,13 @@ pub mod callbacks {
         if path.starts_with("~") {
             let home = dirs::home_dir()
                 .ok_or_else(|| Error::config("Cannot determine home directory"))?;
-            Ok(home.join(path.strip_prefix("~").unwrap_or(path)))
+            // Strip "~" and any leading "/" to avoid treating as absolute path
+            let suffix = path
+                .strip_prefix("~")
+                .unwrap_or(path)
+                .strip_prefix("/")
+                .unwrap_or_else(|_| path.strip_prefix("~").unwrap_or(path));
+            Ok(home.join(suffix))
         } else {
             Ok(path.to_path_buf())
         }

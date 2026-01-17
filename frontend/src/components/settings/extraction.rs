@@ -278,11 +278,19 @@ pub fn ExtractionSettingsView() -> impl IntoView {
                                                         match claude_gate_start_oauth().await {
                                                             Ok(url) => {
                                                                 if let Some(window) = web_sys::window() {
-                                                                    if window.open_with_url(&url).is_err() {
-                                                                        show_error("Browser Open Failed", Some("Could not open the authentication URL."), None);
-                                                                    } else {
-                                                                        show_success("Login Started", Some("Complete authentication in your browser, then paste the code below"));
-                                                                        awaiting_code.set(true);
+                                                                    match window.open_with_url(&url) {
+                                                                        Ok(Some(_)) => {
+                                                                            show_success("Login Started", Some("Complete authentication in your browser, then paste the code below"));
+                                                                            awaiting_code.set(true);
+                                                                        }
+                                                                        Ok(None) => {
+                                                                            // Popup was blocked - still show input so user can manually copy URL
+                                                                            show_error("Popup Blocked", Some("Your browser blocked the popup. Please allow popups or copy this URL manually."), None);
+                                                                            awaiting_code.set(true);
+                                                                        }
+                                                                        Err(_) => {
+                                                                            show_error("Browser Open Failed", Some("Could not open the authentication URL."), None);
+                                                                        }
                                                                     }
                                                                 } else {
                                                                     show_error("Browser Open Failed", Some("Could not access browser window."), None);

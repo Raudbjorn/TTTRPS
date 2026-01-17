@@ -394,6 +394,13 @@ pub fn LLMSettingsView() -> impl IntoView {
             match claude_gate_get_status().await {
                 Ok(status) => {
                     statuses.insert("claude-gate".to_string(), status.authenticated);
+                    // Sync storage backend dropdown with actual backend
+                    let backend = match status.storage_backend.to_lowercase().as_str() {
+                        "keyring" => ClaudeGateStorageBackend::Keyring,
+                        "file" => ClaudeGateStorageBackend::File,
+                        _ => ClaudeGateStorageBackend::Auto,
+                    };
+                    claude_gate_storage.set(backend);
                     claude_gate_status.set(status);
                 }
                 Err(_) => {
@@ -1104,11 +1111,19 @@ pub fn LLMSettingsView() -> impl IntoView {
                                                                                 Ok(url) => {
                                                                                     // Open browser to authorization URL
                                                                                     if let Some(window) = web_sys::window() {
-                                                                                        if window.open_with_url(&url).is_err() {
-                                                                                            show_error("Browser Open Failed", Some("Could not open the authentication URL."), None);
-                                                                                        } else {
-                                                                                            show_success("Login Started", Some("Complete authentication in your browser, then paste the code below"));
-                                                                                            claude_gate_awaiting_code.set(true);
+                                                                                        match window.open_with_url(&url) {
+                                                                                            Ok(Some(_)) => {
+                                                                                                show_success("Login Started", Some("Complete authentication in your browser, then paste the code below"));
+                                                                                                claude_gate_awaiting_code.set(true);
+                                                                                            }
+                                                                                            Ok(None) => {
+                                                                                                // Popup was blocked - still show input so user can manually copy URL
+                                                                                                show_error("Popup Blocked", Some("Your browser blocked the popup. Please allow popups or copy this URL manually."), None);
+                                                                                                claude_gate_awaiting_code.set(true);
+                                                                                            }
+                                                                                            Err(_) => {
+                                                                                                show_error("Browser Open Failed", Some("Could not open the authentication URL."), None);
+                                                                                            }
                                                                                         }
                                                                                     } else {
                                                                                         show_error("Browser Open Failed", Some("Could not access browser window."), None);
