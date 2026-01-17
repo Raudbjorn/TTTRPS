@@ -331,6 +331,7 @@ pub fn LLMSettingsView() -> impl IntoView {
     let claude_gate_storage = RwSignal::new(ClaudeGateStorageBackend::Auto);
     let claude_gate_auth_code = RwSignal::new(String::new());
     let claude_gate_awaiting_code = RwSignal::new(false);
+    let claude_gate_oauth_url = RwSignal::new(Option::<String>::None);
 
     // Consolidated UI state derived from individual signals.
     // This provides a state machine view for cleaner conditional logic.
@@ -540,8 +541,8 @@ pub fn LLMSettingsView() -> impl IntoView {
                 Ok(status) => {
                     let is_ready = status.authenticated;
                     provider_statuses.update(|map| { map.insert("claude-gate".to_string(), is_ready); });
-                    // Update storage backend signal from status
-                    let backend = match status.storage_backend.as_str() {
+                    // Update storage backend signal from status (case-insensitive match)
+                    let backend = match status.storage_backend.to_lowercase().as_str() {
                         "keyring" => ClaudeGateStorageBackend::Keyring,
                         "file" => ClaudeGateStorageBackend::File,
                         _ => ClaudeGateStorageBackend::Auto,
@@ -1091,14 +1092,19 @@ pub fn LLMSettingsView() -> impl IntoView {
                                                     prop:value=move || claude_gate_storage.get().to_string()
                                                     on:change=move |ev| {
                                                         let val = event_target_value(&ev);
-                                                        let backend = match val.as_str() {
+                                                        let new_backend = match val.as_str() {
                                                             "Keyring" => ClaudeGateStorageBackend::Keyring,
                                                             "File" => ClaudeGateStorageBackend::File,
                                                             _ => ClaudeGateStorageBackend::Auto,
                                                         };
-                                                        claude_gate_storage.set(backend.clone());
+                                                        // Capture previous value for rollback on failure
+                                                        let previous_backend = claude_gate_storage.get();
+                                                        // Optimistic update
+                                                        claude_gate_storage.set(new_backend.clone());
                                                         spawn_local(async move {
-                                                            if let Err(e) = claude_gate_set_storage_backend(backend).await {
+                                                            if let Err(e) = claude_gate_set_storage_backend(new_backend).await {
+                                                                // Rollback to previous value on failure
+                                                                claude_gate_storage.set(previous_backend);
                                                                 show_error("Storage Change Failed", Some(&e), None);
                                                             }
                                                         });
@@ -1117,6 +1123,48 @@ pub fn LLMSettingsView() -> impl IntoView {
                                                     if claude_gate_awaiting_code.get() {
                                                         view! {
                                                             <div class="flex flex-col gap-2 p-3 rounded-lg bg-[var(--bg-elevated)] border border-[var(--border-subtle)]">
+                                                                // Show OAuth URL if available (for manual copy when popup blocked)
+                                                                {move || {
+                                                                    if let Some(url) = claude_gate_oauth_url.get() {
+                                                                        view! {
+                                                                            <div class="flex flex-col gap-1">
+                                                                                <p class="text-xs text-[var(--text-secondary)]">
+                                                                                    "If the browser didn't open, copy this URL:"
+                                                                                </p>
+                                                                                <div class="flex gap-2 items-center">
+                                                                                    <input
+                                                                                        type="text"
+                                                                                        readonly=true
+                                                                                        class="flex-1 px-2 py-1 text-xs rounded bg-[var(--bg-deep)] border border-[var(--border-subtle)] text-[var(--text-muted)] font-mono truncate"
+                                                                                        prop:value=url.clone()
+                                                                                    />
+                                                                                    <button
+                                                                                        class="px-2 py-1 text-xs rounded bg-[var(--accent-primary)]/20 text-[var(--accent-primary)] hover:bg-[var(--accent-primary)]/30"
+                                                                                        on:click={
+                                                                                            let url_copy = url.clone();
+                                                                                            move |_| {
+                                                                                                if let Some(window) = web_sys::window() {
+                                                                                                    let clipboard = window.navigator().clipboard();
+                                                                                                    let url_to_copy = url_copy.clone();
+                                                                                                    spawn_local(async move {
+                                                                                                        let _ = wasm_bindgen_futures::JsFuture::from(
+                                                                                                            clipboard.write_text(&url_to_copy)
+                                                                                                        ).await;
+                                                                                                        show_success("Copied", Some("URL copied to clipboard"));
+                                                                                                    });
+                                                                                                }
+                                                                                            }
+                                                                                        }
+                                                                                    >
+                                                                                        "Copy"
+                                                                                    </button>
+                                                                                </div>
+                                                                            </div>
+                                                                        }.into_any()
+                                                                    } else {
+                                                                        view! { <div></div> }.into_any()
+                                                                    }
+                                                                }}
                                                                 <p class="text-xs text-[var(--text-secondary)]">
                                                                     "After authorizing in your browser, paste the authorization code here:"
                                                                 </p>
@@ -1143,6 +1191,7 @@ pub fn LLMSettingsView() -> impl IntoView {
                                                                                             show_success("Login Complete", Some("Successfully authenticated with Claude"));
                                                                                             claude_gate_awaiting_code.set(false);
                                                                                             claude_gate_auth_code.set(String::new());
+                                                                                            claude_gate_oauth_url.set(None);
                                                                                             refresh_claude_gate_status();
                                                                                         } else {
                                                                                             show_error("OAuth Failed", result.error.as_deref(), None);
@@ -1161,6 +1210,7 @@ pub fn LLMSettingsView() -> impl IntoView {
                                                                         on:click=move |_| {
                                                                             claude_gate_awaiting_code.set(false);
                                                                             claude_gate_auth_code.set(String::new());
+                                                                            claude_gate_oauth_url.set(None);
                                                                         }
                                                                     >
                                                                         "Cancel"
@@ -1189,6 +1239,8 @@ pub fn LLMSettingsView() -> impl IntoView {
                                                                             claude_gate_loading.set(true);
                                                                             match claude_gate_start_oauth().await {
                                                                                 Ok(url) => {
+                                                                                    // Store URL for display if popup is blocked
+                                                                                    claude_gate_oauth_url.set(Some(url.clone()));
                                                                                     // Open browser to authorization URL
                                                                                     if let Some(window) = web_sys::window() {
                                                                                         match window.open_with_url(&url) {
@@ -1197,16 +1249,18 @@ pub fn LLMSettingsView() -> impl IntoView {
                                                                                                 claude_gate_awaiting_code.set(true);
                                                                                             }
                                                                                             Ok(None) => {
-                                                                                                // Popup was blocked - still show input so user can manually copy URL
-                                                                                                show_error("Popup Blocked", Some("Your browser blocked the popup. Please allow popups or copy this URL manually."), None);
+                                                                                                // Popup was blocked - show URL for manual copy
+                                                                                                show_error("Popup Blocked", Some("Your browser blocked the popup. Copy the URL shown below and paste it in your browser."), None);
                                                                                                 claude_gate_awaiting_code.set(true);
                                                                                             }
                                                                                             Err(_) => {
-                                                                                                show_error("Browser Open Failed", Some("Could not open the authentication URL."), None);
+                                                                                                show_error("Browser Open Failed", Some("Could not open the authentication URL. Copy the URL shown below and paste it in your browser."), None);
+                                                                                                claude_gate_awaiting_code.set(true);
                                                                                             }
                                                                                         }
                                                                                     } else {
-                                                                                        show_error("Browser Open Failed", Some("Could not access browser window."), None);
+                                                                                        show_error("Browser Open Failed", Some("Could not access browser window. Copy the URL shown below."), None);
+                                                                                        claude_gate_awaiting_code.set(true);
                                                                                     }
                                                                                 }
                                                                                 Err(e) => show_error("OAuth Failed", Some(&e), None),

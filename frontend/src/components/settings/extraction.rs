@@ -41,6 +41,7 @@ pub fn ExtractionSettingsView() -> impl IntoView {
     let is_loading = RwSignal::new(false);
     let auth_code = RwSignal::new(String::new());
     let awaiting_code = RwSignal::new(false);
+    let oauth_url = RwSignal::new(Option::<String>::None);
 
     // Refresh Claude Gate status
     let refresh_status = move || {
@@ -205,6 +206,48 @@ pub fn ExtractionSettingsView() -> impl IntoView {
                                 if awaiting_code.get() {
                                     view! {
                                         <div class="flex flex-col gap-2 p-3 rounded-lg bg-[var(--bg-elevated)] border border-[var(--border-subtle)]">
+                                            // Show OAuth URL if available (for manual copy when popup blocked)
+                                            {move || {
+                                                if let Some(url) = oauth_url.get() {
+                                                    view! {
+                                                        <div class="flex flex-col gap-1">
+                                                            <p class="text-xs text-[var(--text-secondary)]">
+                                                                "If the browser didn't open, copy this URL:"
+                                                            </p>
+                                                            <div class="flex gap-2 items-center">
+                                                                <input
+                                                                    type="text"
+                                                                    readonly=true
+                                                                    class="flex-1 px-2 py-1 text-xs rounded bg-[var(--bg-deep)] border border-[var(--border-subtle)] text-[var(--text-muted)] font-mono truncate"
+                                                                    prop:value=url.clone()
+                                                                />
+                                                                <button
+                                                                    class="px-2 py-1 text-xs rounded bg-orange-500/20 text-orange-400 hover:bg-orange-500/30"
+                                                                    on:click={
+                                                                        let url_copy = url.clone();
+                                                                        move |_| {
+                                                                            if let Some(window) = web_sys::window() {
+                                                                                let clipboard = window.navigator().clipboard();
+                                                                                let url_to_copy = url_copy.clone();
+                                                                                spawn_local(async move {
+                                                                                    let _ = wasm_bindgen_futures::JsFuture::from(
+                                                                                        clipboard.write_text(&url_to_copy)
+                                                                                    ).await;
+                                                                                    show_success("Copied", Some("URL copied to clipboard"));
+                                                                                });
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                >
+                                                                    "Copy"
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    }.into_any()
+                                                } else {
+                                                    view! { <div></div> }.into_any()
+                                                }
+                                            }}
                                             <p class="text-xs text-[var(--text-secondary)]">
                                                 "After authorizing in your browser, paste the authorization code here:"
                                             </p>
@@ -231,6 +274,7 @@ pub fn ExtractionSettingsView() -> impl IntoView {
                                                                         show_success("Login Complete", Some("Successfully authenticated with Claude"));
                                                                         awaiting_code.set(false);
                                                                         auth_code.set(String::new());
+                                                                        oauth_url.set(None);
                                                                         refresh_status();
                                                                     } else {
                                                                         show_error("OAuth Failed", result.error.as_deref(), None);
@@ -249,6 +293,7 @@ pub fn ExtractionSettingsView() -> impl IntoView {
                                                     on:click=move |_| {
                                                         awaiting_code.set(false);
                                                         auth_code.set(String::new());
+                                                        oauth_url.set(None);
                                                     }
                                                 >
                                                     "Cancel"
@@ -277,6 +322,8 @@ pub fn ExtractionSettingsView() -> impl IntoView {
                                                         is_loading.set(true);
                                                         match claude_gate_start_oauth().await {
                                                             Ok(url) => {
+                                                                // Store URL for display if popup is blocked
+                                                                oauth_url.set(Some(url.clone()));
                                                                 if let Some(window) = web_sys::window() {
                                                                     match window.open_with_url(&url) {
                                                                         Ok(Some(_)) => {
@@ -284,16 +331,18 @@ pub fn ExtractionSettingsView() -> impl IntoView {
                                                                             awaiting_code.set(true);
                                                                         }
                                                                         Ok(None) => {
-                                                                            // Popup was blocked - still show input so user can manually copy URL
-                                                                            show_error("Popup Blocked", Some("Your browser blocked the popup. Please allow popups or copy this URL manually."), None);
+                                                                            // Popup was blocked - show URL for manual copy
+                                                                            show_error("Popup Blocked", Some("Your browser blocked the popup. Copy the URL shown below."), None);
                                                                             awaiting_code.set(true);
                                                                         }
                                                                         Err(_) => {
-                                                                            show_error("Browser Open Failed", Some("Could not open the authentication URL."), None);
+                                                                            show_error("Browser Open Failed", Some("Copy the URL shown below and paste it in your browser."), None);
+                                                                            awaiting_code.set(true);
                                                                         }
                                                                     }
                                                                 } else {
-                                                                    show_error("Browser Open Failed", Some("Could not access browser window."), None);
+                                                                    show_error("Browser Open Failed", Some("Copy the URL shown below."), None);
+                                                                    awaiting_code.set(true);
                                                                 }
                                                             }
                                                             Err(e) => show_error("OAuth Failed", Some(&e), None),
