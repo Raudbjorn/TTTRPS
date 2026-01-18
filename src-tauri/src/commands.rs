@@ -7742,7 +7742,13 @@ pub async fn claude_gate_complete_oauth(
     // Parse code#state format if present
     let (actual_code, embedded_state) = if let Some(hash_pos) = code.find('#') {
         let (c, s) = code.split_at(hash_pos);
-        (c.to_string(), Some(s[1..].to_string())) // Skip the '#' character
+        // Only treat as embedded state if there is content after the '#' character
+        let embedded = if s.len() > 1 {
+            Some(s[1..].to_string())
+        } else {
+            None
+        };
+        (c.to_string(), embedded)
     } else {
         (code, None)
     };

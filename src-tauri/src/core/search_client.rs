@@ -1240,7 +1240,7 @@ Type: {{ doc.chunk_type | default: "text" }}
                 "page_start",
                 "page_end",
                 "source_slug",
-                "source",             // Required for delete_library_document_with_content
+                "source",             // Filter/search by source document
             ])
             .with_sortable_attributes([
                 "page_start",
