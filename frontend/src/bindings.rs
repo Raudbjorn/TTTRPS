@@ -1973,6 +1973,108 @@ pub async fn reindex_library(index_name: Option<String>) -> Result<String, Strin
 }
 
 // ============================================================================
+// Meilisearch Configuration Types and Commands
+// ============================================================================
+
+/// Source of the Meilisearch configuration
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum MeilisearchConfigSource {
+    /// Read from /etc/meilisearch.conf (system service)
+    SystemConfig,
+    /// User-configured settings in app
+    UserSettings,
+    /// Hardcoded defaults (fallback)
+    #[default]
+    Default,
+}
+
+impl std::fmt::Display for MeilisearchConfigSource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            MeilisearchConfigSource::SystemConfig => write!(f, "System Config"),
+            MeilisearchConfigSource::UserSettings => write!(f, "User Settings"),
+            MeilisearchConfigSource::Default => write!(f, "Default"),
+        }
+    }
+}
+
+/// Warning severity level
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ConfigWarningSeverity {
+    Info,
+    Warning,
+    Error,
+}
+
+/// Warning generated during config resolution
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MeilisearchConfigWarning {
+    pub message: String,
+    pub severity: ConfigWarningSeverity,
+}
+
+/// User-persisted Meilisearch configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MeilisearchUserConfig {
+    pub host: String,
+    pub port: u16,
+    pub master_key: Option<String>,
+    pub enabled: bool,
+}
+
+/// Full Meilisearch configuration info from backend
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MeilisearchConfigInfo {
+    pub host: String,
+    pub port: u16,
+    pub has_master_key: bool,
+    pub config_source: MeilisearchConfigSource,
+    pub warnings: Vec<MeilisearchConfigWarning>,
+    pub is_connected: bool,
+    pub user_config: Option<MeilisearchUserConfig>,
+}
+
+/// Get current Meilisearch configuration
+pub async fn get_meilisearch_config() -> Result<MeilisearchConfigInfo, String> {
+    invoke_no_args("get_meilisearch_config").await
+}
+
+/// Save Meilisearch user configuration
+pub async fn save_meilisearch_config(
+    host: String,
+    port: u16,
+    master_key: Option<String>,
+    enabled: bool,
+) -> Result<(), String> {
+    #[derive(Serialize)]
+    struct Args {
+        host: String,
+        port: u16,
+        master_key: Option<String>,
+        enabled: bool,
+    }
+    invoke_void("save_meilisearch_config", &Args { host, port, master_key, enabled }).await
+}
+
+/// Test Meilisearch connection with given credentials
+pub async fn test_meilisearch_connection(host: String, port: u16, master_key: String) -> Result<bool, String> {
+    #[derive(Serialize)]
+    struct Args {
+        host: String,
+        port: u16,
+        master_key: String,
+    }
+    invoke("test_meilisearch_connection", &Args { host, port, master_key }).await
+}
+
+/// Get Meilisearch master key from keychain
+pub async fn get_meilisearch_master_key() -> Result<Option<String>, String> {
+    invoke_no_args("get_meilisearch_master_key").await
+}
+
+// ============================================================================
 // Search Types and Commands
 // ============================================================================
 

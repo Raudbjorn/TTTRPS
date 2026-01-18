@@ -38,13 +38,19 @@ fn main() {
                 });
             }
 
-            // Initialize managers (Meilisearch-based)
-            let (cm, sm, ns, creds, vm, sidecar_manager, search_client, personality_store, personality_manager, pipeline, _llm_router, version_manager, world_state_manager, relationship_manager, location_manager, claude_desktop_manager, llm_manager) =
-                commands::AppState::init_defaults();
-
-            // Initialize Database
+            // Get app data directory first (needed for config resolution)
             let app_handle = app.handle();
             let app_dir = app_handle.path().app_data_dir().unwrap_or(std::path::PathBuf::from("."));
+
+            // Resolve Meilisearch configuration using smart detection
+            // (checks system config, user settings, or falls back to defaults)
+            let meilisearch_config = tauri::async_runtime::block_on(async {
+                ttrpg_assistant::core::sidecar_manager::MeilisearchConfig::resolve(Some(&app_dir)).await
+            });
+
+            // Initialize managers with resolved Meilisearch config
+            let (cm, sm, ns, creds, vm, sidecar_manager, search_client, personality_store, personality_manager, pipeline, _llm_router, version_manager, world_state_manager, relationship_manager, location_manager, claude_desktop_manager, llm_manager) =
+                commands::AppState::init_with_meilisearch_config(meilisearch_config);
             let database = tauri::async_runtime::block_on(async {
                 match ttrpg_assistant::database::Database::new(&app_dir).await {
                     Ok(db) => db,
@@ -410,6 +416,12 @@ fn main() {
             commands::get_api_key,
             commands::delete_api_key,
             commands::list_stored_providers,
+
+            // Meilisearch Configuration Commands
+            commands::get_meilisearch_config,
+            commands::save_meilisearch_config,
+            commands::test_meilisearch_connection,
+            commands::get_meilisearch_master_key,
 
             // Utility Commands
             commands::get_app_version,

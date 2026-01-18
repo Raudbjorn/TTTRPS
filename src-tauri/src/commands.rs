@@ -95,6 +95,7 @@ pub struct AppState {
 
 // Helper init for default state components
 impl AppState {
+    /// Initialize with default Meilisearch configuration (synchronous)
     pub fn init_defaults() -> (
         CampaignManager,
         SessionManager,
@@ -114,7 +115,40 @@ impl AppState {
         Arc<AsyncRwLock<ClaudeDesktopManager>>,
         Arc<AsyncRwLock<crate::core::llm::LLMManager>>,
     ) {
-        let sidecar_config = MeilisearchConfig::default();
+        Self::init_with_meilisearch_config(MeilisearchConfig::default())
+    }
+
+    /// Initialize with a specific Meilisearch configuration
+    pub fn init_with_meilisearch_config(sidecar_config: MeilisearchConfig) -> (
+        CampaignManager,
+        SessionManager,
+        NPCStore,
+        CredentialManager,
+        Arc<AsyncRwLock<VoiceManager>>,
+        Arc<SidecarManager>,
+        Arc<SearchClient>,
+        Arc<PersonalityStore>,
+        Arc<PersonalityApplicationManager>,
+        Arc<MeilisearchPipeline>,
+        AsyncRwLock<LLMRouter>,
+        VersionManager,
+        WorldStateManager,
+        RelationshipManager,
+        crate::core::location_manager::LocationManager,
+        Arc<AsyncRwLock<ClaudeDesktopManager>>,
+        Arc<AsyncRwLock<crate::core::llm::LLMManager>>,
+    ) {
+        // Log the config being used
+        log::info!(
+            "Initializing with Meilisearch config: source={}, host={}:{}",
+            sidecar_config.config_source,
+            sidecar_config.host,
+            sidecar_config.port
+        );
+        for warning in &sidecar_config.warnings {
+            log::warn!("Meilisearch config: {}", warning.message);
+        }
+
         let search_client = SearchClient::new(
             &sidecar_config.url(),
             Some(&sidecar_config.master_key),
@@ -2502,6 +2536,125 @@ pub struct AppSystemInfo {
     pub os: String,
     pub arch: String,
     pub version: String,
+}
+
+// ============================================================================
+// Meilisearch Configuration Commands
+// ============================================================================
+
+use crate::core::meilisearch_config::{
+    self, ConfigSource, ConfigWarning, MeilisearchUserConfig,
+    validate_config, save_user_settings, load_user_settings,
+};
+
+/// Response for get_meilisearch_config command
+#[derive(Debug, Serialize, Deserialize)]
+pub struct MeilisearchConfigInfo {
+    /// Current host
+    pub host: String,
+    /// Current port
+    pub port: u16,
+    /// Whether master key is configured (not the actual key)
+    pub has_master_key: bool,
+    /// Source of this configuration
+    pub config_source: ConfigSource,
+    /// Any warnings from config resolution
+    pub warnings: Vec<ConfigWarning>,
+    /// Whether Meilisearch is currently connected
+    pub is_connected: bool,
+    /// User settings (if any)
+    pub user_config: Option<MeilisearchUserConfig>,
+}
+
+/// Get current Meilisearch configuration
+#[tauri::command]
+pub async fn get_meilisearch_config(
+    app_handle: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<MeilisearchConfigInfo, String> {
+    let config = state.sidecar_manager.config();
+
+    // Load user settings if any
+    let user_config = app_handle.path().app_data_dir()
+        .ok()
+        .and_then(|dir| load_user_settings(&dir));
+
+    // Check connection status
+    let is_connected = state.sidecar_manager.health_check().await;
+
+    Ok(MeilisearchConfigInfo {
+        host: config.host.clone(),
+        port: config.port,
+        has_master_key: !config.master_key.is_empty(),
+        config_source: config.config_source,
+        warnings: config.warnings.clone(),
+        is_connected,
+        user_config,
+    })
+}
+
+/// Save Meilisearch user configuration
+#[tauri::command]
+pub async fn save_meilisearch_config(
+    app_handle: tauri::AppHandle,
+    state: State<'_, AppState>,
+    host: String,
+    port: u16,
+    master_key: Option<String>,
+    enabled: bool,
+) -> Result<(), String> {
+    // Validate the configuration
+    validate_config(&host, port)?;
+
+    // Get app data directory
+    let app_data_dir = app_handle.path().app_data_dir()
+        .map_err(|e| format!("Failed to get app data dir: {}", e))?;
+
+    // Store master key in keychain if provided
+    if let Some(key) = &master_key {
+        if !key.is_empty() && !key.starts_with('*') {
+            state.credentials.store_secret("meilisearch_master_key", key)
+                .map_err(|e| format!("Failed to store master key: {}", e))?;
+        }
+    }
+
+    // Create user config (without the actual master key - it's in keychain)
+    let user_config = MeilisearchUserConfig {
+        host,
+        port,
+        master_key: None, // Stored in keychain
+        enabled,
+    };
+
+    // Save config file
+    save_user_settings(&app_data_dir, &user_config)?;
+
+    log::info!("Meilisearch user config saved");
+    Ok(())
+}
+
+/// Test Meilisearch connection with given credentials
+#[tauri::command]
+pub async fn test_meilisearch_connection(
+    host: String,
+    port: u16,
+    master_key: String,
+) -> Result<bool, String> {
+    validate_config(&host, port)?;
+
+    meilisearch_config::test_connection(&host, port, &master_key)
+        .await
+        .map(|_| true)
+}
+
+/// Get Meilisearch master key from keychain
+#[tauri::command]
+pub fn get_meilisearch_master_key(state: State<'_, AppState>) -> Result<Option<String>, String> {
+    match state.credentials.get_secret("meilisearch_master_key") {
+        Ok(key) => Ok(Some(key)),
+        Err(crate::core::credentials::CredentialError::NotFound(_)) => Ok(None),
+        Err(e) => Err(e.to_string()),
+    }
 }
 
 // ============================================================================

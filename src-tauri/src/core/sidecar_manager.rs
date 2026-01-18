@@ -1,10 +1,16 @@
 use sha2::{Sha256, Digest};
+use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio::sync::Mutex;
+
+use super::meilisearch_config::{
+    self, ConfigSource, ConfigWarning, MeilisearchSettings,
+    DEFAULT_HOST, DEFAULT_MASTER_KEY, DEFAULT_PORT,
+};
 
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
@@ -17,24 +23,35 @@ const MEILISEARCH_DOWNLOAD_URL: &str = "https://github.com/meilisearch/meilisear
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 /// Configuration for Meilisearch sidecar
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MeilisearchConfig {
     pub host: String,
     pub port: u16,
     pub master_key: String,
     pub data_dir: PathBuf,
+    /// Source of this configuration (for UI display)
+    #[serde(default)]
+    pub config_source: ConfigSource,
+    /// Warnings generated during config resolution
+    #[serde(default)]
+    pub warnings: Vec<ConfigWarning>,
 }
 
 impl Default for MeilisearchConfig {
     fn default() -> Self {
         Self {
-            host: "127.0.0.1".to_string(),
-            port: 7700,
-            master_key: "ttrpg-assistant-dev-key".to_string(),
+            host: DEFAULT_HOST.to_string(),
+            port: DEFAULT_PORT,
+            master_key: DEFAULT_MASTER_KEY.to_string(),
             data_dir: dirs::data_local_dir()
                 .unwrap_or_else(|| PathBuf::from("."))
                 .join("ttrpg-assistant")
                 .join("meilisearch"),
+            config_source: ConfigSource::Default,
+            warnings: vec![ConfigWarning {
+                message: "Using default master key - connection may fail if Meilisearch has a different key configured".to_string(),
+                severity: meilisearch_config::WarningSeverity::Warning,
+            }],
         }
     }
 }
@@ -42,6 +59,52 @@ impl Default for MeilisearchConfig {
 impl MeilisearchConfig {
     pub fn url(&self) -> String {
         format!("http://{}:{}", self.host, self.port)
+    }
+
+    /// Create config from resolved settings
+    pub fn from_settings(settings: MeilisearchSettings) -> Self {
+        Self {
+            host: settings.host,
+            port: settings.port,
+            master_key: settings.master_key,
+            data_dir: dirs::data_local_dir()
+                .unwrap_or_else(|| PathBuf::from("."))
+                .join("ttrpg-assistant")
+                .join("meilisearch"),
+            config_source: settings.config_source,
+            warnings: settings.warnings,
+        }
+    }
+
+    /// Resolve configuration using the smart detection chain
+    pub async fn resolve(app_data_dir: Option<&std::path::Path>) -> Self {
+        // First, check if Meilisearch is already running (external instance)
+        let is_external = Self::check_external_instance().await;
+
+        let settings = meilisearch_config::resolve_config(app_data_dir, is_external);
+
+        // Log the resolution result
+        log::info!(
+            "Meilisearch config resolved: source={}, host={}:{}",
+            settings.config_source,
+            settings.host,
+            settings.port
+        );
+
+        for warning in &settings.warnings {
+            log::warn!("Meilisearch config warning: {}", warning.message);
+        }
+
+        Self::from_settings(settings)
+    }
+
+    /// Check if Meilisearch is already running on the default port
+    async fn check_external_instance() -> bool {
+        let url = format!("http://{}:{}/health", DEFAULT_HOST, DEFAULT_PORT);
+        match reqwest::get(&url).await {
+            Ok(resp) => resp.status().is_success(),
+            Err(_) => false,
+        }
     }
 }
 

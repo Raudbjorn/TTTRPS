@@ -16,6 +16,7 @@ pub mod theme;
 pub mod location_gen;
 
 // Meilisearch-based search (replaces vector_store, keyword_search, hybrid_search, embedding_pipeline)
+pub mod meilisearch_config;
 pub mod sidecar_manager;
 pub mod search_client;
 pub mod meilisearch_pipeline;
