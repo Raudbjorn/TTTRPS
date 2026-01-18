@@ -246,6 +246,13 @@ impl SettingPack {
             });
         }
 
+        if self.game_system.is_empty() {
+            return Err(ArchetypeError::SettingPackInvalid {
+                pack_id: self.id.clone(),
+                reason: "Game system is required".to_string(),
+            });
+        }
+
         // Validate semantic version format
         if !is_valid_semver(&self.version) {
             return Err(ArchetypeError::SettingPackInvalid {
@@ -618,7 +625,7 @@ pub struct PhraseDefinition {
     pub context_tags: Vec<String>,
 
     /// Formality level (1 = very casual, 10 = very formal).
-    #[serde(default = "default_formality")]
+    #[serde(default = "default_formality", deserialize_with = "deserialize_formality")]
     pub formality: u8,
 
     /// Tone markers (e.g., "angry", "friendly", "sarcastic").
@@ -632,6 +639,14 @@ pub struct PhraseDefinition {
 
 fn default_formality() -> u8 {
     5
+}
+
+fn deserialize_formality<'de, D>(deserializer: D) -> std::result::Result<u8, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = u8::deserialize(deserializer)?;
+    Ok(value.clamp(1, 10))
 }
 
 impl PhraseDefinition {
@@ -713,9 +728,12 @@ impl VocabularyBankDefinition {
         }
     }
 
-    /// Add phrases to a category.
+    /// Add phrases to a category (extends existing phrases).
     pub fn add_phrases(mut self, category: impl Into<String>, phrases: Vec<PhraseDefinition>) -> Self {
-        self.phrases.insert(category.into(), phrases);
+        self.phrases
+            .entry(category.into())
+            .or_default()
+            .extend(phrases);
         self
     }
 

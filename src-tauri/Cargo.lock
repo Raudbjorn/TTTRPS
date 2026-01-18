@@ -3201,7 +3201,7 @@ dependencies = [
  "html-escape",
  "html5ever 0.36.1",
  "image",
- "lru 0.16.3",
+ "lru",
  "markup5ever_rcdom",
  "once_cell",
  "regex",
@@ -4368,15 +4368,6 @@ dependencies = [
  "time",
  "ttf-parser",
  "weezl",
-]
-
-[[package]]
-name = "lru"
-version = "0.12.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "234cf4f4a04dc1f57e24b96cc0cd600cf2af460d4161ac5ecdd0af8e1f3b2a38"
-dependencies = [
- "hashbrown 0.15.5",
 ]
 
 [[package]]
@@ -9271,7 +9262,7 @@ dependencies = [
  "kreuzberg",
  "libc",
  "log",
- "lru 0.12.5",
+ "lru",
  "meilisearch-sdk",
  "mockall",
  "num_cpus",

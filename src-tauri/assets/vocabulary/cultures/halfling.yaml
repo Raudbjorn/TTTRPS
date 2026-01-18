@@ -143,7 +143,7 @@ phrases:
       priority: 7
 
   about_home:
-    - text: "There's no place quite like the Shire... er, home."
+    - text: "There's no place quite like home."
       formality: 4
       toneMarkers: [homesick, warm]
       priority: 8

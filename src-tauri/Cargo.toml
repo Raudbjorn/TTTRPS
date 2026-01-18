@@ -57,7 +57,7 @@ flate2 = "1.0"
 # Meilisearch for unified search (replaces lancedb + tantivy)
 meilisearch-sdk = "0.31"
 # LRU cache for archetype resolution
-lru = "0.12"
+lru = "0.16"
 dirs = "6.0"
 which = "7.0"
 

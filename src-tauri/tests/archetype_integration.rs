@@ -56,8 +56,10 @@ impl TestConfig {
 
     fn client(&self) -> Client {
         match &self.meilisearch_key {
-            Some(key) => Client::new(&self.meilisearch_url, Some(key.as_str())),
-            None => Client::new(&self.meilisearch_url, None::<String>),
+            Some(key) => Client::new(&self.meilisearch_url, Some(key.as_str()))
+                .expect("Failed to create Meilisearch client"),
+            None => Client::new(&self.meilisearch_url, None::<String>)
+                .expect("Failed to create Meilisearch client"),
         }
     }
 

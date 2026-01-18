@@ -290,16 +290,20 @@ impl ResolutionQuery {
     ///
     /// Format: `archetype_id|npc_role|race|class|setting|campaign_id|dm_personality_id`
     /// Empty fields are represented as empty strings.
+    /// Fields containing the delimiter are escaped.
     pub fn cache_key(&self) -> String {
+        fn escape_field(s: &str) -> String {
+            s.replace('\\', "\\\\").replace('|', "\\|")
+        }
         format!(
             "{}|{}|{}|{}|{}|{}|{}",
-            self.archetype_id.as_deref().unwrap_or(""),
-            self.npc_role.as_deref().unwrap_or(""),
-            self.race.as_deref().unwrap_or(""),
-            self.class.as_deref().unwrap_or(""),
-            self.setting.as_deref().unwrap_or(""),
-            self.campaign_id.as_deref().unwrap_or(""),
-            self.dm_personality_id.as_deref().unwrap_or(""),
+            self.archetype_id.as_deref().map(escape_field).unwrap_or_default(),
+            self.npc_role.as_deref().map(escape_field).unwrap_or_default(),
+            self.race.as_deref().map(escape_field).unwrap_or_default(),
+            self.class.as_deref().map(escape_field).unwrap_or_default(),
+            self.setting.as_deref().map(escape_field).unwrap_or_default(),
+            self.campaign_id.as_deref().map(escape_field).unwrap_or_default(),
+            self.dm_personality_id.as_deref().map(escape_field).unwrap_or_default(),
         )
     }
 }

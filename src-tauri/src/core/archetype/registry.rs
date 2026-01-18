@@ -247,29 +247,32 @@ impl ArchetypeRegistry {
 
         let id = archetype.id.clone();
 
-        // Check for duplicate ID
+        // Use a single write lock to prevent TOCTOU race
         {
-            let archetypes = self.archetypes.read().await;
+            let mut archetypes = self.archetypes.write().await;
+
+            // Check for duplicate ID
             if archetypes.contains_key(id.as_str()) {
                 return Err(ArchetypeError::DuplicateArchetypeId(id.to_string()));
             }
-        }
 
-        // Validate parent exists if specified
-        if let Some(ref parent_id) = archetype.parent_id {
-            let archetypes = self.archetypes.read().await;
-            if !archetypes.contains_key(parent_id.as_str()) {
-                return Err(ArchetypeError::ParentNotFound(parent_id.to_string()));
+            // Validate parent exists if specified
+            if let Some(ref parent_id) = archetype.parent_id {
+                if !archetypes.contains_key(parent_id.as_str()) {
+                    return Err(ArchetypeError::ParentNotFound(parent_id.to_string()));
+                }
             }
+
+            // Insert into in-memory registry first
+            archetypes.insert(id.to_string(), archetype.clone());
         }
 
-        // Persist to Meilisearch
-        self.persist_archetype(&archetype).await?;
-
-        // Update in-memory registry
-        {
+        // Persist to Meilisearch (after releasing lock to avoid blocking)
+        if let Err(e) = self.persist_archetype(&archetype).await {
+            // Rollback in-memory on persist failure
             let mut archetypes = self.archetypes.write().await;
-            archetypes.insert(id.to_string(), archetype);
+            archetypes.remove(id.as_str());
+            return Err(e);
         }
 
         // Emit event (stub)
