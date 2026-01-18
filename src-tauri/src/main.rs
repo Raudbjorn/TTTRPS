@@ -40,7 +40,9 @@ fn main() {
             }
 
             // Initialize managers (Meilisearch-based)
-            let (cm, sm, ns, creds, vm, sidecar_manager, search_client, personality_store, personality_manager, pipeline, _llm_router, version_manager, world_state_manager, relationship_manager, location_manager, claude_desktop_manager, llm_manager, claude_gate, setting_pack_loader) =
+            let (cm, sm, ns, creds, vm, sidecar_manager, search_client, personality_store, personality_manager, pipeline, _llm_router, version_manager, world_state_manager, relationship_manager, location_manager, claude_desktop_manager, llm_manager, claude_gate, setting_pack_loader,
+                // Phase 4: Personality Extensions
+                template_store, blend_rule_store, personality_blender, contextual_personality_manager) =
                 commands::AppState::init_defaults();
 
             // Initialize Database
@@ -119,6 +121,11 @@ fn main() {
                 archetype_registry: tokio::sync::RwLock::new(None), // Initialized after Meilisearch is ready
                 vocabulary_manager: tokio::sync::RwLock::new(None), // Initialized after Meilisearch is ready
                 setting_pack_loader,
+                // Phase 4: Personality Extensions
+                template_store,
+                blend_rule_store,
+                personality_blender,
+                contextual_personality_manager,
             });
 
             // Initialize Archetype Registry after Meilisearch starts
@@ -636,6 +643,34 @@ fn main() {
             commands::claude_gate_logout,
             commands::claude_gate_set_storage_backend,
             commands::claude_gate_list_models,
+
+            // Phase 4: Personality Extension Commands (TASK-PERS-014, TASK-PERS-015, TASK-PERS-016, TASK-PERS-017)
+            // Template Commands
+            commands::list_personality_templates,
+            commands::filter_templates_by_game_system,
+            commands::filter_templates_by_setting,
+            commands::search_personality_templates,
+            commands::get_template_preview,
+            commands::apply_template_to_campaign,
+            commands::create_template_from_personality,
+            commands::export_personality_template,
+            commands::import_personality_template,
+            // Blend Rule Commands
+            commands::set_blend_rule,
+            commands::get_blend_rule,
+            commands::list_blend_rules,
+            commands::delete_blend_rule,
+            // Context Detection Commands
+            commands::detect_gameplay_context,
+            commands::list_gameplay_contexts,
+            // Contextual Personality Commands
+            commands::get_contextual_personality,
+            commands::get_current_context,
+            commands::clear_context_history,
+            commands::get_contextual_personality_config,
+            commands::set_contextual_personality_config,
+            commands::get_blender_cache_stats,
+            commands::get_blend_rule_cache_stats,
 
             // Utility Commands
             commands::open_url_in_browser,
