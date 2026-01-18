@@ -3499,6 +3499,11 @@ async fn ingest_document_with_progress_internal(
         status: "ready".to_string(),
         error_message: None,
         ingested_at: chrono::Utc::now().to_rfc3339(),
+        // TTRPG metadata - user-editable, not set during ingestion
+        game_system: None,
+        setting: None,
+        content_type: None,
+        publisher: None,
     };
 
     if let Err(e) = state.search_client.save_library_document(&library_doc).await {

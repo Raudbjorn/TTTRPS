@@ -945,6 +945,11 @@ impl MeilisearchPipeline {
             status: "processing".to_string(),
             error_message: None,
             ingested_at: Utc::now().to_rfc3339(),
+            // TTRPG metadata - user-editable, not set during ingestion
+            game_system: None,
+            setting: None,
+            content_type: None,
+            publisher: None,
         };
 
         if let Err(e) = search_client.save_library_document(&initial_metadata).await {
@@ -1075,6 +1080,11 @@ impl MeilisearchPipeline {
                 status: "ready".to_string(),
                 error_message: None,
                 ingested_at: Utc::now().to_rfc3339(),
+                // TTRPG metadata - user-editable, not set during ingestion
+                game_system: None,
+                setting: None,
+                content_type: None,
+                publisher: None,
             };
 
             if let Err(e) = search_client.save_library_document(&final_metadata).await {
@@ -1189,6 +1199,11 @@ impl MeilisearchPipeline {
                     status: "ready".to_string(),
                     error_message: None,
                     ingested_at: Utc::now().to_rfc3339(),
+                    // TTRPG metadata - user-editable, not set during ingestion
+                    game_system: None,
+                    setting: None,
+                    content_type: None,
+                    publisher: None,
                 };
 
                 if let Err(e) = search_client.save_library_document(&final_metadata).await {
@@ -1220,6 +1235,11 @@ impl MeilisearchPipeline {
                     status: "error".to_string(),
                     error_message: Some(e.to_string()),
                     ingested_at: Utc::now().to_rfc3339(),
+                    // TTRPG metadata - user-editable, not set during ingestion
+                    game_system: None,
+                    setting: None,
+                    content_type: None,
+                    publisher: None,
                 };
 
                 let _ = search_client.save_library_document(&error_metadata).await;
@@ -1399,6 +1419,11 @@ impl MeilisearchPipeline {
             status: "ready".to_string(),
             error_message: None,
             ingested_at: Utc::now().to_rfc3339(),
+            // TTRPG metadata - user-editable, not set during ingestion
+            game_system: None,
+            setting: None,
+            content_type: None,
+            publisher: None,
         };
 
         if let Err(e) = search_client.save_library_document(&final_metadata).await {
