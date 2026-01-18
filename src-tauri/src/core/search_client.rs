@@ -403,7 +403,7 @@ impl SearchClient {
         // Configure settings for content indexes
         let base_settings = Settings::new()
             .with_searchable_attributes(["content", "source", "metadata"])
-            // .with_filterable_attributes(["source", "source_type", "campaign_id", "session_id", "created_at"])
+            .with_filterable_attributes(["source", "source_type", "campaign_id", "session_id", "created_at"])
             .with_sortable_attributes(["created_at"]);
 
         // Apply settings to content indexes
@@ -1172,6 +1172,7 @@ Type: {{ doc.chunk_type | default: "text" }}
                 "page_start",
                 "page_end",
                 "source_slug",
+                "source",             // Required for delete_library_document_with_content
             ])
             .with_sortable_attributes([
                 "page_start",
