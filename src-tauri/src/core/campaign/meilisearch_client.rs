@@ -36,6 +36,16 @@ const MAX_RETRY_ATTEMPTS: u32 = 3;
 const RETRY_BASE_DELAY_MS: u64 = 100;
 
 // ============================================================================
+// Filter Safety
+// ============================================================================
+
+/// Escape a value for safe use in Meilisearch filter expressions.
+/// Escapes backslashes and double quotes to prevent filter injection.
+fn escape_filter_value(value: &str) -> String {
+    value.replace('\\', "\\\\").replace('"', "\\\"")
+}
+
+// ============================================================================
 // Error Types
 // ============================================================================
 
@@ -349,38 +359,50 @@ impl MeilisearchCampaignClient {
     /// Delete documents matching a filter
     pub async fn delete_by_filter(&self, index_name: &str, filter: &str) -> Result<usize> {
         let index = self.client.index(index_name);
+        let mut total_deleted = 0;
 
-        // First, search for matching documents
-        let results: SearchResults<serde_json::Value> = index
-            .search()
-            .with_filter(filter)
-            .with_limit(MEILISEARCH_BATCH_SIZE)
-            .execute()
-            .await?;
+        // Loop until no more matching documents
+        loop {
+            // Search for matching documents
+            let results: SearchResults<serde_json::Value> = index
+                .search()
+                .with_filter(filter)
+                .with_limit(MEILISEARCH_BATCH_SIZE)
+                .execute()
+                .await?;
 
-        if results.hits.is_empty() {
-            return Ok(0);
+            if results.hits.is_empty() {
+                break;
+            }
+
+            // Extract IDs and delete
+            let ids: Vec<String> = results
+                .hits
+                .iter()
+                .filter_map(|hit| hit.result.get("id").and_then(|v| v.as_str()))
+                .map(|s| s.to_string())
+                .collect();
+
+            let id_refs: Vec<&str> = ids.iter().map(|s| s.as_str()).collect();
+            let count = id_refs.len();
+
+            self.delete_documents(index_name, &id_refs).await?;
+            total_deleted += count;
+
+            // If we got fewer than batch size, we're done
+            if count < MEILISEARCH_BATCH_SIZE {
+                break;
+            }
         }
 
-        // Extract IDs and delete
-        let ids: Vec<String> = results
-            .hits
-            .iter()
-            .filter_map(|hit| hit.result.get("id").and_then(|v| v.as_str()))
-            .map(|s| s.to_string())
-            .collect();
-
-        let id_refs: Vec<&str> = ids.iter().map(|s| s.as_str()).collect();
-        let count = id_refs.len();
-
-        self.delete_documents(index_name, &id_refs).await?;
-
-        log::info!(
-            "Deleted {} documents from '{}' matching filter",
-            count,
-            index_name
-        );
-        Ok(count)
+        if total_deleted > 0 {
+            log::info!(
+                "Deleted {} documents from '{}' matching filter",
+                total_deleted,
+                index_name
+            );
+        }
+        Ok(total_deleted)
     }
 
     // ========================================================================
@@ -459,7 +481,7 @@ impl MeilisearchCampaignClient {
         &self,
         campaign_id: &str,
     ) -> Result<Vec<T>> {
-        let filter = format!("campaign_id = \"{}\"", campaign_id);
+        let filter = format!("campaign_id = \"{}\"", escape_filter_value(campaign_id));
         self.list(
             INDEX_CAMPAIGN_ARCS,
             Some(&filter),
@@ -494,7 +516,7 @@ impl MeilisearchCampaignClient {
         &self,
         session_id: &str,
     ) -> Result<Option<T>> {
-        let filter = format!("session_id = \"{}\"", session_id);
+        let filter = format!("session_id = \"{}\"", escape_filter_value(session_id));
         let results: Vec<T> = self
             .list(INDEX_SESSION_PLANS, Some(&filter), None, 1, 0)
             .await?;
@@ -507,10 +529,11 @@ impl MeilisearchCampaignClient {
         campaign_id: &str,
         include_templates: bool,
     ) -> Result<Vec<T>> {
+        let escaped_id = escape_filter_value(campaign_id);
         let filter = if include_templates {
-            format!("campaign_id = \"{}\"", campaign_id)
+            format!("campaign_id = \"{}\"", escaped_id)
         } else {
-            format!("campaign_id = \"{}\" AND is_template = false", campaign_id)
+            format!("campaign_id = \"{}\" AND is_template = false", escaped_id)
         };
         self.list(
             INDEX_SESSION_PLANS,
@@ -527,7 +550,7 @@ impl MeilisearchCampaignClient {
         &self,
         campaign_id: &str,
     ) -> Result<Vec<T>> {
-        let filter = format!("campaign_id = \"{}\" AND is_template = true", campaign_id);
+        let filter = format!("campaign_id = \"{}\" AND is_template = true", escape_filter_value(campaign_id));
         self.list(
             INDEX_SESSION_PLANS,
             Some(&filter),
@@ -562,7 +585,7 @@ impl MeilisearchCampaignClient {
         &self,
         campaign_id: &str,
     ) -> Result<Vec<T>> {
-        let filter = format!("campaign_id = \"{}\"", campaign_id);
+        let filter = format!("campaign_id = \"{}\"", escape_filter_value(campaign_id));
         self.list(
             INDEX_PLOT_POINTS,
             Some(&filter),
@@ -581,7 +604,8 @@ impl MeilisearchCampaignClient {
     ) -> Result<Vec<T>> {
         let filter = format!(
             "campaign_id = \"{}\" AND activation_state = \"{}\"",
-            campaign_id, activation_state
+            escape_filter_value(campaign_id),
+            escape_filter_value(activation_state)
         );
         self.list(
             INDEX_PLOT_POINTS,
@@ -598,7 +622,7 @@ impl MeilisearchCampaignClient {
         &self,
         arc_id: &str,
     ) -> Result<Vec<T>> {
-        let filter = format!("arc_id = \"{}\"", arc_id);
+        let filter = format!("arc_id = \"{}\"", escape_filter_value(arc_id));
         self.list(
             INDEX_PLOT_POINTS,
             Some(&filter),

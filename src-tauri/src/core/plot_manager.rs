@@ -28,6 +28,19 @@ pub enum PlotStatus {
     Paused,
 }
 
+impl PlotStatus {
+    /// Convert to string representation for migration
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            PlotStatus::Pending => "pending",
+            PlotStatus::Active => "active",
+            PlotStatus::Completed => "completed",
+            PlotStatus::Failed => "failed",
+            PlotStatus::Paused => "paused",
+        }
+    }
+}
+
 /// Plot point priority
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -40,6 +53,18 @@ pub enum PlotPriority {
     Main,
     /// Critical/urgent
     Critical,
+}
+
+impl PlotPriority {
+    /// Convert to string representation for migration
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            PlotPriority::Background => "background",
+            PlotPriority::Side => "side",
+            PlotPriority::Main => "main",
+            PlotPriority::Critical => "critical",
+        }
+    }
 }
 
 /// A campaign plot point or quest

@@ -710,15 +710,39 @@ impl SessionPlan {
         plan.created_at = Utc::now();
         plan.updated_at = Utc::now();
 
-        // Reset IDs for all nested elements
+        // Build ID mappings for encounters and narrative beats
+        let mut encounter_id_map: std::collections::HashMap<String, String> =
+            std::collections::HashMap::new();
+        let mut narrative_beat_id_map: std::collections::HashMap<String, String> =
+            std::collections::HashMap::new();
+
+        // Reset IDs for encounters and build mapping
+        for encounter in &mut plan.encounters {
+            let old_id = encounter.id.clone();
+            let new_id = uuid::Uuid::new_v4().to_string();
+            encounter_id_map.insert(old_id, new_id.clone());
+            encounter.id = new_id;
+        }
+
+        // Reset IDs for narrative beats and build mapping
+        for beat in &mut plan.narrative_beats {
+            let old_id = beat.id.clone();
+            let new_id = uuid::Uuid::new_v4().to_string();
+            narrative_beat_id_map.insert(old_id, new_id.clone());
+            beat.id = new_id;
+        }
+
+        // Reset pacing beat IDs and update references
         for beat in &mut plan.pacing_beats {
             beat.id = uuid::Uuid::new_v4().to_string();
-        }
-        for encounter in &mut plan.encounters {
-            encounter.id = uuid::Uuid::new_v4().to_string();
-        }
-        for beat in &mut plan.narrative_beats {
-            beat.id = uuid::Uuid::new_v4().to_string();
+            // Update encounter_id reference if present
+            if let Some(ref old_eid) = beat.encounter_id {
+                beat.encounter_id = encounter_id_map.get(old_eid).cloned();
+            }
+            // Update narrative_beat_id reference if present
+            if let Some(ref old_nid) = beat.narrative_beat_id {
+                beat.narrative_beat_id = narrative_beat_id_map.get(old_nid).cloned();
+            }
         }
 
         plan

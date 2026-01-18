@@ -648,7 +648,10 @@ impl EnhancedPlotPoint {
 
     /// Calculate effective tension (base + type modifier)
     pub fn effective_tension(&self) -> i8 {
-        (self.tension_level as i8 + self.plot_type.tension_modifier()).clamp(1, 10)
+        // Clamp tension_level to valid range before calculation to prevent overflow
+        let base = self.tension_level.clamp(1, 10) as i16;
+        let modifier = self.plot_type.tension_modifier() as i16;
+        (base + modifier).clamp(1, 10) as i8
     }
 
     /// Check if this plot point needs immediate attention
@@ -666,11 +669,12 @@ impl From<PlotPoint> for EnhancedPlotPoint {
         use super::campaign::migration::defaults;
 
         let plot_type = PlotPointType::from_str(defaults::DEFAULT_PLOT_TYPE);
+        // Use stable as_str() methods instead of Debug formatting
         let activation_state = ActivationState::from_str(defaults::map_status_to_activation_state(
-            &format!("{:?}", legacy.status).to_lowercase(),
+            legacy.status.as_str(),
         ));
         let urgency = Urgency::from_str(defaults::map_priority_to_urgency(
-            &format!("{:?}", legacy.priority).to_lowercase(),
+            legacy.priority.as_str(),
         ));
 
         let mut dependencies = PlotDependencies::default();
