@@ -38,6 +38,7 @@ pub mod cost_predictor;
 pub mod spell_correction;
 pub mod location_manager;
 pub mod plot_manager;
+pub mod plot_types;
 pub mod session_summary;
 pub mod search_analytics;
 pub mod name_gen;

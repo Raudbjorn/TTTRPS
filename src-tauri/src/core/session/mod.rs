@@ -1,11 +1,13 @@
 //! Session Module
 //!
 //! Sub-modules for session management including timeline tracking,
-//! advanced conditions, and session notes with AI categorization.
+//! advanced conditions, session notes with AI categorization,
+//! and session planning with pacing templates.
 
 pub mod timeline;
 pub mod conditions;
 pub mod notes;
+pub mod plan_types;
 
 // Re-exports for convenience
 pub use timeline::{
@@ -23,4 +25,11 @@ pub use notes::{
     NotesManager, CategorizationRequest, CategorizationResponse,
     DetectedEntity, NoteExport,
     build_categorization_prompt, parse_categorization_response, response_to_categories,
+};
+
+pub use plan_types::{
+    SessionPlanStatus, PacingType, PacingBeat,
+    EncounterDifficulty, PlannedEncounter, EnemyGroup,
+    NarrativeBeat, SessionPlan,
+    pacing_templates,
 };
