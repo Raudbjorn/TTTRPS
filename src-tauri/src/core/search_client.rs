@@ -371,6 +371,29 @@ impl SearchClient {
         }
     }
 
+    /// Delete an index entirely
+    pub async fn delete_index(&self, name: &str) -> Result<()> {
+        match self.client.delete_index(name).await {
+            Ok(task) => {
+                task.wait_for_completion(
+                    &self.client,
+                    Some(std::time::Duration::from_millis(100)),
+                    Some(std::time::Duration::from_secs(TASK_TIMEOUT_SHORT_SECS)),
+                ).await?;
+                log::info!("Deleted index '{}'", name);
+                Ok(())
+            }
+            Err(meilisearch_sdk::errors::Error::Meilisearch(err))
+                if err.error_code == meilisearch_sdk::errors::ErrorCode::IndexNotFound =>
+            {
+                // Index doesn't exist - that's fine for deletion
+                log::debug!("Index '{}' already doesn't exist", name);
+                Ok(())
+            }
+            Err(e) => Err(e.into()),
+        }
+    }
+
     /// Initialize all specialized indexes with appropriate settings
     pub async fn initialize_indexes(&self) -> Result<()> {
         // Enable experimental features (vectorStore) required for hybrid search
@@ -923,15 +946,21 @@ Type: {{ doc.chunk_type | default: "text" }}
     }
 
     /// Delete library document and all its content chunks from the content index
+    ///
+    /// Each document has its own dedicated indexes:
+    /// - Chunks index: named same as doc_id (the slug)
+    /// - Raw index: named "{doc_id}-raw"
     pub async fn delete_library_document_with_content(&self, doc_id: &str) -> Result<()> {
-        // First get the document to find which content index it used
-        if let Some(doc) = self.get_library_document(doc_id).await? {
-            // Delete content chunks by source filter
-            self.delete_by_filter(&doc.content_index, &format!("source = \"{}\"", doc.name)).await?;
-            log::info!("Deleted {} content chunks from index '{}'", doc.name, doc.content_index);
-        }
+        // Delete the chunks index (named same as the doc_id/slug)
+        self.delete_index(doc_id).await?;
 
-        // Delete the metadata
+        // Delete the raw index (named "{doc_id}-raw")
+        let raw_index = format!("{}-raw", doc_id);
+        self.delete_index(&raw_index).await?;
+
+        log::info!("Deleted indexes '{}' and '{}' for document", doc_id, raw_index);
+
+        // Delete the metadata from library_metadata
         self.delete_library_document(doc_id).await?;
 
         Ok(())
