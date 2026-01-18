@@ -654,7 +654,9 @@ impl DialectTransformer {
 
     /// Apply a phonetic rule to the text.
     fn apply_phonetic_rule(&self, text: &str, rule: &PhoneticRule) -> Result<String, DialectError> {
-        let pattern = self.get_or_compile_pattern(&rule.id, || rule.build_pattern())?;
+        // Use composite key to avoid collisions across dialects
+        let cache_key = format!("{}:{}", self.dialect.id, rule.id);
+        let pattern = self.get_or_compile_pattern(&cache_key, || rule.build_pattern())?;
         Ok(pattern.replace_all(text, rule.to.as_str()).into_owned())
     }
 
@@ -664,7 +666,9 @@ impl DialectTransformer {
         text: &str,
         rule: &GrammaticalRule,
     ) -> Result<String, DialectError> {
-        let pattern = self.get_or_compile_pattern(&rule.id, || rule.build_pattern())?;
+        // Use composite key to avoid collisions across dialects
+        let cache_key = format!("{}:{}", self.dialect.id, rule.id);
+        let pattern = self.get_or_compile_pattern(&cache_key, || rule.build_pattern())?;
         Ok(pattern
             .replace_all(text, rule.replacement.as_str())
             .into_owned())

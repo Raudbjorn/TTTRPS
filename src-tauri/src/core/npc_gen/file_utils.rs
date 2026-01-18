@@ -48,15 +48,14 @@ pub type FileResult<T> = std::result::Result<T, FileError>;
 pub async fn load_yaml_file<T: DeserializeOwned>(path: impl AsRef<Path>) -> FileResult<T> {
     let path = path.as_ref();
 
-    // Check if file exists
-    if !path.exists() {
-        return Err(FileError::not_found(path));
-    }
-
-    // Read file content asynchronously
-    let content = fs::read_to_string(path)
-        .await
-        .map_err(|e| FileError::read_failed(path, e))?;
+    // Read file content asynchronously (handles not found via error)
+    let content = fs::read_to_string(path).await.map_err(|e| {
+        if e.kind() == std::io::ErrorKind::NotFound {
+            FileError::not_found(path)
+        } else {
+            FileError::read_failed(path, e)
+        }
+    })?;
 
     // Parse YAML
     serde_yaml::from_str(&content).map_err(|e| FileError::parse_failed(path, "YAML", e))
@@ -76,9 +75,16 @@ pub async fn load_yaml_file_or_default<T: DeserializeOwned + Default>(
 ) -> FileResult<T> {
     let path = path.as_ref();
 
-    if !path.exists() {
-        log::debug!("File not found, using default: {}", path.display());
-        return Ok(T::default());
+    match fs::try_exists(path).await {
+        Ok(false) => {
+            log::debug!("File not found, using default: {}", path.display());
+            return Ok(T::default());
+        }
+        Err(e) => {
+            log::debug!("Error checking file existence, using default: {} ({})", path.display(), e);
+            return Ok(T::default());
+        }
+        Ok(true) => {}
     }
 
     load_yaml_file(path).await
@@ -100,9 +106,16 @@ where
 {
     let path = path.as_ref();
 
-    if !path.exists() {
-        log::debug!("File not found, using provided default: {}", path.display());
-        return Ok(default());
+    match fs::try_exists(path).await {
+        Ok(false) => {
+            log::debug!("File not found, using provided default: {}", path.display());
+            return Ok(default());
+        }
+        Err(e) => {
+            log::debug!("Error checking file existence, using default: {} ({})", path.display(), e);
+            return Ok(default());
+        }
+        Ok(true) => {}
     }
 
     load_yaml_file(path).await
@@ -136,16 +149,25 @@ pub async fn scan_yaml_directory(
 ) -> FileResult<Vec<PathBuf>> {
     let dir_path = dir_path.as_ref();
 
-    if !dir_path.exists() {
-        log::warn!("Directory not found: {}", dir_path.display());
-        return Ok(Vec::new());
-    }
-
-    if !dir_path.is_dir() {
-        return Err(FileError::ScanFailed {
-            path: dir_path.to_path_buf(),
-            source: std::io::Error::new(std::io::ErrorKind::NotADirectory, "Not a directory"),
-        });
+    // Use async metadata check instead of blocking exists()/is_dir()
+    match fs::metadata(dir_path).await {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            log::warn!("Directory not found: {}", dir_path.display());
+            return Ok(Vec::new());
+        }
+        Err(e) => {
+            return Err(FileError::ScanFailed {
+                path: dir_path.to_path_buf(),
+                source: e,
+            });
+        }
+        Ok(meta) if !meta.is_dir() => {
+            return Err(FileError::ScanFailed {
+                path: dir_path.to_path_buf(),
+                source: std::io::Error::new(std::io::ErrorKind::NotADirectory, "Not a directory"),
+            });
+        }
+        Ok(_) => {}
     }
 
     let mut yaml_files = Vec::new();

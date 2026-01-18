@@ -666,12 +666,17 @@ impl CulturalNamingRules {
         // Check that required components exist for the name structure
         match self.name_structure {
             NameStructure::GivenFamily => {
-                if !self.components.has_type(ComponentType::Given)
-                    && !self.components.has_type(ComponentType::Prefix)
-                {
+                // GivenFamily requires both Given and Family components
+                if !self.components.has_type(ComponentType::Given) {
                     return Err(NameGenerationError::ComponentNotAvailable {
                         culture: self.culture_id.clone(),
-                        component_type: "given/prefix".to_string(),
+                        component_type: "given".to_string(),
+                    });
+                }
+                if !self.components.has_type(ComponentType::Family) {
+                    return Err(NameGenerationError::ComponentNotAvailable {
+                        culture: self.culture_id.clone(),
+                        component_type: "family".to_string(),
                     });
                 }
             }
