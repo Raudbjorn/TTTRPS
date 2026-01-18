@@ -61,6 +61,27 @@ use crate::core::session::notes::{
     build_categorization_prompt, parse_categorization_response,
 };
 
+// Archetype Registry imports
+use crate::core::archetype::{
+    // Core types
+    Archetype, ArchetypeCategory, ArchetypeId, ArchetypeSummary,
+    // Registry
+    ArchetypeRegistry,
+    // Resolution
+    ResolutionQuery, ResolvedArchetype, ResolutionMetadata,
+    // Setting packs
+    SettingPack, SettingPackSummary, ArchetypeOverride,
+    // Vocabulary
+    VocabularyBank, VocabularyBankManager, VocabularyBankSummary,
+    PhraseFilterOptions, BankListFilter,
+    // Component types
+    PersonalityAffinity, NpcRoleMapping, NamingCultureWeight, StatTendencies,
+    // Cache
+    CacheStats as ArchetypeCacheStats,
+    // Setting pack loader
+    SettingPackLoader,
+};
+
 fn serialize_enum_to_string<T: serde::Serialize>(value: &T) -> String {
     serde_json::to_string(value)
         .map(|s| s.trim_matches('"').to_string())
@@ -400,6 +421,14 @@ pub struct AppState {
     pub extraction_settings: AsyncRwLock<crate::ingestion::ExtractionSettings>,
     // Claude Gate OAuth client
     pub claude_gate: Arc<ClaudeGateState>,
+    // Archetype Registry for unified character archetype management
+    // Wrapped in AsyncRwLock<Option<_>> for lazy initialization after Meilisearch starts
+    pub archetype_registry: AsyncRwLock<Option<Arc<ArchetypeRegistry>>>,
+    // Vocabulary Bank Manager for NPC dialogue phrase management
+    // Wrapped in AsyncRwLock<Option<_>> for lazy initialization after Meilisearch starts
+    pub vocabulary_manager: AsyncRwLock<Option<Arc<VocabularyBankManager>>>,
+    // Setting Pack Loader for campaign setting customization
+    pub setting_pack_loader: Arc<SettingPackLoader>,
 }
 
 // Helper init for default state components
@@ -423,6 +452,7 @@ impl AppState {
         Arc<AsyncRwLock<ClaudeDesktopManager>>,
         Arc<AsyncRwLock<crate::core::llm::LLMManager>>,
         Arc<ClaudeGateState>,
+        Arc<SettingPackLoader>,
     ) {
         let sidecar_config = MeilisearchConfig::default();
         let search_client = SearchClient::new(
@@ -464,6 +494,7 @@ impl AppState {
             Arc::new(AsyncRwLock::new(ClaudeDesktopManager::new())),
             Arc::new(AsyncRwLock::new(crate::core::llm::LLMManager::new())),
             claude_gate,
+            Arc::new(SettingPackLoader::new()),
         )
     }
 }
@@ -7891,4 +7922,1218 @@ pub async fn open_url_in_browser(
 
     app_handle.shell().open(&url, None)
         .map_err(|e| format!("Failed to open URL: {}", e))
+}
+
+// ============================================================================
+// Archetype Registry Commands (TASK-ARCH-060 through TASK-ARCH-063)
+// ============================================================================
+
+// ============================================================================
+// Request/Response Types for Archetype Commands
+// ============================================================================
+
+/// Request payload for creating a new archetype.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateArchetypeRequest {
+    /// Unique identifier for the archetype (e.g., "dwarf_merchant").
+    pub id: String,
+    /// Human-readable display name.
+    pub display_name: String,
+    /// Category: "role", "race", "class", or "setting".
+    pub category: String,
+    /// Optional parent archetype ID for inheritance.
+    pub parent_id: Option<String>,
+    /// Optional description text.
+    pub description: Option<String>,
+    /// Personality trait affinities.
+    #[serde(default)]
+    pub personality_affinity: Vec<PersonalityAffinityInput>,
+    /// NPC role mappings.
+    #[serde(default)]
+    pub npc_role_mapping: Vec<NpcRoleMappingInput>,
+    /// Naming culture weights.
+    #[serde(default)]
+    pub naming_cultures: Vec<NamingCultureWeightInput>,
+    /// Optional vocabulary bank ID reference.
+    pub vocabulary_bank_id: Option<String>,
+    /// Optional stat tendencies.
+    pub stat_tendencies: Option<StatTendenciesInput>,
+    /// Tags for categorization and search.
+    #[serde(default)]
+    pub tags: Vec<String>,
+}
+
+/// Input type for personality affinity.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PersonalityAffinityInput {
+    pub trait_id: String,
+    pub weight: f32,
+}
+
+/// Input type for NPC role mapping.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NpcRoleMappingInput {
+    pub role: String,
+    pub weight: f32,
+}
+
+/// Input type for naming culture weight.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NamingCultureWeightInput {
+    pub culture: String,
+    pub weight: f32,
+}
+
+/// Input type for stat tendencies.
+///
+/// Uses HashMaps to support arbitrary stat names for different game systems.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StatTendenciesInput {
+    /// Stat modifiers (e.g., {"strength": 2, "charisma": -1}).
+    #[serde(default)]
+    pub modifiers: std::collections::HashMap<String, i32>,
+    /// Minimum stat values (e.g., {"constitution": 12}).
+    #[serde(default)]
+    pub minimums: std::collections::HashMap<String, u8>,
+    /// Priority order for stat allocation (e.g., ["strength", "constitution"]).
+    #[serde(default)]
+    pub priority_order: Vec<String>,
+}
+
+/// Response for archetype operations that return an archetype.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ArchetypeResponse {
+    pub id: String,
+    pub display_name: String,
+    pub category: String,
+    pub parent_id: Option<String>,
+    pub description: Option<String>,
+    pub personality_affinity: Vec<PersonalityAffinityInput>,
+    pub npc_role_mapping: Vec<NpcRoleMappingInput>,
+    pub naming_cultures: Vec<NamingCultureWeightInput>,
+    pub vocabulary_bank_id: Option<String>,
+    pub stat_tendencies: Option<StatTendenciesInput>,
+    pub tags: Vec<String>,
+}
+
+impl From<Archetype> for ArchetypeResponse {
+    fn from(a: Archetype) -> Self {
+        Self {
+            id: a.id.to_string(),
+            display_name: a.display_name.to_string(),
+            category: format!("{:?}", a.category).to_lowercase(),
+            parent_id: a.parent_id.map(|p| p.to_string()),
+            description: a.description.map(|d| d.to_string()),
+            personality_affinity: a.personality_affinity.into_iter()
+                .map(|p| PersonalityAffinityInput {
+                    trait_id: p.trait_id,
+                    weight: p.weight,
+                })
+                .collect(),
+            npc_role_mapping: a.npc_role_mapping.into_iter()
+                .map(|m| NpcRoleMappingInput {
+                    role: m.role,
+                    weight: m.weight,
+                })
+                .collect(),
+            naming_cultures: a.naming_cultures.into_iter()
+                .map(|c| NamingCultureWeightInput {
+                    culture: c.culture,
+                    weight: c.weight,
+                })
+                .collect(),
+            vocabulary_bank_id: a.vocabulary_bank_id,
+            stat_tendencies: a.stat_tendencies.map(|s| StatTendenciesInput {
+                modifiers: s.modifiers,
+                minimums: s.minimums,
+                priority_order: s.priority_order,
+            }),
+            tags: a.tags,
+        }
+    }
+}
+
+/// Response for archetype list operations.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ArchetypeSummaryResponse {
+    pub id: String,
+    pub display_name: String,
+    pub category: String,
+    pub tags: Vec<String>,
+}
+
+impl From<ArchetypeSummary> for ArchetypeSummaryResponse {
+    fn from(s: ArchetypeSummary) -> Self {
+        Self {
+            id: s.id.to_string(),
+            display_name: s.display_name.to_string(),
+            category: format!("{:?}", s.category).to_lowercase(),
+            tags: s.tags,
+        }
+    }
+}
+
+/// Request for resolution query.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResolutionQueryRequest {
+    /// Direct archetype ID to resolve.
+    pub archetype_id: Option<String>,
+    /// NPC role for role-based resolution layer.
+    pub npc_role: Option<String>,
+    /// Race for race-based resolution layer.
+    pub race: Option<String>,
+    /// Class for class-based resolution layer.
+    pub class: Option<String>,
+    /// Setting pack ID for setting overrides.
+    pub setting: Option<String>,
+    /// Campaign ID for campaign-specific setting pack.
+    pub campaign_id: Option<String>,
+}
+
+/// Response for resolved archetype.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResolvedArchetypeResponse {
+    pub id: Option<String>,
+    pub display_name: Option<String>,
+    pub category: Option<String>,
+    pub personality_affinity: Vec<PersonalityAffinityInput>,
+    pub npc_role_mapping: Vec<NpcRoleMappingInput>,
+    pub naming_cultures: Vec<NamingCultureWeightInput>,
+    pub vocabulary_bank_id: Option<String>,
+    pub stat_tendencies: Option<StatTendenciesInput>,
+    pub tags: Vec<String>,
+    pub resolution_metadata: Option<ResolutionMetadataResponse>,
+}
+
+/// Metadata about the resolution process.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResolutionMetadataResponse {
+    pub layers_checked: Vec<String>,
+    pub merge_operations: usize,
+    pub resolution_time_ms: Option<u64>,
+    pub cache_hit: bool,
+}
+
+impl From<ResolvedArchetype> for ResolvedArchetypeResponse {
+    fn from(r: ResolvedArchetype) -> Self {
+        Self {
+            id: r.id.map(|id| id.to_string()),
+            display_name: r.display_name.map(|n| n.to_string()),
+            category: r.category.map(|c| format!("{:?}", c).to_lowercase()),
+            personality_affinity: r.personality_affinity.into_iter()
+                .map(|p| PersonalityAffinityInput {
+                    trait_id: p.trait_id,
+                    weight: p.weight,
+                })
+                .collect(),
+            npc_role_mapping: r.npc_role_mapping.into_iter()
+                .map(|m| NpcRoleMappingInput {
+                    role: m.role,
+                    weight: m.weight,
+                })
+                .collect(),
+            naming_cultures: r.naming_cultures.into_iter()
+                .map(|c| NamingCultureWeightInput {
+                    culture: c.culture,
+                    weight: c.weight,
+                })
+                .collect(),
+            vocabulary_bank_id: r.vocabulary_bank_id,
+            stat_tendencies: r.stat_tendencies.map(|s| StatTendenciesInput {
+                modifiers: s.modifiers,
+                minimums: s.minimums,
+                priority_order: s.priority_order,
+            }),
+            tags: r.tags,
+            resolution_metadata: r.resolution_metadata.map(|m| ResolutionMetadataResponse {
+                layers_checked: m.layers_checked,
+                merge_operations: m.merge_operations,
+                resolution_time_ms: m.resolution_time_ms,
+                cache_hit: m.cache_hit,
+            }),
+        }
+    }
+}
+
+/// Response for setting pack summary.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SettingPackSummaryResponse {
+    pub id: String,
+    pub name: String,
+    pub version: String,
+    pub game_system: String,
+    pub author: Option<String>,
+    pub tags: Vec<String>,
+}
+
+impl From<SettingPackSummary> for SettingPackSummaryResponse {
+    fn from(s: SettingPackSummary) -> Self {
+        Self {
+            id: s.id,
+            name: s.name,
+            version: s.version,
+            game_system: s.game_system,
+            author: s.author,
+            tags: s.tags,
+        }
+    }
+}
+
+/// Response for vocabulary bank summary.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VocabularyBankSummaryResponse {
+    pub id: String,
+    pub display_name: String,
+    pub culture: Option<String>,
+    pub role: Option<String>,
+    pub is_builtin: bool,
+    pub category_count: usize,
+    pub phrase_count: usize,
+}
+
+impl From<VocabularyBankSummary> for VocabularyBankSummaryResponse {
+    fn from(s: VocabularyBankSummary) -> Self {
+        Self {
+            id: s.id,
+            display_name: s.display_name,
+            culture: s.culture,
+            role: s.role,
+            is_builtin: s.is_builtin,
+            category_count: s.category_count,
+            phrase_count: s.phrase_count,
+        }
+    }
+}
+
+/// Request for creating a vocabulary bank.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateVocabularyBankRequest {
+    pub id: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub culture: Option<String>,
+    pub role: Option<String>,
+    #[serde(default)]
+    pub phrases: Vec<PhraseInput>,
+}
+
+/// Input type for a phrase in vocabulary bank.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PhraseInput {
+    pub text: String,
+    pub category: String,
+    #[serde(default = "default_formality")]
+    pub formality: u8,
+    pub tone: Option<String>,
+    #[serde(default)]
+    pub tags: Vec<String>,
+}
+
+fn default_formality() -> u8 {
+    5
+}
+
+/// Response for vocabulary bank.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VocabularyBankResponse {
+    pub id: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub culture: Option<String>,
+    pub role: Option<String>,
+    pub phrases: Vec<PhraseOutput>,
+}
+
+/// Output type for a phrase.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PhraseOutput {
+    pub text: String,
+    pub category: String,
+    pub formality: u8,
+    pub tone: Option<String>,
+    pub tags: Vec<String>,
+}
+
+/// Filter options for listing phrases.
+///
+/// Note: category is passed as a separate required parameter to get_phrases.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PhraseFilterRequest {
+    pub formality_min: Option<u8>,
+    pub formality_max: Option<u8>,
+    pub tone: Option<String>,
+}
+
+// ============================================================================
+// Helper Functions
+// ============================================================================
+
+/// Parse category string to ArchetypeCategory enum.
+fn parse_category(s: &str) -> Result<ArchetypeCategory, String> {
+    match s.to_lowercase().as_str() {
+        "role" => Ok(ArchetypeCategory::Role),
+        "race" => Ok(ArchetypeCategory::Race),
+        "class" => Ok(ArchetypeCategory::Class),
+        "setting" => Ok(ArchetypeCategory::Setting),
+        _ => Err(format!("Invalid category: {}. Must be 'role', 'race', 'class', or 'setting'", s)),
+    }
+}
+
+/// Get the archetype registry from state, returning error if not initialized.
+async fn get_registry(state: &AppState) -> Result<Arc<ArchetypeRegistry>, String> {
+    state.archetype_registry
+        .read()
+        .await
+        .as_ref()
+        .cloned()
+        .ok_or_else(|| "Archetype registry not initialized. Please wait for Meilisearch to start.".to_string())
+}
+
+/// Get the vocabulary manager from state, returning error if not initialized.
+async fn get_vocabulary_manager(state: &AppState) -> Result<Arc<VocabularyBankManager>, String> {
+    state.vocabulary_manager
+        .read()
+        .await
+        .as_ref()
+        .cloned()
+        .ok_or_else(|| "Vocabulary manager not initialized. Please wait for Meilisearch to start.".to_string())
+}
+
+// ============================================================================
+// TASK-ARCH-060: Archetype CRUD Commands
+// ============================================================================
+
+/// Create a new archetype.
+///
+/// # Arguments
+/// * `request` - Archetype creation request with all fields
+///
+/// # Returns
+/// The ID of the created archetype.
+///
+/// # Errors
+/// - If archetype ID already exists
+/// - If parent_id references non-existent archetype
+/// - If validation fails
+#[tauri::command]
+pub async fn create_archetype(
+    request: CreateArchetypeRequest,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    let registry = get_registry(&state).await?;
+
+    let category = parse_category(&request.category)?;
+
+    let mut archetype = Archetype::new(request.id.clone(), request.display_name.as_str(), category);
+
+    if let Some(parent) = request.parent_id {
+        archetype = archetype.with_parent(parent);
+    }
+
+    if let Some(desc) = request.description {
+        archetype = archetype.with_description(desc);
+    }
+
+    // Add personality affinities
+    let affinities: Vec<PersonalityAffinity> = request.personality_affinity
+        .into_iter()
+        .map(|p| PersonalityAffinity::new(p.trait_id, p.weight))
+        .collect();
+    if !affinities.is_empty() {
+        archetype = archetype.with_personality_affinity(affinities);
+    }
+
+    // Add NPC role mappings
+    let mappings: Vec<NpcRoleMapping> = request.npc_role_mapping
+        .into_iter()
+        .map(|m| NpcRoleMapping::new(m.role, m.weight))
+        .collect();
+    if !mappings.is_empty() {
+        archetype = archetype.with_npc_role_mapping(mappings);
+    }
+
+    // Add naming cultures
+    let cultures: Vec<NamingCultureWeight> = request.naming_cultures
+        .into_iter()
+        .map(|c| NamingCultureWeight::new(c.culture, c.weight))
+        .collect();
+    if !cultures.is_empty() {
+        archetype = archetype.with_naming_cultures(cultures);
+    }
+
+    // Add vocabulary bank reference
+    if let Some(vocab_id) = request.vocabulary_bank_id {
+        archetype = archetype.with_vocabulary_bank(vocab_id);
+    }
+
+    // Add stat tendencies
+    if let Some(stats) = request.stat_tendencies {
+        let tendencies = StatTendencies {
+            modifiers: stats.modifiers,
+            minimums: stats.minimums,
+            priority_order: stats.priority_order,
+        };
+        archetype = archetype.with_stat_tendencies(tendencies);
+    }
+
+    // Add tags
+    archetype = archetype.with_tags(request.tags);
+
+    let id = registry.register(archetype).await
+        .map_err(|e| e.to_string())?;
+
+    log::info!("Created archetype: {}", id);
+    Ok(id.to_string())
+}
+
+/// Get an archetype by ID.
+///
+/// # Arguments
+/// * `id` - The archetype ID
+///
+/// # Returns
+/// The full archetype data.
+#[tauri::command]
+pub async fn get_archetype(
+    id: String,
+    state: State<'_, AppState>,
+) -> Result<ArchetypeResponse, String> {
+    let registry = get_registry(&state).await?;
+
+    let archetype = registry.get(&id).await
+        .map_err(|e| e.to_string())?;
+
+    Ok(ArchetypeResponse::from(archetype))
+}
+
+/// List all archetypes, optionally filtered by category.
+///
+/// # Arguments
+/// * `category` - Optional category filter: "role", "race", "class", or "setting"
+///
+/// # Returns
+/// List of archetype summaries.
+#[tauri::command]
+pub async fn list_archetypes(
+    category: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<Vec<ArchetypeSummaryResponse>, String> {
+    let registry = get_registry(&state).await?;
+
+    let filter = category
+        .map(|c| parse_category(&c))
+        .transpose()?;
+
+    let summaries = registry.list(filter).await;
+
+    Ok(summaries.into_iter().map(ArchetypeSummaryResponse::from).collect())
+}
+
+/// Update an existing archetype.
+///
+/// # Arguments
+/// * `request` - Archetype update request (must have existing ID)
+///
+/// # Errors
+/// - If archetype doesn't exist
+/// - If validation fails
+#[tauri::command]
+pub async fn update_archetype(
+    request: CreateArchetypeRequest,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let registry = get_registry(&state).await?;
+
+    let category = parse_category(&request.category)?;
+
+    let archetype_id = request.id.clone();
+    let mut archetype = Archetype::new(request.id, request.display_name.as_str(), category);
+
+    if let Some(parent) = request.parent_id {
+        archetype = archetype.with_parent(parent);
+    }
+
+    if let Some(desc) = request.description {
+        archetype = archetype.with_description(desc);
+    }
+
+    let affinities: Vec<PersonalityAffinity> = request.personality_affinity
+        .into_iter()
+        .map(|p| PersonalityAffinity::new(p.trait_id, p.weight))
+        .collect();
+    if !affinities.is_empty() {
+        archetype = archetype.with_personality_affinity(affinities);
+    }
+
+    let mappings: Vec<NpcRoleMapping> = request.npc_role_mapping
+        .into_iter()
+        .map(|m| NpcRoleMapping::new(m.role, m.weight))
+        .collect();
+    if !mappings.is_empty() {
+        archetype = archetype.with_npc_role_mapping(mappings);
+    }
+
+    let cultures: Vec<NamingCultureWeight> = request.naming_cultures
+        .into_iter()
+        .map(|c| NamingCultureWeight::new(c.culture, c.weight))
+        .collect();
+    if !cultures.is_empty() {
+        archetype = archetype.with_naming_cultures(cultures);
+    }
+
+    if let Some(vocab_id) = request.vocabulary_bank_id {
+        archetype = archetype.with_vocabulary_bank(vocab_id);
+    }
+
+    if let Some(stats) = request.stat_tendencies {
+        let tendencies = StatTendencies {
+            modifiers: stats.modifiers,
+            minimums: stats.minimums,
+            priority_order: stats.priority_order,
+        };
+        archetype = archetype.with_stat_tendencies(tendencies);
+    }
+
+    archetype = archetype.with_tags(request.tags);
+
+    registry.update(archetype).await
+        .map_err(|e| e.to_string())?;
+
+    log::info!("Updated archetype: {}", archetype_id);
+    Ok(())
+}
+
+/// Delete an archetype.
+///
+/// # Arguments
+/// * `id` - The archetype ID to delete
+/// * `force` - If true, ignore dependent children check
+///
+/// # Errors
+/// - If archetype doesn't exist
+/// - If archetype has dependent children (unless force=true)
+#[tauri::command]
+pub async fn delete_archetype(
+    id: String,
+    force: Option<bool>,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let registry = get_registry(&state).await?;
+
+    // Note: The registry's delete method checks for children automatically.
+    // For force deletion, we would need to delete children first.
+    // For now, we don't support force deletion - user must delete children first.
+    if force.unwrap_or(false) {
+        return Err("Force deletion is not yet supported. Please delete child archetypes first.".to_string());
+    }
+
+    registry.delete(&id).await
+        .map_err(|e| e.to_string())?;
+
+    log::info!("Deleted archetype: {}", id);
+    Ok(())
+}
+
+/// Check if an archetype exists.
+///
+/// # Arguments
+/// * `id` - The archetype ID to check
+///
+/// # Returns
+/// True if the archetype exists, false otherwise.
+#[tauri::command]
+pub async fn archetype_exists(
+    id: String,
+    state: State<'_, AppState>,
+) -> Result<bool, String> {
+    let registry = get_registry(&state).await?;
+    Ok(registry.exists(&id).await)
+}
+
+/// Get the total count of archetypes.
+#[tauri::command]
+pub async fn count_archetypes(
+    state: State<'_, AppState>,
+) -> Result<usize, String> {
+    let registry = get_registry(&state).await?;
+    Ok(registry.count().await)
+}
+
+// ============================================================================
+// TASK-ARCH-061: Vocabulary Bank Commands
+// ============================================================================
+
+/// Create a new vocabulary bank.
+///
+/// # Arguments
+/// * `request` - Vocabulary bank creation request
+///
+/// # Returns
+/// The ID of the created vocabulary bank.
+#[tauri::command]
+pub async fn create_vocabulary_bank(
+    request: CreateVocabularyBankRequest,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    use crate::core::archetype::setting_pack::{VocabularyBankDefinition, PhraseDefinition};
+
+    let manager = get_vocabulary_manager(&state).await?;
+
+    // Build VocabularyBankDefinition
+    let mut definition = VocabularyBankDefinition::new(&request.id, &request.name);
+
+    if let Some(desc) = request.description {
+        definition.description = Some(desc);
+    }
+
+    if let Some(culture) = request.culture {
+        definition.culture = Some(culture);
+    }
+
+    if let Some(role) = request.role {
+        definition.role = Some(role);
+    }
+
+    // Group phrases by category and add to definition
+    let mut phrase_groups: std::collections::HashMap<String, Vec<PhraseDefinition>> = std::collections::HashMap::new();
+    for phrase in request.phrases {
+        let mut phrase_def = PhraseDefinition::new(&phrase.text);
+        phrase_def.formality = phrase.formality;
+        if let Some(tone) = phrase.tone {
+            phrase_def.tone_markers = vec![tone];
+        }
+        phrase_def.context_tags = phrase.tags;
+
+        phrase_groups
+            .entry(phrase.category)
+            .or_default()
+            .push(phrase_def);
+    }
+    definition.phrases = phrase_groups;
+
+    // Create VocabularyBank from definition
+    let bank = VocabularyBank::from_definition(definition);
+
+    let id = manager.register(bank).await
+        .map_err(|e| e.to_string())?;
+
+    log::info!("Created vocabulary bank: {}", id);
+    Ok(id)
+}
+
+/// Get a vocabulary bank by ID.
+///
+/// # Arguments
+/// * `id` - The vocabulary bank ID
+///
+/// # Returns
+/// The full vocabulary bank data.
+#[tauri::command]
+pub async fn get_vocabulary_bank(
+    id: String,
+    state: State<'_, AppState>,
+) -> Result<VocabularyBankResponse, String> {
+    let manager = get_vocabulary_manager(&state).await?;
+
+    let bank = manager.get_bank(&id).await
+        .map_err(|e| e.to_string())?;
+
+    // Flatten phrases from HashMap<String, Vec<PhraseDefinition>> to Vec<PhraseOutput>
+    let phrases: Vec<PhraseOutput> = bank.definition.phrases
+        .iter()
+        .flat_map(|(category, phrase_list)| {
+            phrase_list.iter().map(move |p| PhraseOutput {
+                text: p.text.clone(),
+                category: category.clone(),
+                formality: p.formality,
+                tone: p.tone_markers.first().cloned(),
+                tags: p.context_tags.clone(),
+            })
+        })
+        .collect();
+
+    Ok(VocabularyBankResponse {
+        id: bank.definition.id.clone(),
+        name: bank.definition.display_name.clone(),
+        description: bank.definition.description.clone(),
+        culture: bank.definition.culture.clone(),
+        role: bank.definition.role.clone(),
+        phrases,
+    })
+}
+
+/// List all vocabulary banks with optional filtering.
+///
+/// # Arguments
+/// * `culture` - Optional culture filter
+/// * `role` - Optional role filter
+///
+/// # Returns
+/// List of vocabulary bank summaries.
+#[tauri::command]
+pub async fn list_vocabulary_banks(
+    culture: Option<String>,
+    role: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<Vec<VocabularyBankSummaryResponse>, String> {
+    let manager = get_vocabulary_manager(&state).await?;
+
+    let filter = BankListFilter {
+        culture,
+        role,
+        race: None,
+        builtin_only: None,
+    };
+
+    let summaries = manager.list_banks(Some(filter)).await;
+
+    Ok(summaries.into_iter().map(VocabularyBankSummaryResponse::from).collect())
+}
+
+/// Update an existing vocabulary bank.
+///
+/// # Arguments
+/// * `request` - Vocabulary bank update request (must have existing ID)
+#[tauri::command]
+pub async fn update_vocabulary_bank(
+    request: CreateVocabularyBankRequest,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    use crate::core::archetype::setting_pack::{VocabularyBankDefinition, PhraseDefinition};
+
+    let manager = get_vocabulary_manager(&state).await?;
+
+    // Build VocabularyBankDefinition
+    let mut definition = VocabularyBankDefinition::new(&request.id, &request.name);
+
+    if let Some(desc) = request.description {
+        definition.description = Some(desc);
+    }
+
+    if let Some(culture) = request.culture {
+        definition.culture = Some(culture);
+    }
+
+    if let Some(role) = request.role {
+        definition.role = Some(role);
+    }
+
+    // Group phrases by category and add to definition
+    let mut phrase_groups: std::collections::HashMap<String, Vec<PhraseDefinition>> = std::collections::HashMap::new();
+    for phrase in request.phrases {
+        let mut phrase_def = PhraseDefinition::new(&phrase.text);
+        phrase_def.formality = phrase.formality;
+        if let Some(tone) = phrase.tone {
+            phrase_def.tone_markers = vec![tone];
+        }
+        phrase_def.context_tags = phrase.tags;
+
+        phrase_groups
+            .entry(phrase.category)
+            .or_default()
+            .push(phrase_def);
+    }
+    definition.phrases = phrase_groups;
+
+    // Create VocabularyBank from definition
+    let bank = VocabularyBank::from_definition(definition);
+
+    manager.update(bank).await
+        .map_err(|e| e.to_string())?;
+
+    log::info!("Updated vocabulary bank: {}", request.id);
+    Ok(())
+}
+
+/// Delete a vocabulary bank.
+///
+/// # Arguments
+/// * `id` - The vocabulary bank ID to delete
+///
+/// # Errors
+/// - If vocabulary bank doesn't exist
+/// - If vocabulary bank is in use by archetypes
+#[tauri::command]
+pub async fn delete_vocabulary_bank(
+    id: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let manager = get_vocabulary_manager(&state).await?;
+
+    manager.delete_bank(&id).await
+        .map_err(|e| e.to_string())?;
+
+    log::info!("Deleted vocabulary bank: {}", id);
+    Ok(())
+}
+
+/// Get phrases from a vocabulary bank with optional filtering.
+///
+/// This command returns just the phrase text strings, filtered by category,
+/// formality range, and tone. It uses session-based tracking to avoid
+/// repeating the same phrase.
+///
+/// # Arguments
+/// * `bank_id` - The vocabulary bank ID
+/// * `category` - Required category to filter by (e.g., "greetings")
+/// * `filter` - Optional additional filters for formality and tone
+/// * `session_id` - Session ID for usage tracking (prevents repeating phrases)
+///
+/// # Returns
+/// List of matching phrase texts.
+#[tauri::command]
+pub async fn get_phrases(
+    bank_id: String,
+    category: String,
+    filter: Option<PhraseFilterRequest>,
+    session_id: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<Vec<String>, String> {
+    let manager = get_vocabulary_manager(&state).await?;
+
+    // Build filter options starting with category (required)
+    let mut opts = PhraseFilterOptions::for_category(&category);
+
+    if let Some(f) = filter {
+        if let (Some(min), Some(max)) = (f.formality_min, f.formality_max) {
+            opts = opts.with_formality(min, max);
+        }
+        if let Some(tone) = f.tone {
+            opts = opts.with_tone(&tone);
+        }
+    }
+
+    // Use provided session_id or generate a temporary one
+    let session = session_id.unwrap_or_else(|| "default".to_string());
+
+    let phrases = manager.get_phrases(&bank_id, opts, &session).await
+        .map_err(|e| e.to_string())?;
+
+    Ok(phrases)
+}
+
+// ============================================================================
+// TASK-ARCH-062: Setting Pack Commands
+// ============================================================================
+
+/// Load a setting pack from a file path.
+///
+/// # Arguments
+/// * `path` - Path to the YAML or JSON setting pack file
+///
+/// # Returns
+/// The version key of the loaded pack (format: "pack_id@version").
+#[tauri::command]
+pub async fn load_setting_pack(
+    path: String,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    let loader = &state.setting_pack_loader;
+
+    let vkey = loader.load_from_file(&path).await
+        .map_err(|e| e.to_string())?;
+
+    log::info!("Loaded setting pack from {}: {}", path, vkey);
+    Ok(vkey)
+}
+
+/// List all loaded setting packs.
+///
+/// # Returns
+/// List of setting pack summaries (latest version of each).
+#[tauri::command]
+pub async fn list_setting_packs(
+    state: State<'_, AppState>,
+) -> Result<Vec<SettingPackSummaryResponse>, String> {
+    let loader = &state.setting_pack_loader;
+
+    let summaries = loader.list_packs().await;
+
+    Ok(summaries.into_iter().map(SettingPackSummaryResponse::from).collect())
+}
+
+/// Get a setting pack by ID.
+///
+/// # Arguments
+/// * `pack_id` - The setting pack ID
+/// * `version` - Optional specific version (uses latest if not specified)
+///
+/// # Returns
+/// The setting pack data.
+#[tauri::command]
+pub async fn get_setting_pack(
+    pack_id: String,
+    version: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<SettingPackSummaryResponse, String> {
+    let loader = &state.setting_pack_loader;
+
+    let pack = if let Some(ver) = version {
+        loader.get_version(&pack_id, &ver).await
+    } else {
+        loader.get_latest(&pack_id).await
+    }.map_err(|e| e.to_string())?;
+
+    Ok(SettingPackSummaryResponse::from(SettingPackSummary::from(&pack)))
+}
+
+/// Activate a setting pack for a campaign.
+///
+/// # Arguments
+/// * `pack_id` - The setting pack ID to activate
+/// * `campaign_id` - The campaign ID to activate for
+///
+/// # Errors
+/// - If pack is not loaded
+/// - If pack references missing archetypes
+#[tauri::command]
+pub async fn activate_setting_pack(
+    pack_id: String,
+    campaign_id: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let loader = &state.setting_pack_loader;
+    let registry = get_registry(&state).await?;
+
+    // Get existing archetype IDs for validation
+    let existing: std::collections::HashSet<String> = registry.list(None).await
+        .into_iter()
+        .map(|s| s.id.to_string())
+        .collect();
+
+    loader.activate(&pack_id, &campaign_id, &existing).await
+        .map_err(|e| e.to_string())?;
+
+    log::info!("Activated setting pack '{}' for campaign '{}'", pack_id, campaign_id);
+    Ok(())
+}
+
+/// Deactivate the setting pack for a campaign.
+///
+/// # Arguments
+/// * `campaign_id` - The campaign ID to deactivate pack for
+#[tauri::command]
+pub async fn deactivate_setting_pack(
+    campaign_id: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let loader = &state.setting_pack_loader;
+
+    loader.deactivate(&campaign_id).await
+        .map_err(|e| e.to_string())?;
+
+    log::info!("Deactivated setting pack for campaign '{}'", campaign_id);
+    Ok(())
+}
+
+/// Get the active setting pack for a campaign.
+///
+/// # Arguments
+/// * `campaign_id` - The campaign ID
+///
+/// # Returns
+/// The active setting pack summary, or null if none active.
+#[tauri::command]
+pub async fn get_active_setting_pack(
+    campaign_id: String,
+    state: State<'_, AppState>,
+) -> Result<Option<SettingPackSummaryResponse>, String> {
+    let loader = &state.setting_pack_loader;
+
+    let pack = loader.get_active_pack(&campaign_id).await;
+
+    Ok(pack.map(|p| SettingPackSummaryResponse::from(SettingPackSummary::from(&p))))
+}
+
+/// Get all versions of a setting pack.
+///
+/// # Arguments
+/// * `pack_id` - The setting pack ID
+///
+/// # Returns
+/// List of version strings sorted by semver.
+#[tauri::command]
+pub async fn get_setting_pack_versions(
+    pack_id: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<String>, String> {
+    let loader = &state.setting_pack_loader;
+
+    Ok(loader.get_versions(&pack_id).await)
+}
+
+// ============================================================================
+// TASK-ARCH-063: Resolution Query Commands
+// ============================================================================
+
+/// Resolve an archetype using the hierarchical resolution system.
+///
+/// Resolution applies layers in order: Role -> Race -> Class -> Setting -> Direct ID.
+/// Later layers override earlier ones according to merge rules.
+///
+/// # Arguments
+/// * `query` - The resolution query specifying which layers to apply
+///
+/// # Returns
+/// The resolved archetype with merged data from all applicable layers.
+#[tauri::command]
+pub async fn resolve_archetype(
+    query: ResolutionQueryRequest,
+    state: State<'_, AppState>,
+) -> Result<ResolvedArchetypeResponse, String> {
+    let registry = get_registry(&state).await?;
+
+    // Build the resolution query
+    let mut resolution_query = if let Some(ref id) = query.archetype_id {
+        ResolutionQuery::single(id)
+    } else if let Some(ref role) = query.npc_role {
+        ResolutionQuery::for_npc(role)
+    } else {
+        return Err("Either archetype_id or npc_role must be specified".to_string());
+    };
+
+    if let Some(ref race) = query.race {
+        resolution_query = resolution_query.with_race(race);
+    }
+
+    if let Some(ref class) = query.class {
+        resolution_query = resolution_query.with_class(class);
+    }
+
+    if let Some(ref setting) = query.setting {
+        resolution_query = resolution_query.with_setting(setting);
+    }
+
+    if let Some(ref campaign) = query.campaign_id {
+        resolution_query = resolution_query.with_campaign(campaign);
+    }
+
+    // Check cache first
+    if let Some(cached) = registry.get_cached(&resolution_query).await {
+        let mut response = ResolvedArchetypeResponse::from(cached);
+        if let Some(ref mut meta) = response.resolution_metadata {
+            meta.cache_hit = true;
+        }
+        return Ok(response);
+    }
+
+    // Create resolver and resolve
+    let resolver = crate::core::archetype::ArchetypeResolver::new(
+        registry.archetypes(),
+        registry.setting_packs(),
+        registry.active_packs(),
+    );
+
+    let resolved = resolver.resolve(&resolution_query).await
+        .map_err(|e| e.to_string())?;
+
+    // Cache the result
+    let sources: Vec<String> = resolved.resolution_metadata
+        .as_ref()
+        .map(|m| m.layers_checked.clone())
+        .unwrap_or_default();
+    registry.cache_resolved(&resolution_query, resolved.clone()).await;
+
+    Ok(ResolvedArchetypeResponse::from(resolved))
+}
+
+/// Convenience command to resolve an archetype for NPC generation.
+///
+/// This is a shortcut for the common use case of resolving by role, race, and class.
+///
+/// # Arguments
+/// * `role` - The NPC role (e.g., "merchant", "guard")
+/// * `race` - Optional race (e.g., "dwarf", "elf")
+/// * `class` - Optional class (e.g., "fighter", "wizard")
+/// * `setting` - Optional setting pack ID
+/// * `campaign_id` - Optional campaign ID for campaign-specific settings
+///
+/// # Returns
+/// The resolved archetype with merged data.
+#[tauri::command]
+pub async fn resolve_for_npc(
+    role: String,
+    race: Option<String>,
+    class: Option<String>,
+    setting: Option<String>,
+    campaign_id: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<ResolvedArchetypeResponse, String> {
+    let query = ResolutionQueryRequest {
+        archetype_id: None,
+        npc_role: Some(role),
+        race,
+        class,
+        setting,
+        campaign_id,
+    };
+
+    resolve_archetype(query, state).await
+}
+
+/// Get cache statistics for the archetype registry.
+///
+/// # Returns
+/// Cache statistics including size and capacity.
+#[tauri::command]
+pub async fn get_archetype_cache_stats(
+    state: State<'_, AppState>,
+) -> Result<ArchetypeCacheStatsResponse, String> {
+    let registry = get_registry(&state).await?;
+
+    let stats = registry.cache_stats().await;
+
+    Ok(ArchetypeCacheStatsResponse {
+        current_size: stats.len,
+        capacity: stats.cap,
+    })
+}
+
+/// Response for cache statistics.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ArchetypeCacheStatsResponse {
+    pub current_size: usize,
+    pub capacity: usize,
+}
+
+/// Clear the archetype resolution cache.
+#[tauri::command]
+pub async fn clear_archetype_cache(
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let registry = get_registry(&state).await?;
+
+    registry.clear_cache().await;
+
+    log::info!("Cleared archetype resolution cache");
+    Ok(())
+}
+
+/// Check if the archetype registry is initialized.
+///
+/// # Returns
+/// True if the registry is ready to use, false otherwise.
+#[tauri::command]
+pub async fn is_archetype_registry_ready(
+    state: State<'_, AppState>,
+) -> Result<bool, String> {
+    Ok(state.archetype_registry.read().await.is_some())
 }

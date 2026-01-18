@@ -40,7 +40,7 @@ fn main() {
             }
 
             // Initialize managers (Meilisearch-based)
-            let (cm, sm, ns, creds, vm, sidecar_manager, search_client, personality_store, personality_manager, pipeline, _llm_router, version_manager, world_state_manager, relationship_manager, location_manager, claude_desktop_manager, llm_manager, claude_gate) =
+            let (cm, sm, ns, creds, vm, sidecar_manager, search_client, personality_store, personality_manager, pipeline, _llm_router, version_manager, world_state_manager, relationship_manager, location_manager, claude_desktop_manager, llm_manager, claude_gate, setting_pack_loader) =
                 commands::AppState::init_defaults();
 
             // Initialize Database
@@ -102,7 +102,7 @@ fn main() {
                 credentials: creds,
                 voice_manager,
                 sidecar_manager: sidecar_manager.clone(),
-                search_client,
+                search_client: search_client.clone(),
                 personality_store,
                 personality_manager,
                 ingestion_pipeline: pipeline,
@@ -115,6 +115,53 @@ fn main() {
                 llm_manager: llm_manager.clone(), // Clone for auto-configure block
                 extraction_settings: tokio::sync::RwLock::new(ingestion::ExtractionSettings::default()),
                 claude_gate,
+                // Archetype Registry fields - initialized lazily after Meilisearch starts
+                archetype_registry: tokio::sync::RwLock::new(None), // Initialized after Meilisearch is ready
+                vocabulary_manager: tokio::sync::RwLock::new(None), // Initialized after Meilisearch is ready
+                setting_pack_loader,
+            });
+
+            // Initialize Archetype Registry after Meilisearch starts
+            let sc_for_archetype = search_client;
+            let app_handle_for_archetype = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                // Wait for Meilisearch to be ready
+                if sc_for_archetype.wait_for_health(15).await {
+                    // Get the Meilisearch config to create the client
+                    let config = ttrpg_assistant::core::sidecar_manager::MeilisearchConfig::default();
+                    let meili_client = meilisearch_sdk::client::Client::new(
+                        &config.url(),
+                        Some(&config.master_key),
+                    ).expect("Failed to create Meilisearch client for archetypes");
+
+                    // Initialize the archetype registry
+                    match ttrpg_assistant::core::archetype::ArchetypeRegistry::new(meili_client.clone()).await {
+                        Ok(registry) => {
+                            let count = registry.count().await;
+                            log::info!("Archetype registry initialized with {} archetypes", count);
+                            // Update the AppState with the registry
+                            if let Some(app_state) = app_handle_for_archetype.try_state::<commands::AppState>() {
+                                *app_state.archetype_registry.write().await = Some(std::sync::Arc::new(registry));
+                                log::info!("Archetype registry stored in AppState");
+                            }
+                        }
+                        Err(e) => {
+                            log::error!("Failed to initialize archetype registry: {}", e);
+                        }
+                    }
+
+                    // Initialize the vocabulary manager (not async)
+                    let manager = ttrpg_assistant::core::archetype::VocabularyBankManager::with_meilisearch(meili_client);
+                    let count = manager.count().await;
+                    log::info!("Vocabulary manager initialized with {} banks", count);
+                    // Update the AppState with the manager
+                    if let Some(app_state) = app_handle_for_archetype.try_state::<commands::AppState>() {
+                        *app_state.vocabulary_manager.write().await = Some(std::sync::Arc::new(manager));
+                        log::info!("Vocabulary manager stored in AppState");
+                    }
+                } else {
+                    log::warn!("Meilisearch not ready after 15 seconds - archetype registry not initialized");
+                }
             });
 
             // Start LLM proxy service for OpenAI-compatible API
@@ -587,6 +634,39 @@ fn main() {
 
             // Utility Commands
             commands::open_url_in_browser,
+
+            // Archetype Registry Commands (TASK-ARCH-060)
+            commands::create_archetype,
+            commands::get_archetype,
+            commands::list_archetypes,
+            commands::update_archetype,
+            commands::delete_archetype,
+            commands::archetype_exists,
+            commands::count_archetypes,
+
+            // Vocabulary Bank Commands (TASK-ARCH-061)
+            commands::create_vocabulary_bank,
+            commands::get_vocabulary_bank,
+            commands::list_vocabulary_banks,
+            commands::update_vocabulary_bank,
+            commands::delete_vocabulary_bank,
+            commands::get_phrases,
+
+            // Setting Pack Commands (TASK-ARCH-062)
+            commands::load_setting_pack,
+            commands::list_setting_packs,
+            commands::get_setting_pack,
+            commands::activate_setting_pack,
+            commands::deactivate_setting_pack,
+            commands::get_active_setting_pack,
+            commands::get_setting_pack_versions,
+
+            // Archetype Resolution Commands (TASK-ARCH-063)
+            commands::resolve_archetype,
+            commands::resolve_for_npc,
+            commands::get_archetype_cache_stats,
+            commands::clear_archetype_cache,
+            commands::is_archetype_registry_ready,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

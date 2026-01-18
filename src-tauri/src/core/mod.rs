@@ -8,6 +8,7 @@ pub mod campaign;
 pub mod credentials;
 pub mod personality_base;
 pub mod personality;
+pub mod archetype;
 pub mod session_manager;
 pub mod character_gen;
 pub mod npc_gen;
