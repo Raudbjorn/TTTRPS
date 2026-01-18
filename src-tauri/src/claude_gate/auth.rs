@@ -363,9 +363,10 @@ impl<S: TokenStorage> OAuthFlow<S> {
 }
 
 /// Generate a random state string for CSRF protection.
+/// Uses 32 bytes to match Claude's expected state format.
 fn generate_state() -> String {
     let mut rng = rand::thread_rng();
-    let bytes: [u8; 16] = rng.gen();
+    let bytes: [u8; 32] = rng.gen();
     URL_SAFE_NO_PAD.encode(bytes)
 }
 
