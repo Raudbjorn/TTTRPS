@@ -29,6 +29,11 @@ use std::collections::HashMap;
 use std::num::NonZeroUsize;
 use tokio::sync::Mutex;
 
+/// Escape a value for safe use in Meilisearch filter expressions.
+fn escape_filter_value(value: &str) -> String {
+    value.replace('\\', "\\\\").replace('"', "\\\"")
+}
+
 // ============================================================================
 // Constants
 // ============================================================================
@@ -153,12 +158,12 @@ impl BlendRuleStore {
                 let filter = match campaign_id {
                     Some(cid) => format!(
                         "context = \"{}\" AND campaignId = \"{}\"",
-                        context.as_str(),
-                        cid
+                        escape_filter_value(context.as_str()),
+                        escape_filter_value(cid)
                     ),
                     None => format!(
                         "context = \"{}\" AND campaignId IS NULL",
-                        context.as_str()
+                        escape_filter_value(context.as_str())
                     ),
                 };
 

@@ -32,6 +32,16 @@ pub const INDEX_TASK_TIMEOUT_SECS: u64 = 30;
 pub const INDEX_TASK_POLL_MS: u64 = 100;
 
 // ============================================================================
+// Filter Safety
+// ============================================================================
+
+/// Escape a value for safe use in Meilisearch filter expressions.
+/// Escapes backslashes and double quotes to prevent filter injection.
+fn escape_filter_value(value: &str) -> String {
+    value.replace('\\', "\\\\").replace('"', "\\\"")
+}
+
+// ============================================================================
 // Index Settings
 // ============================================================================
 
@@ -343,7 +353,7 @@ impl PersonalityIndexManager {
         game_system: &str,
         limit: usize,
     ) -> Result<Vec<TemplateDocument>, PersonalityExtensionError> {
-        let filter = format!("gameSystem = \"{}\"", game_system);
+        let filter = format!("gameSystem = \"{}\"", escape_filter_value(game_system));
         self.list_templates(Some(&filter), limit).await
     }
 
@@ -353,7 +363,7 @@ impl PersonalityIndexManager {
         campaign_id: &str,
         limit: usize,
     ) -> Result<Vec<TemplateDocument>, PersonalityExtensionError> {
-        let filter = format!("campaignId = \"{}\"", campaign_id);
+        let filter = format!("campaignId = \"{}\"", escape_filter_value(campaign_id));
         self.list_templates(Some(&filter), limit).await
     }
 
