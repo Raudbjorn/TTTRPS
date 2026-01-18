@@ -1419,7 +1419,7 @@ impl MeilisearchPipeline {
             status: "ready".to_string(),
             error_message: None,
             ingested_at: Utc::now().to_rfc3339(),
-            // TTRPG metadata - user-editable, not set during ingestion
+// TTRPG metadata - user-editable, not set during ingestion
             game_system: None,
             setting: None,
             content_type: None,
