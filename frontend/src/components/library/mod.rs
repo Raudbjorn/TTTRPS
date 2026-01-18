@@ -132,6 +132,11 @@ pub struct SourceDocument {
     pub file_path: Option<String>,
     pub description: Option<String>,
     pub tags: Vec<String>,
+    // TTRPG metadata (user-editable)
+    pub game_system: Option<String>,
+    pub setting: Option<String>,
+    pub content_type: Option<String>,
+    pub publisher: Option<String>,
 }
 
 impl Default for SourceDocument {
@@ -148,6 +153,10 @@ impl Default for SourceDocument {
             file_path: None,
             description: None,
             tags: Vec::new(),
+            game_system: None,
+            setting: None,
+            content_type: None,
+            publisher: None,
         }
     }
 }
@@ -421,6 +430,10 @@ pub fn Library() -> impl IntoView {
                             file_path: d.file_path,
                             description: None,
                             tags: Vec::new(),
+                            game_system: d.game_system,
+                            setting: d.setting,
+                            content_type: d.content_type,
+                            publisher: d.publisher,
                         })
                         .collect()
                 };
@@ -578,6 +591,10 @@ pub fn Library() -> impl IntoView {
                                 file_path: Some(path),
                                 description: result.game_system.clone(),
                                 tags: result.content_category.map(|c| vec![c]).unwrap_or_default(),
+                                game_system: None,
+                                setting: None,
+                                content_type: None,
+                                publisher: None,
                             };
                             documents.update(|docs| docs.push(doc));
                             total_chunks.update(|c| *c += result.chunk_count);

@@ -14,6 +14,7 @@ use leptos::task::spawn_local;
 use crate::bindings::{
     pick_document_file, ingest_document_two_phase, reindex_library, delete_library_document,
     rebuild_library_metadata, list_library_documents, clear_and_reingest_document,
+    update_library_document, UpdateLibraryDocumentRequest,
 };
 use crate::components::design_system::{
     Badge, BadgeVariant, Button, ButtonVariant, Card, CardHeader, CardBody, Input, Modal,
@@ -32,6 +33,10 @@ pub fn SourceManager() -> impl IntoView {
     let editing_description = RwSignal::new(String::new());
     let editing_type = RwSignal::new(SourceType::Custom);
     let editing_tags = RwSignal::new(String::new());
+    let editing_game_system = RwSignal::new(String::new());
+    let editing_setting = RwSignal::new(String::new());
+    let editing_content_type = RwSignal::new(String::new());
+    let editing_publisher = RwSignal::new(String::new());
     let show_delete_confirm = RwSignal::new(false);
     let delete_target_id = RwSignal::new(String::new());
     let is_reindexing = RwSignal::new(false);
@@ -54,6 +59,10 @@ pub fn SourceManager() -> impl IntoView {
             editing_description.set(doc.description.clone().unwrap_or_default());
             editing_type.set(doc.source_type);
             editing_tags.set(doc.tags.join(", "));
+            editing_game_system.set(doc.game_system.clone().unwrap_or_default());
+            editing_setting.set(doc.setting.clone().unwrap_or_default());
+            editing_content_type.set(doc.content_type.clone().unwrap_or_default());
+            editing_publisher.set(doc.publisher.clone().unwrap_or_default());
             editing.set(Some(doc));
         }
     };
@@ -64,6 +73,13 @@ pub fn SourceManager() -> impl IntoView {
         let editing = state.editing_document;
         move |_: ev::MouseEvent| {
             if let Some(doc) = editing.get() {
+                let doc_id = doc.id.clone();
+                let game_system = Some(editing_game_system.get()).filter(|s| !s.is_empty());
+                let setting = Some(editing_setting.get()).filter(|s| !s.is_empty());
+                let content_type = Some(editing_content_type.get()).filter(|s| !s.is_empty());
+                let publisher = Some(editing_publisher.get()).filter(|s| !s.is_empty());
+
+                // Update local state
                 documents.update(|docs| {
                     if let Some(d) = docs.iter_mut().find(|d| d.id == doc.id) {
                         d.name = editing_name.get();
@@ -74,9 +90,27 @@ pub fn SourceManager() -> impl IntoView {
                             .map(|s| s.trim().to_string())
                             .filter(|s| !s.is_empty())
                             .collect();
+                        d.game_system = game_system.clone();
+                        d.setting = setting.clone();
+                        d.content_type = content_type.clone();
+                        d.publisher = publisher.clone();
                     }
                 });
                 editing.set(None);
+
+                // Persist TTRPG fields to backend
+                spawn_local(async move {
+                    let request = UpdateLibraryDocumentRequest {
+                        id: doc_id,
+                        game_system,
+                        setting,
+                        content_type,
+                        publisher,
+                    };
+                    if let Err(e) = update_library_document(request).await {
+                        log::error!("Failed to save document metadata: {}", e);
+                    }
+                });
             }
         }
     };
@@ -172,6 +206,10 @@ pub fn SourceManager() -> impl IntoView {
                                         file_path: d.file_path,
                                         description: None,
                                         tags: Vec::new(),
+                                        game_system: d.game_system,
+                                        setting: d.setting,
+                                        content_type: d.content_type,
+                                        publisher: d.publisher,
                                     })
                                     .collect();
                                 let chunks: usize = source_docs.iter().map(|d| d.chunk_count).sum();
@@ -247,6 +285,10 @@ pub fn SourceManager() -> impl IntoView {
                                         file_path: d.file_path,
                                         description: None,
                                         tags: Vec::new(),
+                                        game_system: d.game_system,
+                                        setting: d.setting,
+                                        content_type: d.content_type,
+                                        publisher: d.publisher,
                                     })
                                     .collect();
                                 let chunks: usize = source_docs.iter().map(|d| d.chunk_count).sum();
@@ -307,6 +349,10 @@ pub fn SourceManager() -> impl IntoView {
                                 file_path: Some(path),
                                 description: result.game_system.clone(),
                                 tags: result.content_category.map(|c| vec![c]).unwrap_or_default(),
+                                game_system: None,
+                                setting: None,
+                                content_type: None,
+                                publisher: None,
                             };
                             documents.update(|docs| docs.push(doc));
                             total_chunks.update(|c| *c += result.chunk_count);
@@ -496,6 +542,42 @@ pub fn SourceManager() -> impl IntoView {
                                                                 placeholder="d&d, 5e, rulebook"
                                                             />
                                                         </div>
+
+                                                        // TTRPG Metadata Section
+                                                        <div class="pt-2 border-t border-[var(--border-subtle)]">
+                                                            <h4 class="text-xs font-medium text-[var(--text-muted)] mb-2">"TTRPG Metadata"</h4>
+                                                            <div class="grid grid-cols-2 gap-2">
+                                                                <div>
+                                                                    <label class="block text-xs text-[var(--text-muted)] mb-1">"Game System"</label>
+                                                                    <Input
+                                                                        value=editing_game_system
+                                                                        placeholder="D&D 5e, Pathfinder 2e..."
+                                                                    />
+                                                                </div>
+                                                                <div>
+                                                                    <label class="block text-xs text-[var(--text-muted)] mb-1">"Setting"</label>
+                                                                    <Input
+                                                                        value=editing_setting
+                                                                        placeholder="Forgotten Realms, Eberron..."
+                                                                    />
+                                                                </div>
+                                                                <div>
+                                                                    <label class="block text-xs text-[var(--text-muted)] mb-1">"Content Type"</label>
+                                                                    <Input
+                                                                        value=editing_content_type
+                                                                        placeholder="Rulebook, Adventure..."
+                                                                    />
+                                                                </div>
+                                                                <div>
+                                                                    <label class="block text-xs text-[var(--text-muted)] mb-1">"Publisher"</label>
+                                                                    <Input
+                                                                        value=editing_publisher
+                                                                        placeholder="Wizards of the Coast..."
+                                                                    />
+                                                                </div>
+                                                            </div>
+                                                        </div>
+
                                                         <div>
                                                             <label class="block text-xs text-[var(--text-muted)] mb-1">"Source Type"</label>
                                                             <div class="flex flex-wrap gap-1">

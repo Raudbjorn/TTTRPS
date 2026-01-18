@@ -3244,6 +3244,49 @@ pub async fn delete_library_document(
         .map_err(|e| format!("Failed to delete document: {}", e))
 }
 
+/// Update library document TTRPG metadata fields
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct UpdateLibraryDocumentRequest {
+    pub id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub game_system: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub setting: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub publisher: Option<String>,
+}
+
+/// Update a library document's TTRPG metadata
+#[tauri::command]
+pub async fn update_library_document(
+    request: UpdateLibraryDocumentRequest,
+    state: State<'_, AppState>,
+) -> Result<crate::core::search_client::LibraryDocumentMetadata, String> {
+    // Fetch existing document
+    let mut doc = state.search_client
+        .get_library_document(&request.id)
+        .await
+        .map_err(|e| format!("Failed to fetch document: {}", e))?
+        .ok_or_else(|| format!("Document not found: {}", request.id))?;
+
+    // Update TTRPG metadata fields
+    doc.game_system = request.game_system;
+    doc.setting = request.setting;
+    doc.content_type = request.content_type;
+    doc.publisher = request.publisher;
+
+    // Save updated document
+    state.search_client
+        .save_library_document(&doc)
+        .await
+        .map_err(|e| format!("Failed to save document: {}", e))?;
+
+    log::info!("Updated library document metadata: {}", request.id);
+    Ok(doc)
+}
+
 /// Rebuild library metadata from existing content indices.
 ///
 /// Scans all content indices for unique sources and creates metadata entries
