@@ -3244,6 +3244,49 @@ pub async fn delete_library_document(
         .map_err(|e| format!("Failed to delete document: {}", e))
 }
 
+/// Update library document TTRPG metadata fields
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct UpdateLibraryDocumentRequest {
+    pub id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub game_system: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub setting: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub publisher: Option<String>,
+}
+
+/// Update a library document's TTRPG metadata
+#[tauri::command]
+pub async fn update_library_document(
+    request: UpdateLibraryDocumentRequest,
+    state: State<'_, AppState>,
+) -> Result<crate::core::search_client::LibraryDocumentMetadata, String> {
+    // Fetch existing document
+    let mut doc = state.search_client
+        .get_library_document(&request.id)
+        .await
+        .map_err(|e| format!("Failed to fetch document: {}", e))?
+        .ok_or_else(|| format!("Document not found: {}", request.id))?;
+
+    // Update TTRPG metadata fields
+    doc.game_system = request.game_system;
+    doc.setting = request.setting;
+    doc.content_type = request.content_type;
+    doc.publisher = request.publisher;
+
+    // Save updated document
+    state.search_client
+        .save_library_document(&doc)
+        .await
+        .map_err(|e| format!("Failed to save document: {}", e))?;
+
+    log::info!("Updated library document metadata: {}", request.id);
+    Ok(doc)
+}
+
 /// Rebuild library metadata from existing content indices.
 ///
 /// Scans all content indices for unique sources and creates metadata entries
@@ -3499,6 +3542,11 @@ async fn ingest_document_with_progress_internal(
         status: "ready".to_string(),
         error_message: None,
         ingested_at: chrono::Utc::now().to_rfc3339(),
+        // TTRPG metadata - user-editable, not set during ingestion
+        game_system: None,
+        setting: None,
+        content_type: None,
+        publisher: None,
     };
 
     if let Err(e) = state.search_client.save_library_document(&library_doc).await {
@@ -7694,7 +7742,13 @@ pub async fn claude_gate_complete_oauth(
     // Parse code#state format if present
     let (actual_code, embedded_state) = if let Some(hash_pos) = code.find('#') {
         let (c, s) = code.split_at(hash_pos);
-        (c.to_string(), Some(s[1..].to_string())) // Skip the '#' character
+// Only treat as embedded state if there is content after the '#' character
+        let embedded = if s.len() > 1 {
+            Some(s[1..].to_string())
+        } else {
+            None
+        };
+        (c.to_string(), embedded)
     } else {
         (code, None)
     };

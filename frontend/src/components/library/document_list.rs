@@ -75,6 +75,10 @@ pub fn DocumentList() -> impl IntoView {
                                 file_path: Some(path),
                                 description: result.game_system.clone(),
                                 tags: result.content_category.map(|c| vec![c]).unwrap_or_default(),
+                                game_system: None,
+                                setting: None,
+                                content_type: None,
+                                publisher: None,
                             };
                             documents.update(|docs| docs.push(doc));
                             total_chunks.update(|c| *c += result.chunk_count);

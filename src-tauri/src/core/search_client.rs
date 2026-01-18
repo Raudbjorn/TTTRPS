@@ -216,7 +216,7 @@ pub struct LibraryDocumentMetadata {
     pub id: String,
     /// Document name (file name without path)
     pub name: String,
-    /// Source type (pdf, epub, mobi, docx, txt)
+    /// File format (pdf, epub, mobi, docx, txt)
     pub source_type: String,
     /// Original file path
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -236,6 +236,21 @@ pub struct LibraryDocumentMetadata {
     pub error_message: Option<String>,
     /// Timestamp when ingested
     pub ingested_at: String,
+
+    // ========== TTRPG Metadata (Phase 1) ==========
+
+    /// Game system (e.g., "D&D 5e", "Pathfinder 2e", "Call of Cthulhu 7e", "Delta Green")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub game_system: Option<String>,
+    /// Campaign setting (e.g., "Forgotten Realms", "Eberron", "Golarion", "Lovecraft Country")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub setting: Option<String>,
+    /// Content type (e.g., "core_rulebook", "supplement", "adventure", "bestiary", "setting_guide")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content_type: Option<String>,
+    /// Publisher (e.g., "Wizards of the Coast", "Paizo", "Chaosium", "Arc Dream")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub publisher: Option<String>,
 }
 
 // ============================================================================
@@ -371,6 +386,29 @@ impl SearchClient {
         }
     }
 
+    /// Delete an index entirely
+    pub async fn delete_index(&self, name: &str) -> Result<()> {
+        match self.client.delete_index(name).await {
+            Ok(task) => {
+                task.wait_for_completion(
+                    &self.client,
+                    Some(std::time::Duration::from_millis(100)),
+                    Some(std::time::Duration::from_secs(TASK_TIMEOUT_SHORT_SECS)),
+                ).await?;
+                log::info!("Deleted index '{}'", name);
+                Ok(())
+            }
+            Err(meilisearch_sdk::errors::Error::Meilisearch(err))
+                if err.error_code == meilisearch_sdk::errors::ErrorCode::IndexNotFound =>
+            {
+                // Index doesn't exist - that's fine for deletion
+                log::debug!("Index '{}' already doesn't exist", name);
+                Ok(())
+            }
+            Err(e) => Err(e.into()),
+        }
+    }
+
     /// Initialize all specialized indexes with appropriate settings
     pub async fn initialize_indexes(&self) -> Result<()> {
         // Enable experimental features (vectorStore) required for hybrid search
@@ -403,7 +441,7 @@ impl SearchClient {
         // Configure settings for content indexes
         let base_settings = Settings::new()
             .with_searchable_attributes(["content", "source", "metadata"])
-            // .with_filterable_attributes(["source", "source_type", "campaign_id", "session_id", "created_at"])
+            .with_filterable_attributes(["source", "source_type", "campaign_id", "session_id", "created_at"])
             .with_sortable_attributes(["created_at"]);
 
         // Apply settings to content indexes
@@ -419,8 +457,27 @@ impl SearchClient {
 
         // Configure library metadata index settings
         let library_settings = Settings::new()
-            .with_searchable_attributes(["name", "source_type", "file_path"])
-            .with_filterable_attributes(["source_type", "status", "content_index", "ingested_at"])
+            .with_searchable_attributes([
+                "name",
+                "source_type",
+                "file_path",
+                // TTRPG metadata (searchable for discovery)
+                "game_system",
+                "setting",
+                "content_type",
+                "publisher",
+            ])
+            .with_filterable_attributes([
+                "source_type",
+                "status",
+                "content_index",
+                "ingested_at",
+                // TTRPG metadata (filterable for organization)
+                "game_system",
+                "setting",
+                "content_type",
+                "publisher",
+            ])
             .with_sortable_attributes(["ingested_at", "name", "page_count", "chunk_count"]);
 
         let library_index = self.client.index(INDEX_LIBRARY_METADATA);
@@ -923,15 +980,21 @@ Type: {{ doc.chunk_type | default: "text" }}
     }
 
     /// Delete library document and all its content chunks from the content index
+    ///
+    /// Each document has its own dedicated indexes:
+    /// - Chunks index: named same as doc_id (the slug)
+    /// - Raw index: named "{doc_id}-raw"
     pub async fn delete_library_document_with_content(&self, doc_id: &str) -> Result<()> {
-        // First get the document to find which content index it used
-        if let Some(doc) = self.get_library_document(doc_id).await? {
-            // Delete content chunks by source filter
-            self.delete_by_filter(&doc.content_index, &format!("source = \"{}\"", doc.name)).await?;
-            log::info!("Deleted {} content chunks from index '{}'", doc.name, doc.content_index);
-        }
+        // Delete the chunks index (named same as the doc_id/slug)
+        self.delete_index(doc_id).await?;
 
-        // Delete the metadata
+        // Delete the raw index (named "{doc_id}-raw")
+        let raw_index = format!("{}-raw", doc_id);
+        self.delete_index(&raw_index).await?;
+
+        log::info!("Deleted indexes '{}' and '{}' for document", doc_id, raw_index);
+
+        // Delete the metadata from library_metadata
         self.delete_library_document(doc_id).await?;
 
         Ok(())
@@ -1053,6 +1116,11 @@ Type: {{ doc.chunk_type | default: "text" }}
                 status: "ready".to_string(),
                 error_message: None,
                 ingested_at: chrono::Utc::now().to_rfc3339(),
+                // TTRPG metadata - user-editable, not set during ingestion
+                game_system: None,
+                setting: None,
+                content_type: None,
+                publisher: None,
             };
 
             if let Err(e) = self.save_library_document(&metadata).await {
@@ -1172,6 +1240,7 @@ Type: {{ doc.chunk_type | default: "text" }}
                 "page_start",
                 "page_end",
                 "source_slug",
+                "source",             // Filter/search by source document
             ])
             .with_sortable_attributes([
                 "page_start",

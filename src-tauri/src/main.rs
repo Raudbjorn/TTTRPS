@@ -383,6 +383,7 @@ fn main() {
             commands::ingest_document_two_phase,
             commands::list_library_documents,
             commands::delete_library_document,
+            commands::update_library_document,
             commands::rebuild_library_metadata,
             commands::clear_and_reingest_document,
             commands::ingest_pdf,

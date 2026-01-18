@@ -775,6 +775,15 @@ pub struct LibraryDocument {
     #[serde(default)]
     pub error_message: Option<String>,
     pub ingested_at: String,
+    // TTRPG metadata (user-editable)
+    #[serde(default)]
+    pub game_system: Option<String>,
+    #[serde(default)]
+    pub setting: Option<String>,
+    #[serde(default)]
+    pub content_type: Option<String>,
+    #[serde(default)]
+    pub publisher: Option<String>,
 }
 
 /// List all documents from the library (persisted in Meilisearch)
@@ -789,6 +798,29 @@ pub async fn delete_library_document(id: String) -> Result<(), String> {
         id: String,
     }
     invoke("delete_library_document", &Args { id }).await
+}
+
+/// Update request for library document TTRPG metadata
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateLibraryDocumentRequest {
+    pub id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub game_system: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub setting: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub publisher: Option<String>,
+}
+
+/// Update a library document's TTRPG metadata
+pub async fn update_library_document(request: UpdateLibraryDocumentRequest) -> Result<LibraryDocument, String> {
+    #[derive(Serialize)]
+    struct Args {
+        request: UpdateLibraryDocumentRequest,
+    }
+    invoke("update_library_document", &Args { request }).await
 }
 
 /// Rebuild library metadata from existing content indices.

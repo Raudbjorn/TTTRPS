@@ -5,6 +5,9 @@ pub mod data;
 pub mod model_selection;
 pub mod extraction;
 pub mod embedding;
+pub mod claude_gate_auth;
+
+pub use claude_gate_auth::{ClaudeGateAuth, ClaudeGateStatusBadge};
 
 use leptos::prelude::*;
 pub use llm::LLMProvider;
