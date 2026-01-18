@@ -93,6 +93,8 @@ pub struct AppState {
     pub claude_desktop_manager: Arc<AsyncRwLock<ClaudeDesktopManager>>,
     // Document extraction settings
     pub extraction_settings: AsyncRwLock<crate::ingestion::ExtractionSettings>,
+    // Unified Settings Manager
+    pub settings_manager: Arc<crate::core::settings::SettingsManager>,
 }
 
 // Helper init for default state components
@@ -115,6 +117,7 @@ impl AppState {
         crate::core::location_manager::LocationManager,
         Arc<AsyncRwLock<ClaudeDesktopManager>>,
         Arc<AsyncRwLock<crate::core::llm::LLMManager>>,
+        Arc<crate::core::settings::SettingsManager>,
     ) {
         let sidecar_config = MeilisearchConfig::default();
         let search_client = SearchClient::new(
@@ -123,6 +126,15 @@ impl AppState {
         );
         let personality_store = Arc::new(PersonalityStore::new());
         let personality_manager = Arc::new(PersonalityApplicationManager::new(personality_store.clone()));
+
+        // Initialize Settings Manager
+        let settings_manager = Arc::new(crate::core::settings::SettingsManager::new(
+            &sidecar_config.url(),
+            &sidecar_config.master_key,
+        ));
+
+        // Load initial settings (background) produces a future, but we can't await here easily without async init_defaults
+        // For now, we return the manager, and main.rs can call load().
 
         (
             CampaignManager::new(),
@@ -145,6 +157,7 @@ impl AppState {
             crate::core::location_manager::LocationManager::new(),
             Arc::new(AsyncRwLock::new(ClaudeDesktopManager::new())),
             Arc::new(AsyncRwLock::new(crate::core::llm::LLMManager::new())),
+            settings_manager,
         )
     }
 }
@@ -190,13 +203,77 @@ pub struct ChatResponsePayload {
     pub output_tokens: Option<u32>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct LLMSettings {
     pub provider: String,
     pub api_key: Option<String>,
     pub host: Option<String>,
     pub model: String,
     pub embedding_model: Option<String>,
+}
+
+impl LLMSettings {
+    pub fn to_config(&self) -> Result<LLMConfig, String> {
+        // Validate model is not empty (except for providers that support auto-detection)
+        let model_optional = PROVIDERS_WITH_OPTIONAL_MODEL.contains(&self.provider.as_str());
+        if self.model.trim().is_empty() && !model_optional {
+            return Err("Model name is required. Please select a model.".to_string());
+        }
+
+        let s = self;
+        match s.provider.as_str() {
+            "ollama" => Ok(LLMConfig::Ollama {
+                host: s.host.clone().unwrap_or_else(|| "http://localhost:11434".to_string()),
+                model: s.model.clone(),
+            }),
+            "claude" => Ok(LLMConfig::Claude {
+                api_key: s.api_key.clone().ok_or("Claude requires an API key")?,
+                model: s.model.clone(),
+                max_tokens: 4096,
+            }),
+            "gemini" => Ok(LLMConfig::Gemini {
+                api_key: s.api_key.clone().ok_or("Gemini requires an API key")?,
+                model: s.model.clone(),
+            }),
+            "openai" => Ok(LLMConfig::OpenAI {
+                api_key: s.api_key.clone().ok_or("OpenAI requires an API key")?,
+                model: s.model.clone(),
+                max_tokens: 4096,
+                organization_id: None,
+                base_url: Some("https://api.openai.com/v1".to_string()),
+            }),
+            "openrouter" => Ok(LLMConfig::OpenRouter {
+                api_key: s.api_key.clone().ok_or("OpenRouter requires an API key")?,
+                model: s.model.clone(),
+            }),
+            "mistral" => Ok(LLMConfig::Mistral {
+                api_key: s.api_key.clone().ok_or("Mistral requires an API key")?,
+                model: s.model.clone(),
+            }),
+            "groq" => Ok(LLMConfig::Groq {
+                api_key: s.api_key.clone().ok_or("Groq requires an API key")?,
+                model: s.model.clone(),
+            }),
+            "together" => Ok(LLMConfig::Together {
+                api_key: s.api_key.clone().ok_or("Together requires an API key")?,
+                model: s.model.clone(),
+            }),
+            "cohere" => Ok(LLMConfig::Cohere {
+                api_key: s.api_key.clone().ok_or("Cohere requires an API key")?,
+                model: s.model.clone(),
+            }),
+            "deepseek" => Ok(LLMConfig::DeepSeek {
+                api_key: s.api_key.clone().ok_or("DeepSeek requires an API key")?,
+                model: s.model.clone(),
+            }),
+            "claude-code" => Ok(LLMConfig::ClaudeCode {
+                timeout_secs: 300, // 5 minute default
+                model: if s.model.is_empty() { None } else { Some(s.model.clone()) },
+                working_dir: None, // Not needed for TTRPG prompts (no file operations)
+            }),
+            _ => Err(format!("Unknown provider: {}", s.provider)),
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -214,122 +291,22 @@ pub struct HealthStatus {
 const PROVIDERS_WITH_OPTIONAL_MODEL: &[&str] = &["claude-code", "claude-desktop", "gemini-cli"];
 
 
-fn get_config_path(app_handle: &tauri::AppHandle) -> PathBuf {
-    // Ensure app data dir exists
-    let dir = app_handle.path().app_data_dir().unwrap_or(PathBuf::from("."));
-    if !dir.exists() {
-        let _ = std::fs::create_dir_all(&dir);
-    }
-    dir.join("llm_config.json")
-}
+// LLM / Voice config persistence using SettingsManager
+// Legacy disk-based load/save functions removed in favor of SettingsManager.
 
-pub fn load_llm_config_disk(app_handle: &tauri::AppHandle) -> Option<LLMConfig> {
-    let path = get_config_path(app_handle);
-    if path.exists() {
-        if let Ok(content) = std::fs::read_to_string(path) {
-            return serde_json::from_str(&content).ok();
-        }
-    }
-    None
-}
-
-fn save_llm_config_disk(app_handle: &tauri::AppHandle, config: &LLMConfig) {
-    let path = get_config_path(app_handle);
-    if let Ok(json) = serde_json::to_string_pretty(config) {
-        let _ = std::fs::write(path, json);
-    }
-}
 
 // Voice config persistence
-fn get_voice_config_path(app_handle: &tauri::AppHandle) -> PathBuf {
-    let dir = app_handle.path().app_data_dir().unwrap_or(PathBuf::from("."));
-    if !dir.exists() {
-        let _ = std::fs::create_dir_all(&dir);
-    }
-    dir.join("voice_config.json")
-}
+// Voice config persistence handled by SettingsManager
 
-pub fn load_voice_config_disk(app_handle: &tauri::AppHandle) -> Option<VoiceConfig> {
-    let path = get_voice_config_path(app_handle);
-    if path.exists() {
-        if let Ok(content) = std::fs::read_to_string(&path) {
-            return serde_json::from_str(&content).ok();
-        }
-    }
-    None
-}
-
-fn save_voice_config_disk(app_handle: &tauri::AppHandle, config: &VoiceConfig) {
-    let path = get_voice_config_path(app_handle);
-    if let Ok(json) = serde_json::to_string_pretty(config) {
-        let _ = std::fs::write(path, json);
-    }
-}
 
 #[tauri::command]
 pub async fn configure_llm(
     settings: LLMSettings,
     state: State<'_, AppState>,
-    app_handle: tauri::AppHandle,
+    _app_handle: tauri::AppHandle,
 ) -> Result<String, String> {
-    // Validate model is not empty (except for providers that support auto-detection)
-    let model_optional = PROVIDERS_WITH_OPTIONAL_MODEL.contains(&settings.provider.as_str());
-    if settings.model.trim().is_empty() && !model_optional {
-        return Err("Model name is required. Please select a model.".to_string());
-    }
+    let config = settings.to_config()?;
 
-    let config = match settings.provider.as_str() {
-        "ollama" => LLMConfig::Ollama {
-            host: settings.host.unwrap_or_else(|| "http://localhost:11434".to_string()),
-            model: settings.model,
-        },
-        "claude" => LLMConfig::Claude {
-            api_key: settings.api_key.clone().ok_or("Claude requires an API key")?,
-            model: settings.model,
-            max_tokens: 4096,
-        },
-        "gemini" => LLMConfig::Gemini {
-            api_key: settings.api_key.clone().ok_or("Gemini requires an API key")?,
-            model: settings.model,
-        },
-        "openai" => LLMConfig::OpenAI {
-            api_key: settings.api_key.clone().ok_or("OpenAI requires an API key")?,
-            model: settings.model,
-            max_tokens: 4096,
-            organization_id: None,
-            base_url: Some("https://api.openai.com/v1".to_string()),
-        },
-        "openrouter" => LLMConfig::OpenRouter {
-            api_key: settings.api_key.clone().ok_or("OpenRouter requires an API key")?,
-            model: settings.model,
-        },
-        "mistral" => LLMConfig::Mistral {
-            api_key: settings.api_key.clone().ok_or("Mistral requires an API key")?,
-            model: settings.model,
-        },
-        "groq" => LLMConfig::Groq {
-            api_key: settings.api_key.clone().ok_or("Groq requires an API key")?,
-            model: settings.model,
-        },
-        "together" => LLMConfig::Together {
-            api_key: settings.api_key.clone().ok_or("Together requires an API key")?,
-            model: settings.model,
-        },
-        "cohere" => LLMConfig::Cohere {
-            api_key: settings.api_key.clone().ok_or("Cohere requires an API key")?,
-            model: settings.model,
-        },
-        "deepseek" => LLMConfig::DeepSeek {
-            api_key: settings.api_key.clone().ok_or("DeepSeek requires an API key")?,
-            model: settings.model,
-        },
-        "claude-code" => LLMConfig::ClaudeCode {
-            timeout_secs: 300, // 5 minute default
-            model: if settings.model.is_empty() { None } else { Some(settings.model) },
-            working_dir: None, // Not needed for TTRPG prompts (no file operations)
-        },
-        _ => return Err(format!("Unknown provider: {}", settings.provider)),
-    };
 
     // Store API key securely if provided
     if let Some(api_key) = &settings.api_key {
@@ -347,8 +324,9 @@ pub async fn configure_llm(
 
     *state.llm_config.write().unwrap() = Some(config.clone());
 
-    // Persist to disk
-    save_llm_config_disk(&app_handle, &config);
+    // Persist to unified settings
+    state.settings_manager.update_llm(settings).await
+        .map_err(|e| format!("Failed to save settings: {}", e))?;
 
     // Update Router: remove old provider if different, then add new one
     {
@@ -514,109 +492,10 @@ pub async fn check_llm_health(state: State<'_, AppState>) -> Result<HealthStatus
 }
 
 #[tauri::command]
-pub fn get_llm_config(state: State<'_, AppState>) -> Result<Option<LLMSettings>, String> {
-    let config = state.llm_config.read().unwrap();
-
-    Ok(config.as_ref().map(|c| match c {
-        LLMConfig::Ollama { host, model } => LLMSettings {
-            provider: "ollama".to_string(),
-            api_key: None,
-            host: Some(host.clone()),
-            model: model.clone(),
-            embedding_model: None,
-        },
-        LLMConfig::Claude { model, .. } => LLMSettings {
-            provider: "claude".to_string(),
-            api_key: Some("********".to_string()),
-            host: None,
-            model: model.clone(),
-            embedding_model: None,
-        },
-        LLMConfig::Gemini { model, .. } => LLMSettings {
-            provider: "gemini".to_string(),
-            api_key: Some("********".to_string()),
-            host: None,
-            model: model.clone(),
-            embedding_model: None,
-        },
-        LLMConfig::OpenAI { model, .. } => LLMSettings {
-            provider: "openai".to_string(),
-            api_key: Some("********".to_string()),
-            host: None,
-            model: model.clone(),
-            embedding_model: None,
-        },
-        LLMConfig::OpenRouter { model, .. } => LLMSettings {
-            provider: "openrouter".to_string(),
-            api_key: Some("********".to_string()),
-            host: None,
-            model: model.clone(),
-            embedding_model: None,
-        },
-        LLMConfig::Mistral { model, .. } => LLMSettings {
-            provider: "mistral".to_string(),
-            api_key: Some("********".to_string()),
-            host: None,
-            model: model.clone(),
-            embedding_model: None,
-        },
-        LLMConfig::Groq { model, .. } => LLMSettings {
-            provider: "groq".to_string(),
-            api_key: Some("********".to_string()),
-            host: None,
-            model: model.clone(),
-            embedding_model: None,
-        },
-        LLMConfig::Together { model, .. } => LLMSettings {
-            provider: "together".to_string(),
-            api_key: Some("********".to_string()),
-            host: None,
-            model: model.clone(),
-            embedding_model: None,
-        },
-        LLMConfig::Cohere { model, .. } => LLMSettings {
-            provider: "cohere".to_string(),
-            api_key: Some("********".to_string()),
-            host: None,
-            model: model.clone(),
-            embedding_model: None,
-        },
-        LLMConfig::DeepSeek { model, .. } => LLMSettings {
-            provider: "deepseek".to_string(),
-            api_key: Some("********".to_string()),
-            host: None,
-            model: model.clone(),
-            embedding_model: None,
-        },
-        LLMConfig::ClaudeDesktop { port, .. } => LLMSettings {
-            provider: "claude-desktop".to_string(),
-            api_key: None, // No API key needed - uses Claude Desktop auth
-            host: Some(format!("localhost:{}", port)),
-            model: "claude-desktop".to_string(),
-            embedding_model: None,
-        },
-        LLMConfig::ClaudeCode { model, .. } => LLMSettings {
-            provider: "claude-code".to_string(),
-            api_key: None, // No API key needed - uses Claude Code auth
-            host: None,
-            model: model.clone().unwrap_or_else(|| "claude-code".to_string()),
-            embedding_model: None,
-        },
-        LLMConfig::GeminiCli { model, .. } => LLMSettings {
-            provider: "gemini-cli".to_string(),
-            api_key: None, // No API key needed - uses Google account auth
-            host: None,
-            model: model.clone(),
-            embedding_model: None,
-        },
-        LLMConfig::Meilisearch { host, model, .. } => LLMSettings {
-            provider: "meilisearch".to_string(),
-            api_key: None,
-            host: Some(host.clone()),
-            model: model.clone(),
-            embedding_model: None,
-        },
-    }))
+pub async fn get_llm_config(state: State<'_, AppState>) -> Result<Option<LLMSettings>, String> {
+    // Fetch from SettingsManager which is the source of truth
+    let settings = state.settings_manager.get_settings().await;
+    Ok(settings.llm)
 }
 
 /// List available models from an Ollama instance
@@ -777,6 +656,67 @@ pub async fn run_provider_health_checks(
     drop(router); // Release the lock before async operation
 
     Ok(router_clone.health_check_all().await)
+}
+
+// ============================================================================
+// Settings Management Commands
+// ============================================================================
+
+#[tauri::command]
+pub async fn get_all_settings(state: State<'_, AppState>) -> Result<crate::core::settings::UnifiedSettings, String> {
+    Ok(state.settings_manager.get_settings().await)
+}
+
+#[tauri::command]
+pub async fn get_settings_metadata() -> Result<crate::core::settings::metadata::UnifiedSettingsMetadata, String> {
+    Ok(crate::core::settings::metadata::UnifiedSettingsMetadata::generate())
+}
+
+#[tauri::command]
+pub async fn export_settings(state: State<'_, AppState>) -> Result<String, String> {
+    let settings = state.settings_manager.get_settings().await;
+    serde_json::to_string_pretty(&settings).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn import_settings(json: String, state: State<'_, AppState>) -> Result<(), String> {
+    let settings: crate::core::settings::UnifiedSettings = serde_json::from_str(&json)
+        .map_err(|e| format!("Invalid settings JSON: {}", e))?;
+
+    // Validate ID first? Or just overwrite.
+    // Ensure ID is correct
+    if settings.id != "settings" {
+       // Just warn or force it? Force it inside manager.rs anyway.
+    }
+
+    // Persist
+    state.settings_manager.save(&settings).await?;
+
+    // Apply Extraction Settings
+    *state.extraction_settings.write().await = settings.extraction.clone();
+
+    // Apply LLM Settings
+    {
+        // Convert LLMSettings to LLMConfig
+        let converted_config = settings.llm.as_ref().and_then(|s| s.to_config().ok());
+        *state.llm_config.write().unwrap() = converted_config.clone();
+
+        // Update Router
+        if let Some(llm_config) = converted_config {
+             let provider = llm_config.create_provider();
+             let mut router = state.llm_router.write().await;
+             router.add_provider(provider).await;
+             log::info!("Applied imported LLM provider settings");
+        }
+    }
+
+    // Apply Voice Settings
+    {
+        let mut vm = state.voice_manager.write().await;
+        *vm = VoiceManager::new(settings.voice);
+    }
+
+    Ok(())
 }
 
 /// Stream chat response - emits 'chat-chunk' events as chunks arrive
@@ -1402,7 +1342,7 @@ pub fn correct_query(query: String) -> crate::core::spell_correction::Correction
 pub async fn configure_voice(
     config: VoiceConfig,
     state: State<'_, AppState>,
-    app_handle: tauri::AppHandle,
+    _app_handle: tauri::AppHandle,
 ) -> Result<String, String> {
     // 1. If API keys are provided in config, save them securely and mask them in config
     if let Some(elevenlabs) = config.elevenlabs.clone() {
@@ -1423,8 +1363,11 @@ pub async fn configure_voice(
         }
     }
 
+    // Save config to unified settings
     // Save config to disk (with secrets restored for persistence)
-    save_voice_config_disk(&app_handle, &effective_config);
+    // save_voice_config_disk(&app_handle, &effective_config);
+    state.settings_manager.update_voice(effective_config.clone()).await
+         .map_err(|e| format!("Failed to save voice settings: {}", e))?;
 
     let new_manager = VoiceManager::new(effective_config);
 
@@ -3333,15 +3276,12 @@ pub struct SpeakResult {
 }
 
 #[tauri::command]
-pub async fn speak(text: String, app_handle: tauri::AppHandle) -> Result<Option<SpeakResult>, String> {
+pub async fn speak(text: String, state: State<'_, AppState>, app_handle: tauri::AppHandle) -> Result<Option<SpeakResult>, String> {
     use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 
-    // 1. Load voice config from disk (saved by the settings UI)
-    let config = load_voice_config_disk(&app_handle)
-        .unwrap_or_else(|| {
-            log::warn!("No voice config found on disk, using default");
-            VoiceConfig::default()
-        });
+    // 1. Load voice config from settings manager
+    let settings = state.settings_manager.get_settings().await;
+    let config = settings.voice;
 
     // Check if voice is disabled
     if matches!(config.provider, VoiceProviderType::Disabled) {
@@ -7155,7 +7095,10 @@ pub async fn save_extraction_settings(
 
     // Save to state
     let mut settings_guard = state.extraction_settings.write().await;
-    *settings_guard = settings;
+    *settings_guard = settings.clone();
+
+    // Persist to unified settings manager
+    state.settings_manager.update_extraction(settings).await?;
 
     log::info!("Extraction settings saved");
     Ok(())

@@ -4719,6 +4719,8 @@ pub struct ExtractionSettings {
     pub force_ocr: bool,
     pub ocr_language: String,
     pub ocr_min_text_threshold: usize,
+    pub min_text_density: f32,
+    pub use_akasha: Option<bool>,
     // Chunking Settings
     pub chunking_enabled: bool,
     pub max_chunk_chars: usize,

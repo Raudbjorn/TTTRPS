@@ -15,6 +15,7 @@ use crate::ingestion::ttrpg::{
     ContentModeClassifier,
     DiceExtractor,
 };
+use crate::ingestion::chunker::{TTRPGChunker, LayoutPage};
 use chrono::Utc;
 use std::collections::HashMap;
 use std::path::Path;
@@ -328,6 +329,9 @@ pub struct RawDocument {
     pub page_metadata: PageMetadata,
     /// Timestamp when extracted
     pub extracted_at: String,
+    /// Layout information from akasha extraction (bounding boxes, text blocks, structure)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub layout_info: Option<serde_json::Value>,
 }
 
 impl RawDocument {
@@ -343,6 +347,23 @@ impl RawDocument {
             page_number,
             page_metadata,
             extracted_at: chrono::Utc::now().to_rfc3339(),
+            layout_info: None,
+        }
+    }
+
+    /// Create a raw document with layout information from akasha
+    pub fn with_layout(slug: &str, page_number: u32, content: String, layout_info: Option<serde_json::Value>) -> Self {
+        let id = format!("{}-p{:04}", slug, page_number);
+        let page_metadata = PageMetadata::from_content(&content);
+
+        Self {
+            id,
+            source_slug: slug.to_string(),
+            raw_content: content,
+            page_number,
+            page_metadata,
+            extracted_at: chrono::Utc::now().to_rfc3339(),
+            layout_info,
         }
     }
 
@@ -815,6 +836,8 @@ pub struct ExtractionResult {
     pub total_chars: usize,
     /// Detected TTRPG metadata
     pub ttrpg_metadata: TTRPGMetadata,
+    /// Document structure data from akasha extraction (semantic hierarchy)
+    pub structural_data: Option<serde_json::Value>,
 }
 
 /// Result of chunking from raw pages (phase 2 of two-phase pipeline)
@@ -975,10 +998,15 @@ impl MeilisearchPipeline {
         let mut page_count = 0;
         let mut raw_documents = Vec::new();
 
-        // Convert extracted pages to RawDocuments
+        // Convert extracted pages to RawDocuments (preserving layout_info from akasha)
         if let Some(pages) = extracted.pages {
             for page in pages {
-                let raw_doc = RawDocument::new(&slug, page.page_number as u32, page.content);
+                let raw_doc = RawDocument::with_layout(
+                    &slug,
+                    page.page_number as u32,
+                    page.content,
+                    page.layout_info,
+                );
                 raw_documents.push(raw_doc);
                 page_count += 1;
             }
@@ -1051,6 +1079,7 @@ impl MeilisearchPipeline {
             page_count,
             total_chars,
             ttrpg_metadata,
+            structural_data: extracted.structural_data,
         })
     }
 
@@ -1122,6 +1151,7 @@ impl MeilisearchPipeline {
                 page_count: total_pages,
                 total_chars: 0, // We don't recalculate for resumed extractions
                 ttrpg_metadata,
+                structural_data: None, // OCR incremental doesn't have akasha structure
             });
         }
 
@@ -1238,6 +1268,7 @@ impl MeilisearchPipeline {
                     page_count: final_page_count,
                     total_chars: total_chars_extracted,
                     ttrpg_metadata,
+                    structural_data: None, // OCR incremental doesn't have akasha structure
                 })
             }
             Err(e) => {
@@ -1364,8 +1395,17 @@ impl MeilisearchPipeline {
         let mut sorted_docs = raw_docs;
         sorted_docs.sort_by_key(|d| d.page_number);
 
-        // Create chunks with provenance tracking
-        let chunks = self.create_chunks_with_provenance(slug, &sorted_docs, &extraction.ttrpg_metadata);
+        // Check if any raw docs have layout_info (from akasha extraction)
+        let has_layout_info = sorted_docs.iter().any(|d| d.layout_info.is_some());
+
+        // Create chunks - use structure-aware chunking if layout_info available
+        let chunks = if has_layout_info {
+            log::info!("Using structure-aware chunking (akasha layout_info detected)");
+            self.create_chunks_from_layout(slug, &sorted_docs, &extraction.ttrpg_metadata)
+        } else {
+            log::info!("Using text-based chunking (no layout_info)");
+            self.create_chunks_with_provenance(slug, &sorted_docs, &extraction.ttrpg_metadata)
+        };
 
         let chunk_count = chunks.len();
 
@@ -1524,6 +1564,91 @@ impl MeilisearchPipeline {
 
         // Last resort: hard cut
         target.min(text.len())
+    }
+
+    /// Create chunks using structure-aware chunking from akasha layout_info.
+    ///
+    /// This method leverages the semantic layout information extracted by akasha
+    /// to create chunks that respect document structure:
+    /// - Tables are kept atomic (never split)
+    /// - Section boundaries are respected
+    /// - TTRPG elements (stat blocks, spells) are preserved
+    /// - Breadcrumb paths are generated from document hierarchy
+    fn create_chunks_from_layout(
+        &self,
+        slug: &str,
+        raw_docs: &[RawDocument],
+        metadata: &TTRPGMetadata,
+    ) -> Vec<ChunkedDocument> {
+        // Convert RawDocuments to LayoutPages for the chunker
+        let layout_pages: Vec<LayoutPage> = raw_docs
+            .iter()
+            .map(|doc| LayoutPage::with_layout(
+                doc.page_number,
+                doc.raw_content.clone(),
+                doc.layout_info.clone(),
+            ))
+            .collect();
+
+        // Use TTRPGChunker with structure-aware chunking
+        let chunker = TTRPGChunker::new();
+        let content_chunks = chunker.chunk_from_layout(&layout_pages, slug);
+
+        // Convert ContentChunks to ChunkedDocuments
+        let mut chunks = Vec::with_capacity(content_chunks.len());
+
+        for (idx, content_chunk) in content_chunks.into_iter().enumerate() {
+            // Build source_raw_ids from the page number
+            let source_raw_ids = if let Some(page_num) = content_chunk.page_number {
+                vec![RawDocument::make_id(slug, page_num)]
+            } else {
+                vec![]
+            };
+
+            let mut chunk = ChunkedDocument::new(
+                slug,
+                idx as u32,
+                content_chunk.content,
+                source_raw_ids,
+            );
+
+            // Transfer metadata from ContentChunk
+            chunk.section_title = content_chunk.section.clone();
+            chunk.element_type = Some(content_chunk.chunk_type.clone());
+            chunk.mechanic_type = content_chunk.mechanic_type.clone();
+            chunk.semantic_keywords = content_chunk.semantic_keywords.clone();
+
+            // Extract section hierarchy from metadata
+            if let Some(section_path) = content_chunk.metadata.get("section_path") {
+                chunk.section_path = Some(section_path.clone());
+            }
+            if let Some(parent_sections) = content_chunk.metadata.get("parent_sections") {
+                chunk.parent_sections = parent_sections
+                    .split(" | ")
+                    .map(|s| s.to_string())
+                    .collect();
+            }
+
+            // Set chapter/subsection from enhanced metadata
+            if content_chunk.chapter_title.is_some() {
+                chunk.section_title = content_chunk.chapter_title;
+            }
+
+            // Apply TTRPG metadata and enhanced classification
+            chunk = chunk
+                .with_ttrpg_metadata(metadata)
+                .with_enhanced_classification();
+
+            chunks.push(chunk);
+        }
+
+        log::info!(
+            "Structure-aware chunking: created {} chunks from {} pages",
+            chunks.len(),
+            raw_docs.len()
+        );
+
+        chunks
     }
 
     // ========================================================================

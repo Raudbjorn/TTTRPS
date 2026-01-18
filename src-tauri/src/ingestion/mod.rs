@@ -1,5 +1,6 @@
 pub mod adaptive_learning;
 pub mod kreuzberg_extractor;
+pub mod akasha_extractor;
 pub mod extraction_settings;
 pub mod personality;
 pub mod flavor;

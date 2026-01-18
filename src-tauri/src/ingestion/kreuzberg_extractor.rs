@@ -10,6 +10,7 @@ use thiserror::Error;
 use tokio::process::Command;
 
 use super::extraction_settings::{ExtractionSettings, OcrBackend};
+use super::akasha_extractor::AkashaExtractor; // Import AkashaExtractor
 
 // ============================================================================
 // Error Types
@@ -60,6 +61,8 @@ pub struct ExtractedContent {
     pub pages: Option<Vec<Page>>,
     /// Detected language (if language detection enabled)
     pub detected_language: Option<String>,
+    /// Rich structural data from Akasha (tables, sections, lists)
+    pub structural_data: Option<serde_json::Value>,
 }
 
 /// Content of a single page
@@ -69,6 +72,8 @@ pub struct Page {
     pub page_number: usize,
     /// Text content of the page
     pub content: String,
+    /// Layout information (bounding boxes, tables) from Akasha
+    pub layout_info: Option<serde_json::Value>,
 }
 
 // ============================================================================
@@ -157,6 +162,29 @@ impl DocumentExtractor {
             cb(0.0, &format!("Starting extraction for {:?}", path.file_name().unwrap_or_default()));
         }
 
+        // Check if we should use specialized Akasha extraction for PDFs
+        // If detection of PDF + use_akasha setting is true
+        let is_pdf_ext = path.extension().and_then(|e| e.to_str()).map(|e| e.to_lowercase() == "pdf").unwrap_or(false);
+        if is_pdf_ext && self.settings.use_akasha {
+             log::info!("Using Akasha optimized extraction for {:?}", path);
+             if let Some(ref cb) = progress_callback {
+                cb(0.05, "Optimizing extraction with Akasha...");
+             }
+
+             let extractor = AkashaExtractor::new(&self.settings);
+             // We return immediately if Akasha is successful
+             // If it fails, we can either propagate error or fallback to kreuzberg.
+             // Requirements said "fallback to kreuzberg or existing error handling".
+             // Let's propagate for now to see errors, unless it's a "Unsupported" error.
+             match extractor.extract(path) {
+                 Ok(content) => return Ok(content),
+                 Err(e) => {
+                     log::warn!("Akasha extraction failed: {}. Falling back to standard Kreuzberg.", e);
+                     // Fallthrough to standard kreuzberg
+                 }
+             }
+        }
+
         // Enable page extraction for granular results
         let mut config = self.config.clone();
         config.pages = Some(PageConfig {
@@ -241,13 +269,15 @@ impl DocumentExtractor {
             pages: result.pages.map(|pages| pages.into_iter().map(|p| Page {
                 page_number: p.page_number,
                 content: p.content,
+                layout_info: None, // Added layout_info here
             }).collect()),
             detected_language,
+            structural_data: None, // Added structural_data here
         })
     }
 
     /// Fallback OCR using pdftoppm + tesseract (async)
-    async fn extract_with_fallback_ocr<F>(&self, path: &Path, expected_pages: usize, progress_callback: Option<F>) -> Result<ExtractedContent>
+    async fn extract_with_fallback_ocr<F>(&self, path: &Path, _expected_pages: usize, progress_callback: Option<F>) -> Result<ExtractedContent>
     where F: Fn(f32, &str) + Send + Sync + 'static
     {
         let temp_dir = tempfile::Builder::new()
@@ -353,6 +383,7 @@ impl DocumentExtractor {
             pages.push(Page {
                 page_number: page_num,
                 content: cleaned_text,
+                layout_info: None,
             });
 
             // Optional: emit finer logging
@@ -371,6 +402,7 @@ impl DocumentExtractor {
              char_count: full_text.len(),
              pages: Some(pages),
              detected_language: Some(self.settings.ocr_language.clone()), // OCR language used
+             structural_data: None,
         })
     }
 
@@ -748,8 +780,10 @@ impl DocumentExtractor {
             pages: result.pages.map(|pages| pages.into_iter().map(|p| Page {
                 page_number: p.page_number,
                 content: p.content,
+                layout_info: None,
             }).collect()),
             detected_language,
+            structural_data: None,
         })
     }
 

@@ -60,6 +60,10 @@ which = "7.0"
 
 reqwest = { version = "0.11", features = ["json", "multipart", "stream"] }
 rodio = "0.19"
+
+# Akasha PDF Intelligence Engine (Local Dependency)
+akasha-core = { path = "../planning/akasha-integration/akasha/akasha-core" }
+
 # Document extraction with kreuzberg - comprehensive extraction library
 # Using git version to get latest features
 # Note: "office", "excel", and "archives" features excluded due to zip -> lzma-rust2 -> crc conflict with sqlx

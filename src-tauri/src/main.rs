@@ -40,7 +40,7 @@ fn main() {
             }
 
             // Initialize managers (Meilisearch-based)
-            let (cm, sm, ns, creds, vm, sidecar_manager, search_client, personality_store, personality_manager, pipeline, _llm_router, version_manager, world_state_manager, relationship_manager, location_manager, claude_desktop_manager, llm_manager) =
+            let (cm, sm, ns, creds, vm, sidecar_manager, search_client, personality_store, personality_manager, pipeline, _llm_router, version_manager, world_state_manager, relationship_manager, location_manager, claude_desktop_manager, llm_manager, settings_manager) =
                 commands::AppState::init_defaults();
 
             // Initialize Database
@@ -83,18 +83,12 @@ fn main() {
             });
 
             // Load persisted voice config or use default
-            let voice_manager = if let Some(voice_config) = commands::load_voice_config_disk(&app.handle()) {
-                log::info!("Loading voice config from disk: provider={:?}", voice_config.provider);
-                std::sync::Arc::new(tokio::sync::RwLock::new(
-                    ttrpg_assistant::core::voice::VoiceManager::new(voice_config)
-                ))
-            } else {
-                vm
-            };
+            // Voice manager initialized with defaults (will be updated by SettingsManager)
+            let voice_manager = vm;
 
             app.manage(commands::AppState {
                 llm_client: std::sync::RwLock::new(None),
-                llm_config: std::sync::RwLock::new(commands::load_llm_config_disk(&app.handle())),
+                llm_config: std::sync::RwLock::new(None),
                 llm_router: tokio::sync::RwLock::new(ttrpg_assistant::core::llm::router::LLMRouter::with_defaults()),
                 campaign_manager: cm,
                 session_manager: sm,
@@ -114,6 +108,7 @@ fn main() {
                 claude_desktop_manager,
                 llm_manager: llm_manager.clone(), // Clone for auto-configure block
                 extraction_settings: tokio::sync::RwLock::new(ingestion::ExtractionSettings::default()),
+                settings_manager: settings_manager.clone(),
             });
 
             // Start LLM proxy service for OpenAI-compatible API
@@ -132,11 +127,12 @@ fn main() {
             // Initialize Meilisearch Chat Client (fixes "Meilisearch chat client not configured" error)
             let sidecar_config = sidecar_manager.config().clone();
             let llm_manager_clone = llm_manager.clone();
+            let sidecar_health = sidecar_manager.clone();
             tauri::async_runtime::spawn(async move {
                 // Wait for Meilisearch to start by polling health endpoint
                 // Wait up to 30 seconds
                 for _ in 0..30 {
-                    if sidecar_manager.health_check().await {
+                    if sidecar_health.health_check().await {
                         break;
                     }
                     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
@@ -146,6 +142,48 @@ fn main() {
                     &sidecar_config.url(),
                     Some(&sidecar_config.master_key),
                 ).await;
+                llm_manager_clone.write().await.set_chat_client(
+                    &sidecar_config.url(),
+                    Some(&sidecar_config.master_key),
+                ).await;
+            });
+
+            // Initialize Settings Manager (Background Load)
+            let settings_manager_clone = settings_manager.clone();
+            let sm_health_check = sidecar_manager.clone();
+            let handle_for_settings = handle.clone();
+
+            tauri::async_runtime::spawn(async move {
+                // Wait for Meilisearch to be healthy
+                 for _ in 0..60 { // Wait up to 60s
+                    if sm_health_check.health_check().await {
+                        break;
+                    }
+                    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                }
+
+                match settings_manager_clone.load().await {
+                    Ok(settings) => {
+                        log::info!("Unified Settings loaded successfully from Meilisearch");
+                        if let Some(state) = handle_for_settings.try_state::<commands::AppState>() {
+                             // Apply Extraction Settings
+                             *state.extraction_settings.write().await = settings.extraction;
+
+                             // Apply LLM Settings - convert LLMSettings to LLMConfig
+                             let converted_llm = settings.llm.as_ref().and_then(|s| s.to_config().ok());
+                             *state.llm_config.write().unwrap() = converted_llm;
+
+                             // Apply Voice Settings
+                             {
+                                let mut vm = state.voice_manager.write().await;
+                                *vm = ttrpg_assistant::core::voice::VoiceManager::new(settings.voice);
+                             }
+
+                             log::info!("Applied persisted Settings (Extraction, LLM, Voice)");
+                        }
+                    },
+                    Err(e) => log::warn!("Failed to load Unified Settings (using defaults): {}", e),
+                }
             });
 
             // Auto-configure Ollama if no providers are present (User Request)
@@ -573,7 +611,14 @@ fn main() {
             commands::save_extraction_settings,
             commands::get_supported_formats,
             commands::get_extraction_presets,
+            commands::get_supported_formats,
+            commands::get_extraction_presets,
             commands::check_ocr_availability,
+
+            // Settings Persistence Commands
+            commands::export_settings,
+            commands::import_settings,
+            commands::get_settings_metadata,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

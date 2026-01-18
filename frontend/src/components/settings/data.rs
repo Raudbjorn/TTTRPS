@@ -252,6 +252,41 @@ pub fn DataSettingsView() -> impl IntoView {
                         <h5 class="font-semibold text-[var(--text-primary)]">"Quality Processing"</h5>
 
                         <div class="grid grid-cols-2 gap-4">
+                            // Akasha Engine toggle
+                            <label class="flex items-start gap-3 cursor-pointer col-span-2">
+                                <input
+                                    type="checkbox"
+                                    class="mt-1 w-4 h-4 rounded border-[var(--border-subtle)] text-[var(--accent-primary)] focus:ring-[var(--accent-primary)]"
+                                    prop:checked=move || extraction_settings.get().use_akasha.unwrap_or(false)
+                                    on:change=move |ev| {
+                                        let checked = event_target_checked(&ev);
+                                        extraction_settings.update(|s| s.use_akasha = Some(checked));
+                                        has_changes.set(true);
+
+                                        // Auto-persist changes immediately
+                                        let settings = extraction_settings.get();
+                                        is_saving.set(true);
+                                        spawn_local(async move {
+                                            match save_extraction_settings(settings).await {
+                                                Ok(_) => {
+                                                    has_changes.set(false);
+                                                    show_success("Settings Saved", Some("Akasha Intelligence settings updated."));
+                                                }
+                                                Err(e) => {
+                                                    show_error("Save Failed", Some(&e), None);
+                                                }
+                                            }
+                                            is_saving.set(false);
+                                        });
+                                    }
+                                />
+                                <div class="flex flex-col">
+                                    <span class="text-sm font-medium text-[var(--text-primary)]">"Enable Akasha Intelligence (PDFs)"</span>
+                                    <span class="text-xs text-[var(--text-muted)]">"Use advanced layout analysis for PDFs. Greatly improves table and structure extraction but may be slower."</span>
+                                </div>
+                            </label>
+
+
                             // Quality processing toggle
                             <label class="flex items-center gap-3 cursor-pointer">
                                 <input

@@ -985,6 +985,340 @@ impl TTRPGChunker {
     pub fn chunk_text(&self, text: &str, source_id: &str) -> Vec<ContentChunk> {
         self.base_chunker.chunk_text(text, source_id)
     }
+
+    // =========================================================================
+    // Structure-Aware Chunking (from akasha layout_info)
+    // =========================================================================
+
+    /// Chunk documents using akasha's layout information for semantic boundary preservation.
+    ///
+    /// This method parses layout_info from each page and creates chunks that:
+    /// - Never split tables mid-row
+    /// - Respect section boundaries
+    /// - Keep TTRPG elements (stat blocks, spells) atomic when possible
+    /// - Build breadcrumb paths from document hierarchy
+    ///
+    /// # Arguments
+    /// * `pages` - Raw documents with optional layout_info from akasha
+    /// * `source_id` - Source document identifier
+    ///
+    /// # Returns
+    /// Vector of semantically coherent chunks with breadcrumb context
+    pub fn chunk_from_layout(
+        &self,
+        pages: &[LayoutPage],
+        source_id: &str,
+    ) -> Vec<ContentChunk> {
+        let mut chunks = Vec::new();
+        let mut chunk_index = 0;
+        let mut hierarchy = SectionHierarchy::new();
+        let mut buffer = String::new();
+        let mut buffer_page: Option<u32> = None;
+        let mut current_element_type = "text".to_string();
+
+        for page in pages {
+            // Parse layout_info if present, otherwise treat as single text block
+            let elements = self.parse_layout_elements(page);
+
+            for element in elements {
+                // Update hierarchy for section headers
+                if element.element_type == "heading" || element.element_type == "section_header" {
+                    // Flush buffer before section change
+                    if !buffer.is_empty() && buffer.len() >= self.config.base.min_size {
+                        chunks.push(self.create_chunk_with_hierarchy(
+                            &buffer,
+                            source_id,
+                            buffer_page,
+                            &hierarchy,
+                            &current_element_type,
+                            &mut chunk_index,
+                        ));
+                        buffer = self.get_overlap(&buffer);
+                        buffer_page = Some(page.page_number);
+                    }
+
+                    let level = Self::detect_header_level(&element.content);
+                    hierarchy.update(&element.content, level);
+                    continue;
+                }
+
+                // Handle atomic elements (tables, stat blocks)
+                if self.is_atomic_element(&element.element_type) {
+                    // Flush buffer first
+                    if !buffer.is_empty() && buffer.len() >= self.config.base.min_size {
+                        chunks.push(self.create_chunk_with_hierarchy(
+                            &buffer,
+                            source_id,
+                            buffer_page,
+                            &hierarchy,
+                            &current_element_type,
+                            &mut chunk_index,
+                        ));
+                        buffer.clear();
+                    }
+
+                    // Emit atomic element as single chunk (tables are never split)
+                    if element.content.len() <= self.config.atomic_max_size() {
+                        chunks.push(self.create_chunk_with_hierarchy(
+                            &element.content,
+                            source_id,
+                            Some(page.page_number),
+                            &hierarchy,
+                            &element.element_type,
+                            &mut chunk_index,
+                        ));
+                    } else {
+                        // Element is too large, but we still keep tables atomic
+                        // For non-table oversized elements, split at sentence boundaries
+                        if element.element_type == "table" {
+                            // Tables stay atomic even when large - emit with warning in metadata
+                            let mut chunk = self.create_chunk_with_hierarchy(
+                                &element.content,
+                                source_id,
+                                Some(page.page_number),
+                                &hierarchy,
+                                &element.element_type,
+                                &mut chunk_index,
+                            );
+                            chunk.metadata.insert("warning".to_string(), "oversized_table".to_string());
+                            chunks.push(chunk);
+                        } else {
+                            // Split non-table oversized elements at sentence boundaries
+                            let split_chunks = self.split_oversized_content(
+                                &element.content,
+                                source_id,
+                                Some(page.page_number),
+                                &hierarchy,
+                                &element.element_type,
+                                &mut chunk_index,
+                            );
+                            chunks.extend(split_chunks);
+                        }
+                    }
+
+                    buffer_page = None;
+                    continue;
+                }
+
+                // Non-atomic element: accumulate with overlap
+                if buffer_page.is_none() {
+                    buffer_page = Some(page.page_number);
+                }
+                current_element_type = element.element_type.clone();
+
+                // Check if adding this element would exceed max size
+                if buffer.len() + element.content.len() > self.config.base.max_size {
+                    // Flush current buffer
+                    if buffer.len() >= self.config.base.min_size {
+                        chunks.push(self.create_chunk_with_hierarchy(
+                            &buffer,
+                            source_id,
+                            buffer_page,
+                            &hierarchy,
+                            &current_element_type,
+                            &mut chunk_index,
+                        ));
+                        buffer = self.get_overlap(&buffer);
+                    }
+                }
+
+                // Add element content to buffer
+                if !buffer.is_empty() {
+                    buffer.push_str("\n\n");
+                }
+                buffer.push_str(&element.content);
+
+                // Flush if we've reached target size
+                if buffer.len() >= self.config.base.target_size {
+                    chunks.push(self.create_chunk_with_hierarchy(
+                        &buffer,
+                        source_id,
+                        buffer_page,
+                        &hierarchy,
+                        &current_element_type,
+                        &mut chunk_index,
+                    ));
+                    buffer = self.get_overlap(&buffer);
+                    buffer_page = Some(page.page_number);
+                }
+            }
+        }
+
+        // Flush remaining buffer
+        if !buffer.is_empty() && buffer.len() >= self.config.base.min_size {
+            chunks.push(self.create_chunk_with_hierarchy(
+                &buffer,
+                source_id,
+                buffer_page,
+                &hierarchy,
+                &current_element_type,
+                &mut chunk_index,
+            ));
+        }
+
+        chunks
+    }
+
+    /// Parse layout_info JSON into structured elements
+    fn parse_layout_elements(&self, page: &LayoutPage) -> Vec<LayoutElement> {
+        if let Some(ref layout_info) = page.layout_info {
+            // Try to parse akasha's layout format
+            if let Some(text_blocks) = layout_info.get("text_blocks").and_then(|v| v.as_array()) {
+                return text_blocks
+                    .iter()
+                    .filter_map(|block| {
+                        let content = block.get("text")?.as_str()?.to_string();
+                        if content.trim().is_empty() {
+                            return None;
+                        }
+                        let element_type = block
+                            .get("block_type")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("paragraph")
+                            .to_string();
+                        let confidence = block
+                            .get("confidence")
+                            .and_then(|v| v.as_f64())
+                            .unwrap_or(1.0);
+                        Some(LayoutElement {
+                            content,
+                            element_type,
+                            confidence,
+                            page_number: page.page_number,
+                        })
+                    })
+                    .collect();
+            }
+        }
+
+        // Fallback: treat entire page as single text block
+        if page.content.trim().is_empty() {
+            return Vec::new();
+        }
+        vec![LayoutElement {
+            content: page.content.clone(),
+            element_type: "paragraph".to_string(),
+            confidence: 1.0,
+            page_number: page.page_number,
+        }]
+    }
+
+    /// Check if an element type should be kept atomic (never split)
+    fn is_atomic_element(&self, element_type: &str) -> bool {
+        matches!(
+            element_type,
+            "table" | "stat_block" | "spell" | "monster" | "item" | "random_table" | "figure"
+        )
+    }
+
+    /// Split oversized content at sentence boundaries
+    fn split_oversized_content(
+        &self,
+        content: &str,
+        source_id: &str,
+        page_number: Option<u32>,
+        hierarchy: &SectionHierarchy,
+        element_type: &str,
+        chunk_index: &mut usize,
+    ) -> Vec<ContentChunk> {
+        let mut chunks = Vec::new();
+        let sentences = self.base_chunker.split_into_sentences(content);
+        let mut current = String::new();
+
+        for sentence in sentences {
+            if current.len() + sentence.len() > self.config.base.max_size {
+                if current.len() >= self.config.base.min_size {
+                    chunks.push(self.create_chunk_with_hierarchy(
+                        &current,
+                        source_id,
+                        page_number,
+                        hierarchy,
+                        element_type,
+                        chunk_index,
+                    ));
+                    current = self.get_overlap(&current);
+                }
+            }
+
+            if !current.is_empty() && !current.ends_with(' ') {
+                current.push(' ');
+            }
+            current.push_str(&sentence);
+
+            if current.len() >= self.config.base.target_size {
+                chunks.push(self.create_chunk_with_hierarchy(
+                    &current,
+                    source_id,
+                    page_number,
+                    hierarchy,
+                    element_type,
+                    chunk_index,
+                ));
+                current = self.get_overlap(&current);
+            }
+        }
+
+        if !current.is_empty() && current.len() >= self.config.base.min_size {
+            chunks.push(self.create_chunk_with_hierarchy(
+                &current,
+                source_id,
+                page_number,
+                hierarchy,
+                element_type,
+                chunk_index,
+            ));
+        }
+
+        chunks
+    }
+}
+
+// ============================================================================
+// Layout-Based Chunking Support Types
+// ============================================================================
+
+/// A page with layout information from akasha extraction
+#[derive(Debug, Clone)]
+pub struct LayoutPage {
+    /// Page number (1-indexed)
+    pub page_number: u32,
+    /// Raw text content of the page
+    pub content: String,
+    /// Layout information from akasha (bounding boxes, text blocks, etc.)
+    pub layout_info: Option<serde_json::Value>,
+}
+
+impl LayoutPage {
+    /// Create a layout page from raw content (no layout info)
+    pub fn from_content(page_number: u32, content: String) -> Self {
+        Self {
+            page_number,
+            content,
+            layout_info: None,
+        }
+    }
+
+    /// Create a layout page with layout info
+    pub fn with_layout(page_number: u32, content: String, layout_info: Option<serde_json::Value>) -> Self {
+        Self {
+            page_number,
+            content,
+            layout_info,
+        }
+    }
+}
+
+/// A semantic element extracted from layout analysis
+#[derive(Debug, Clone)]
+pub struct LayoutElement {
+    /// Text content of the element
+    pub content: String,
+    /// Type of element (paragraph, table, heading, stat_block, etc.)
+    pub element_type: String,
+    /// Confidence score from extraction (0.0-1.0)
+    pub confidence: f64,
+    /// Page number this element is on
+    pub page_number: u32,
 }
 
 impl Default for TTRPGChunker {

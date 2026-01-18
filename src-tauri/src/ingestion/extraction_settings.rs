@@ -78,7 +78,7 @@ impl OcrBackend {
 /// Document extraction settings
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExtractionSettings {
-    // ========== OCR Settings ==========
+    // ============================================================================
     /// Whether to enable OCR fallback for scanned documents
     pub ocr_enabled: bool,
     /// OCR backend to use
@@ -89,6 +89,12 @@ pub struct ExtractionSettings {
     pub ocr_language: String,
     /// Minimum text length before triggering OCR fallback
     pub ocr_min_text_threshold: usize,
+    /// Minimum text density to consider a page "text-based" (0.0 - 1.0)
+    pub min_text_density: f32,
+
+    /// Enable Akasha optimized extraction for PDFs
+    pub use_akasha: bool,
+
 
     // ========== Chunking Settings ==========
     /// Enable kreuzberg's built-in chunking
@@ -130,6 +136,8 @@ impl Default for ExtractionSettings {
             force_ocr: false,
             ocr_language: "eng".to_string(),
             ocr_min_text_threshold: 500,
+            min_text_density: 0.0, // Default to 0.0 for general use
+            use_akasha: false,     // Default to false for general use
 
             // Chunking defaults (optimized for RAG)
             chunking_enabled: false, // We use our own TTRPG-aware chunker
@@ -163,6 +171,8 @@ impl ExtractionSettings {
             force_ocr: false,
             ocr_language: "eng".to_string(),
             ocr_min_text_threshold: 500,
+            min_text_density: 0.0,
+            use_akasha: false,
             chunking_enabled: false, // Use TTRPG-aware chunker instead
             max_chunk_chars: 1500,   // Larger chunks for rulebook content
             chunk_overlap: 300,
@@ -183,7 +193,9 @@ impl ExtractionSettings {
             ocr_backend: OcrBackend::External,
             force_ocr: true, // Always use OCR for scanned docs
             ocr_language: "eng".to_string(),
-            ocr_min_text_threshold: 0,
+            ocr_min_text_threshold: 50,
+            min_text_density: 0.1,
+            use_akasha: true, // Enable Akasha by default
             chunking_enabled: false,
             max_chunk_chars: 1000,
             chunk_overlap: 200,
@@ -205,6 +217,8 @@ impl ExtractionSettings {
             force_ocr: false,
             ocr_language: "eng".to_string(),
             ocr_min_text_threshold: 500,
+            min_text_density: 0.0,
+            use_akasha: false,
             chunking_enabled: false,
             max_chunk_chars: 1000,
             chunk_overlap: 200,
