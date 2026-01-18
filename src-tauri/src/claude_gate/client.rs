@@ -16,7 +16,7 @@ use super::auth::{OAuthConfig, OAuthFlow, OAuthFlowState};
 use super::error::{Error, Result};
 use super::models::{ContentBlock, Message, MessagesResponse, Role, StreamEvent, Tool, ToolChoice, TokenInfo};
 use super::storage::TokenStorage;
-use super::transform::{create_headers, transform_request};
+use super::transform::{create_headers, create_streaming_headers, transform_request};
 
 /// Default base URL for the Anthropic API.
 pub const DEFAULT_BASE_URL: &str = "https://api.anthropic.com";
@@ -226,7 +226,8 @@ impl<S: TokenStorage + 'static> ClaudeClient<S> {
     ) -> Result<SseStream> {
         let access_token = self.get_access_token().await?;
         let url = format!("{}{}", self.base_url, path);
-        let headers = create_headers(&access_token);
+        // Use streaming-specific headers (Connection: close, Cache-Control: no-cache)
+        let headers = create_streaming_headers(&access_token);
 
         // Ensure streaming is enabled
         let mut body = transform_request(body);
@@ -249,6 +250,19 @@ impl<S: TokenStorage + 'static> ClaudeClient<S> {
         }
 
         Ok(SseStream::new(response))
+    }
+
+    /// List available models from the API.
+    ///
+    /// Returns a list of models that can be used with the messages API.
+    #[instrument(skip(self))]
+    pub async fn list_models(&self) -> Result<Vec<super::models::ApiModel>> {
+        let response = self
+            .request(reqwest::Method::GET, "/v1/models", None)
+            .await?;
+
+        let models_response: super::models::ModelsResponse = response.json().await?;
+        Ok(models_response.data)
     }
 }
 

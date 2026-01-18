@@ -8,11 +8,12 @@ use wasm_bindgen_futures::spawn_local;
 
 use crate::bindings::{
     claude_gate_get_status, claude_gate_start_oauth, claude_gate_complete_oauth,
-    claude_gate_logout, ClaudeGateStatus, ClaudeGateOAuthStartResponse,
+    claude_gate_logout, claude_gate_set_storage_backend,
+    ClaudeGateStatus, ClaudeGateStorageBackend,
     get_extraction_settings, save_extraction_settings, ExtractionSettings, TextExtractionProvider,
     open_url_in_browser,
 };
-use crate::components::design_system::{Card, Badge, BadgeVariant};
+use crate::components::design_system::{Card, Badge, BadgeVariant, Select, SelectOption};
 use crate::services::notification_service::{show_error, show_success};
 
 /// Settings view for text extraction providers.
@@ -27,6 +28,7 @@ pub fn ExtractionSettingsView() -> impl IntoView {
     let awaiting_code = RwSignal::new(false);
     let oauth_url = RwSignal::new(Option::<String>::None);
     let oauth_csrf_state = RwSignal::new(Option::<String>::None);
+    let selected_storage_backend = RwSignal::new(String::from("auto"));
 
     // Refresh Claude Gate status
     let refresh_status = move || {
@@ -201,11 +203,62 @@ pub fn ExtractionSettingsView() -> impl IntoView {
                             "Claude Gate requires OAuth authentication with your Anthropic account."
                         </p>
 
+                        // Storage backend selector
+                        <div class="space-y-2">
+                            <label class="text-xs text-[var(--text-muted)]">"Token Storage Backend"</label>
+                            <div class="flex flex-col gap-2">
+                                <Select
+                                    value=Signal::derive(move || claude_gate_status.get().storage_backend)
+                                    on_change=Callback::new(move |value: String| {
+                                        selected_storage_backend.set(value.clone());
+                                        spawn_local(async move {
+                                            is_loading.set(true);
+                                            let backend = match value.as_str() {
+                                                "keyring" => ClaudeGateStorageBackend::Keyring,
+                                                "file" => ClaudeGateStorageBackend::File,
+                                                _ => ClaudeGateStorageBackend::Auto,
+                                            };
+                                            match claude_gate_set_storage_backend(backend).await {
+                                                Ok(_) => {
+                                                    show_success("Storage Changed", Some("You may need to re-authenticate"));
+                                                    refresh_status();
+                                                }
+                                                Err(e) => show_error("Storage Change Failed", Some(&e), None),
+                                            }
+                                            is_loading.set(false);
+                                        });
+                                    })
+                                    class="w-auto"
+                                >
+                                    {move || {
+                                        let keyring_available = claude_gate_status.get().keyring_available;
+                                        view! {
+                                            <SelectOption
+                                                value="auto"
+                                                label=if keyring_available { "Auto (prefer keyring)" } else { "Auto (file only)" }
+                                            />
+                                            <SelectOption
+                                                value="keyring"
+                                                label=if keyring_available { "Keyring (secure)" } else { "Keyring (unavailable)" }
+                                            />
+                                            <SelectOption value="file" label="File" />
+                                        }
+                                    }}
+                                </Select>
+                                {move || if !claude_gate_status.get().keyring_available {
+                                    view! {
+                                        <p class="text-xs text-yellow-400/80">
+                                            "Secret service not available. Install gnome-keyring or similar."
+                                        </p>
+                                    }.into_any()
+                                } else {
+                                    view! { <span /> }.into_any()
+                                }}
+                            </div>
+                        </div>
+
                         // Status info
                         <div class="flex flex-wrap gap-2">
-                            <div class="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium bg-blue-500/20 text-blue-400">
-                                {format!("Storage: {}", status.storage_backend)}
-                            </div>
                             {status.error.map(|e| view! {
                                 <div class="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium bg-red-500/20 text-red-400">
                                     {format!("Error: {}", e)}

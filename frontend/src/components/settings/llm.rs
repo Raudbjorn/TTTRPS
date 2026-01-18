@@ -15,8 +15,8 @@ use crate::bindings::{
     claude_code_install_cli, claude_code_install_skill, ClaudeCodeStatus,
     // Claude Gate OAuth
     claude_gate_get_status, claude_gate_start_oauth, claude_gate_complete_oauth,
-    claude_gate_logout, claude_gate_set_storage_backend, open_url_in_browser,
-    ClaudeGateStatus, ClaudeGateStorageBackend, ClaudeGateOAuthStartResponse,
+    claude_gate_logout, claude_gate_set_storage_backend, claude_gate_list_models, open_url_in_browser,
+    ClaudeGateStatus, ClaudeGateStorageBackend, ClaudeGateOAuthStartResponse, ClaudeGateModelInfo,
     // Gemini CLI
     check_gemini_cli_status, launch_gemini_cli_login, check_gemini_cli_extension,
     install_gemini_cli_extension, GeminiCliStatus, GeminiCliExtensionStatus,
@@ -403,6 +403,16 @@ pub fn LLMSettingsView() -> impl IntoView {
                 LLMProvider::OpenAI => list_openai_models(api_key).await.unwrap_or_default(),
                 LLMProvider::Gemini => list_gemini_models(api_key).await.unwrap_or_default(),
                 LLMProvider::OpenRouter => list_openrouter_models().await.unwrap_or_default(),
+                LLMProvider::ClaudeGate => {
+                    // Fetch models from Claude Gate API (OAuth authenticated)
+                    match claude_gate_list_models().await {
+                        Ok(gate_models) => gate_models
+                            .into_iter()
+                            .map(|m| ModelInfo { id: m.id.clone(), name: m.name, description: None })
+                            .collect(),
+                        Err(_) => Vec::new(),
+                    }
+                }
                 LLMProvider::Mistral
                 | LLMProvider::Groq
                 | LLMProvider::Together
@@ -688,11 +698,18 @@ pub fn LLMSettingsView() -> impl IntoView {
                  model_name.set("llama3.2".to_string());
                  fetch_ollama_models("http://localhost:11434".to_string());
             },
-            LLMProvider::ClaudeCode | LLMProvider::ClaudeDesktop | LLMProvider::ClaudeGate => {
-                 // No API key needed - uses CLI/Desktop/OAuth authentication
+            LLMProvider::ClaudeCode | LLMProvider::ClaudeDesktop => {
+                 // No API key needed - uses CLI/Desktop authentication
                  api_key_or_host.set(String::new());
                  model_name.set(p.default_model().to_string());
                  cloud_models.set(Vec::new());
+            },
+            LLMProvider::ClaudeGate => {
+                 // No API key needed - uses OAuth authentication
+                 api_key_or_host.set(String::new());
+                 model_name.set(p.default_model().to_string());
+                 // Fetch models from API if authenticated
+                 fetch_cloud_models(LLMProvider::ClaudeGate, None);
             },
             LLMProvider::GeminiCli => {
                  // No API key needed - uses Google account authentication

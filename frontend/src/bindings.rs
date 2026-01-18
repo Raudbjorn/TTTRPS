@@ -4888,6 +4888,9 @@ pub struct ClaudeGateStatus {
     pub expiration_display: Option<String>,
     /// Error message if any
     pub error: Option<String>,
+    /// Whether keyring (secret service) is available on this system
+    #[serde(default)]
+    pub keyring_available: bool,
 }
 
 /// Get Claude Gate OAuth status
@@ -4938,6 +4941,20 @@ pub async fn claude_gate_set_storage_backend(backend: ClaudeGateStorageBackend) 
         backend: ClaudeGateStorageBackend,
     }
     invoke_void("claude_gate_set_storage_backend", &Args { backend }).await
+}
+
+/// Model info from Claude Gate API
+#[derive(Debug, Clone, Deserialize)]
+pub struct ClaudeGateModelInfo {
+    pub id: String,
+    pub name: String,
+}
+
+/// List available models from Claude Gate API
+///
+/// Requires authentication. Returns list of models the user can access.
+pub async fn claude_gate_list_models() -> Result<Vec<ClaudeGateModelInfo>, String> {
+    invoke_no_args("claude_gate_list_models").await
 }
 
 // ============================================================================

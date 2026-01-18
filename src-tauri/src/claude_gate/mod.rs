@@ -50,8 +50,8 @@ pub use auth::{OAuthConfig, OAuthFlow, OAuthFlowState, Pkce};
 pub use client::{ClaudeClient, ClaudeClientBuilder, MessagesRequest, MessagesRequestBuilder};
 pub use error::{Error, Result};
 pub use models::{
-    ContentBlock, DocumentSource, ImageSource, Message, MessagesResponse, Role, StopReason,
-    StreamEvent, Tool, ToolChoice, TokenInfo, Usage,
+    ApiModel, ContentBlock, DocumentSource, ImageSource, Message, MessagesResponse, ModelsResponse,
+    Role, StopReason, StreamEvent, Tool, ToolChoice, TokenInfo, Usage,
 };
 pub use storage::{callbacks, CallbackStorage, FileTokenStorage, MemoryTokenStorage, TokenStorage};
 

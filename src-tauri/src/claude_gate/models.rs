@@ -616,18 +616,44 @@ pub mod model_aliases {
     use std::sync::LazyLock;
 
     /// Map of model aliases to canonical model IDs.
+    /// Matches Go claude-gate transformer.go aliases.
     pub static ALIASES: LazyLock<HashMap<&'static str, &'static str>> = LazyLock::new(|| {
         let mut m = HashMap::new();
+
         // Claude 4.5 family
         m.insert("claude-opus-4-5", "claude-opus-4-5-20251101");
+        m.insert("claude-opus-4-5-latest", "claude-opus-4-5-20251101");
         m.insert("claude-sonnet-4-5", "claude-sonnet-4-5-20250929");
+        m.insert("claude-sonnet-4-5-latest", "claude-sonnet-4-5-20250929");
         m.insert("claude-haiku-4-5", "claude-haiku-4-5-20251001");
-        // Claude 4 family
+        m.insert("claude-haiku-4-5-latest", "claude-haiku-4-5-20251001");
+
+        // Claude 4 family (current)
         m.insert("claude-sonnet-4", "claude-sonnet-4-20250514");
+        m.insert("claude-sonnet-4-0", "claude-sonnet-4-20250514");
         m.insert("claude-opus-4", "claude-opus-4-20250514");
+        m.insert("claude-opus-4-0", "claude-opus-4-20250514");
+
+        // Claude 4.1 family
+        m.insert("claude-opus-4-1", "claude-opus-4-1-20250414");
+        m.insert("claude-opus-4-1-latest", "claude-opus-4-1-20250414");
+
+        // Claude 3.7 family
+        m.insert("claude-3-7-sonnet", "claude-3-7-sonnet-20250219");
+        m.insert("claude-3-7-sonnet-latest", "claude-3-7-sonnet-20250219");
+
         // Claude 3.5 family
+        m.insert("claude-3-5-sonnet", "claude-3-5-sonnet-20241022");
         m.insert("claude-3-5-sonnet-latest", "claude-3-5-sonnet-20241022");
+        m.insert("claude-3-5-haiku", "claude-3-5-haiku-20241022");
         m.insert("claude-3-5-haiku-latest", "claude-3-5-haiku-20241022");
+
+        // Claude 3 family
+        m.insert("claude-3-opus", "claude-3-opus-20240229");
+        m.insert("claude-3-opus-latest", "claude-3-opus-20240229");
+        m.insert("claude-3-sonnet", "claude-3-sonnet-20240229");
+        m.insert("claude-3-haiku", "claude-3-haiku-20240307");
+
         m
     });
 
@@ -636,6 +662,42 @@ pub mod model_aliases {
     pub fn resolve(model: &str) -> &str {
         ALIASES.get(model).copied().unwrap_or(model)
     }
+}
+
+// ============================================================================
+// Models API types
+// ============================================================================
+
+/// A model available via the API.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApiModel {
+    /// Unique identifier for the model
+    pub id: String,
+    /// Display name for the model
+    #[serde(default)]
+    pub display_name: String,
+    /// Object type (always "model")
+    #[serde(rename = "type")]
+    pub object_type: String,
+    /// Unix timestamp when model was created
+    #[serde(default)]
+    pub created_at: Option<String>,
+}
+
+/// Response from the /v1/models endpoint.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModelsResponse {
+    /// List of available models
+    pub data: Vec<ApiModel>,
+    /// Whether there are more models
+    #[serde(default)]
+    pub has_more: bool,
+    /// First model ID (for pagination)
+    #[serde(default)]
+    pub first_id: Option<String>,
+    /// Last model ID (for pagination)
+    #[serde(default)]
+    pub last_id: Option<String>,
 }
 
 #[cfg(test)]

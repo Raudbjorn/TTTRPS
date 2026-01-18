@@ -202,18 +202,18 @@ impl<S: TokenStorage> OAuthFlow<S> {
     #[instrument(skip(self))]
     pub fn start_authorization(&mut self) -> Result<(String, OAuthFlowState)> {
         let pkce = Pkce::generate();
-        let state = generate_state();
+        // Use PKCE verifier as state (43 chars = base64url of 32 bytes)
+        let state = pkce.verifier.clone();
 
         let mut url = Url::parse(&self.config.authorize_url)?;
-        // Parameters must be in alphabetical order for Claude's OAuth endpoint
         url.query_pairs_mut()
-            .append_pair("client_id", &self.config.client_id)
             .append_pair("code", "true")
+            .append_pair("response_type", "code")
+            .append_pair("client_id", &self.config.client_id)
+            .append_pair("redirect_uri", &self.config.redirect_uri)
+            .append_pair("scope", &self.config.scopes.join(" "))
             .append_pair("code_challenge", &pkce.challenge)
             .append_pair("code_challenge_method", pkce.method)
-            .append_pair("redirect_uri", &self.config.redirect_uri)
-            .append_pair("response_type", "code")
-            .append_pair("scope", &self.config.scopes.join(" "))
             .append_pair("state", &state);
 
         let flow_state = OAuthFlowState {
@@ -254,15 +254,18 @@ impl<S: TokenStorage> OAuthFlow<S> {
             }
         }
 
+        // Token exchange uses JSON body (NOT form-encoded)
         let response = self
             .http_client
             .post(&self.config.token_url)
-            .form(&TokenRequest {
-                grant_type: "authorization_code",
+            .header("Content-Type", "application/json")
+            .json(&TokenRequest {
                 code,
-                redirect_uri: &self.config.redirect_uri,
+                grant_type: "authorization_code",
                 client_id: &self.config.client_id,
+                redirect_uri: &self.config.redirect_uri,
                 code_verifier: &flow_state.pkce.verifier,
+                state,
             })
             .send()
             .await?;
@@ -300,10 +303,12 @@ impl<S: TokenStorage> OAuthFlow<S> {
             .await?
             .ok_or(Error::NotAuthenticated)?;
 
+        // Token refresh uses JSON body (NOT form-encoded)
         let response = self
             .http_client
             .post(&self.config.token_url)
-            .form(&RefreshRequest {
+            .header("Content-Type", "application/json")
+            .json(&RefreshRequest {
                 grant_type: "refresh_token",
                 refresh_token: &current_token.refresh_token,
                 client_id: &self.config.client_id,
@@ -362,22 +367,17 @@ impl<S: TokenStorage> OAuthFlow<S> {
     }
 }
 
-/// Generate a random state string for CSRF protection.
-/// Uses 32 bytes to match Claude's expected state format.
-fn generate_state() -> String {
-    let mut rng = rand::thread_rng();
-    let bytes: [u8; 32] = rng.gen();
-    URL_SAFE_NO_PAD.encode(bytes)
-}
 
-/// Token request payload.
+/// Token request payload (JSON format for Anthropic's OAuth endpoint).
 #[derive(Serialize)]
 struct TokenRequest<'a> {
-    grant_type: &'a str,
     code: &'a str,
-    redirect_uri: &'a str,
+    grant_type: &'a str,
     client_id: &'a str,
+    redirect_uri: &'a str,
     code_verifier: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    state: Option<&'a str>,
 }
 
 /// Refresh request payload.
@@ -448,14 +448,16 @@ mod tests {
     }
 
     #[test]
-    fn test_state_generation() {
-        let state1 = generate_state();
-        let state2 = generate_state();
+    fn test_state_is_pkce_verifier() {
+        use crate::claude_gate::storage::MemoryTokenStorage;
 
-        // States should be unique
-        assert_ne!(state1, state2);
+        let storage = MemoryTokenStorage::new();
+        let mut flow = OAuthFlow::new(storage);
 
-        // States should be reasonable length
-        assert!(state1.len() >= 20);
+        let (_url, state) = flow.start_authorization().unwrap();
+
+        // State should be the PKCE verifier (43 chars = base64url of 32 bytes)
+        assert_eq!(state.state, state.pkce.verifier);
+        assert_eq!(state.state.len(), 43);
     }
 }

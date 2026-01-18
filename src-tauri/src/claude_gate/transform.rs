@@ -6,7 +6,7 @@
 //! - Model alias resolution
 //! - Request/response format conversion
 
-use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, AUTHORIZATION, CONTENT_TYPE};
+use reqwest::header::{HeaderMap, HeaderValue, ACCEPT, AUTHORIZATION, CONTENT_TYPE, USER_AGENT};
 use serde_json::Value;
 use tracing::debug;
 
@@ -18,29 +18,48 @@ pub const ANTHROPIC_VERSION: &str = "2023-06-01";
 /// OAuth beta header value.
 pub const ANTHROPIC_BETA: &str = "oauth-2025-04-20";
 
+/// User agent to identify as Claude Code CLI.
+pub const CLAUDE_CODE_USER_AGENT: &str = "claude-code/1.0.0";
+
 /// System prompt prefix injected to identify as Claude Code.
 pub const CLAUDE_CODE_SYSTEM_PREFIX: &str =
     "You are Claude Code, Anthropic's official CLI for Claude.";
 
 /// Create headers for Anthropic API requests.
 ///
-/// Injects:
+/// Injects headers to identify as Claude Code CLI:
 /// - Authorization: Bearer {token}
 /// - anthropic-version: 2023-06-01
 /// - anthropic-beta: oauth-2025-04-20
 /// - Content-Type: application/json
+/// - User-Agent: claude-code/1.0.0
 /// - Accept: */*
 #[must_use]
 pub fn create_headers(access_token: &str) -> HeaderMap {
+    create_headers_with_options(access_token, false)
+}
+
+/// Create headers for streaming Anthropic API requests.
+///
+/// Adds streaming-specific headers:
+/// - Connection: close
+/// - Cache-Control: no-cache
+#[must_use]
+pub fn create_streaming_headers(access_token: &str) -> HeaderMap {
+    create_headers_with_options(access_token, true)
+}
+
+/// Create headers with optional streaming settings.
+fn create_headers_with_options(access_token: &str, streaming: bool) -> HeaderMap {
     let mut headers = HeaderMap::new();
 
-    // Authorization
+    // Authorization - Bearer token format for OAuth
     let auth_value = format!("Bearer {}", access_token);
     if let Ok(value) = HeaderValue::from_str(&auth_value) {
         headers.insert(AUTHORIZATION, value);
     }
 
-    // Anthropic headers
+    // Anthropic headers - required for OAuth authentication
     if let Ok(value) = HeaderValue::from_str(ANTHROPIC_VERSION) {
         headers.insert("anthropic-version", value);
     }
@@ -48,9 +67,18 @@ pub fn create_headers(access_token: &str) -> HeaderMap {
         headers.insert("anthropic-beta", value);
     }
 
+    // User-Agent to identify as Claude Code CLI
+    headers.insert(USER_AGENT, HeaderValue::from_static(CLAUDE_CODE_USER_AGENT));
+
     // Content type
     headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
     headers.insert(ACCEPT, HeaderValue::from_static("*/*"));
+
+    // Streaming-specific headers
+    if streaming {
+        headers.insert("Connection", HeaderValue::from_static("close"));
+        headers.insert("Cache-Control", HeaderValue::from_static("no-cache"));
+    }
 
     headers
 }
@@ -77,26 +105,58 @@ pub fn transform_request(mut body: Value) -> Value {
     body
 }
 
+/// Check if the Claude Code system prompt is already present.
+fn has_claude_code_prompt(system: &Value) -> bool {
+    match system {
+        Value::String(s) => s.contains("Claude Code"),
+        Value::Array(arr) => arr.iter().any(|item| {
+            item.get("text")
+                .and_then(Value::as_str)
+                .map(|t| t.contains("Claude Code"))
+                .unwrap_or(false)
+        }),
+        _ => false,
+    }
+}
+
 /// Inject the Claude Code system prompt prefix.
+///
+/// Matches Go behavior:
+/// - String system prompts are converted to array format
+/// - Array system prompts get Claude Code prepended as first element
+/// - Checks for existing Claude Code prompt to avoid duplication
 fn inject_system_prompt(mut body: Value) -> Value {
-    match body.get("system") {
-        // String system prompt - prepend our prefix
-        Some(Value::String(existing)) => {
-            let new_system = format!("{}\n\n{}", CLAUDE_CODE_SYSTEM_PREFIX, existing);
-            body["system"] = Value::String(new_system);
+    // Check if already has Claude Code prompt to avoid duplication
+    if let Some(system) = body.get("system") {
+        if has_claude_code_prompt(system) {
+            debug!("Claude Code prompt already present, skipping injection");
+            return body;
         }
-        // Array system prompt - prepend a text block
-        Some(Value::Array(existing)) => {
-            let mut new_array = vec![serde_json::json!({
+    }
+
+    let claude_code_block = serde_json::json!({
+        "type": "text",
+        "text": CLAUDE_CODE_SYSTEM_PREFIX
+    });
+
+    match body.get("system") {
+        // String system prompt - convert to array with Claude Code first (matches Go)
+        Some(Value::String(existing)) => {
+            let existing_block = serde_json::json!({
                 "type": "text",
-                "text": CLAUDE_CODE_SYSTEM_PREFIX
-            })];
+                "text": existing
+            });
+            body["system"] = Value::Array(vec![claude_code_block, existing_block]);
+        }
+        // Array system prompt - prepend Claude Code as first element
+        Some(Value::Array(existing)) => {
+            let mut new_array = vec![claude_code_block];
             new_array.extend(existing.clone());
             body["system"] = Value::Array(new_array);
         }
-        // No system prompt - add our own
+        // No system prompt - add Claude Code as array (for consistency)
         None => {
-            body["system"] = Value::String(CLAUDE_CODE_SYSTEM_PREFIX.to_string());
+            body["system"] = Value::Array(vec![claude_code_block]);
         }
         // Other types - leave as is
         _ => {}
@@ -119,6 +179,31 @@ pub mod openai {
     use serde_json::Value;
 
     use crate::claude_gate::models::{Message, MessagesResponse, StopReason};
+
+    /// Get model-aware max_tokens default.
+    ///
+    /// Returns appropriate default based on model family:
+    /// - Claude 4.5 (opus/sonnet/haiku): 32768
+    /// - Claude 4 (opus/sonnet): 16384
+    /// - Claude 3.7/3.5: 8192
+    /// - Claude 3: 4096
+    /// - Unknown: 4096
+    #[must_use]
+    pub fn default_max_tokens(model: &str) -> u32 {
+        let model_lower = model.to_lowercase();
+
+        if model_lower.contains("4-5") || model_lower.contains("4.5") {
+            32768
+        } else if model_lower.contains("opus-4") || model_lower.contains("sonnet-4") {
+            16384
+        } else if model_lower.contains("3-7") || model_lower.contains("3.7")
+            || model_lower.contains("3-5") || model_lower.contains("3.5")
+        {
+            8192
+        } else {
+            4096
+        }
+    }
 
     /// OpenAI chat completion request format.
     #[derive(Debug, Deserialize)]
@@ -209,10 +294,13 @@ pub mod openai {
             }
         }
 
+        // Use model-aware max_tokens default if not specified
+        let max_tokens = request.max_tokens.unwrap_or_else(|| default_max_tokens(&request.model));
+
         let mut body = serde_json::json!({
             "model": request.model,
             "messages": messages,
-            "max_tokens": request.max_tokens.unwrap_or(4096),
+            "max_tokens": max_tokens,
         });
 
         if let Some(system) = system_prompt {
@@ -306,23 +394,56 @@ mod tests {
         });
 
         let transformed = inject_system_prompt(body);
-        assert_eq!(
-            transformed["system"].as_str().unwrap(),
-            CLAUDE_CODE_SYSTEM_PREFIX
-        );
+        // Should be array format with Claude Code prompt
+        let system = transformed["system"].as_array().unwrap();
+        assert_eq!(system.len(), 1);
+        assert_eq!(system[0]["type"], "text");
+        assert_eq!(system[0]["text"], CLAUDE_CODE_SYSTEM_PREFIX);
     }
 
     #[test]
-    fn test_inject_system_prompt_existing() {
+    fn test_inject_system_prompt_existing_string() {
         let body = json!({
             "system": "Be helpful.",
             "messages": []
         });
 
         let transformed = inject_system_prompt(body);
-        let system = transformed["system"].as_str().unwrap();
-        assert!(system.starts_with(CLAUDE_CODE_SYSTEM_PREFIX));
-        assert!(system.contains("Be helpful."));
+        // String should be converted to array with Claude Code first
+        let system = transformed["system"].as_array().unwrap();
+        assert_eq!(system.len(), 2);
+        assert_eq!(system[0]["text"], CLAUDE_CODE_SYSTEM_PREFIX);
+        assert_eq!(system[1]["text"], "Be helpful.");
+    }
+
+    #[test]
+    fn test_inject_system_prompt_existing_array() {
+        let body = json!({
+            "system": [{"type": "text", "text": "Be helpful."}],
+            "messages": []
+        });
+
+        let transformed = inject_system_prompt(body);
+        let system = transformed["system"].as_array().unwrap();
+        assert_eq!(system.len(), 2);
+        assert_eq!(system[0]["text"], CLAUDE_CODE_SYSTEM_PREFIX);
+        assert_eq!(system[1]["text"], "Be helpful.");
+    }
+
+    #[test]
+    fn test_inject_system_prompt_already_has_claude_code() {
+        let body = json!({
+            "system": "You are Claude Code, Anthropic's CLI.",
+            "messages": []
+        });
+
+        let transformed = inject_system_prompt(body);
+        // Should not duplicate - keeps original string
+        assert!(transformed["system"].is_string());
+        assert_eq!(
+            transformed["system"].as_str().unwrap(),
+            "You are Claude Code, Anthropic's CLI."
+        );
     }
 
     #[test]

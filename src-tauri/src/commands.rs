@@ -124,6 +124,7 @@ trait ClaudeGateClientOps: Send + Sync {
     async fn start_oauth_flow_with_state(&self) -> Result<(String, crate::claude_gate::OAuthFlowState), String>;
     async fn complete_oauth_flow(&self, code: &str, state: Option<&str>) -> Result<TokenInfo, String>;
     async fn logout(&self) -> Result<(), String>;
+    async fn list_models(&self) -> Result<Vec<crate::claude_gate::ApiModel>, String>;
     fn storage_name(&self) -> &'static str;
 }
 
@@ -148,6 +149,9 @@ impl ClaudeGateClientOps for FileStorageClientWrapper {
     }
     async fn logout(&self) -> Result<(), String> {
         self.client.logout().await.map_err(|e| e.to_string())
+    }
+    async fn list_models(&self) -> Result<Vec<crate::claude_gate::ApiModel>, String> {
+        self.client.list_models().await.map_err(|e| e.to_string())
     }
     fn storage_name(&self) -> &'static str {
         "file"
@@ -177,6 +181,9 @@ impl ClaudeGateClientOps for KeyringStorageClientWrapper {
     }
     async fn logout(&self) -> Result<(), String> {
         self.client.logout().await.map_err(|e| e.to_string())
+    }
+    async fn list_models(&self) -> Result<Vec<crate::claude_gate::ApiModel>, String> {
+        self.client.list_models().await.map_err(|e| e.to_string())
     }
     fn storage_name(&self) -> &'static str {
         "keyring"
@@ -351,6 +358,13 @@ impl ClaudeGateState {
         } else {
             self.storage_backend.read().await.to_string()
         }
+    }
+
+    /// List available models from Claude API
+    pub async fn list_models(&self) -> Result<Vec<crate::claude_gate::ApiModel>, String> {
+        let client = self.client.read().await;
+        let client = client.as_ref().ok_or("Claude Gate client not initialized")?;
+        client.list_models().await
     }
 }
 
@@ -632,6 +646,15 @@ pub async fn configure_llm(
             timeout_secs: 300, // 5 minute default
             model: if settings.model.is_empty() { None } else { Some(settings.model) },
             working_dir: None, // Not needed for TTRPG prompts (no file operations)
+        },
+        "gemini-cli" => LLMConfig::GeminiCli {
+            model: settings.model,
+            timeout_secs: 120, // 2 minute default
+        },
+        "claude-gate" => LLMConfig::ClaudeGate {
+            storage_backend: "auto".to_string(), // Will use configured backend from AppState
+            model: settings.model,
+            max_tokens: 8192, // Default max tokens
         },
         _ => return Err(format!("Unknown provider: {}", settings.provider)),
     };
@@ -7583,11 +7606,13 @@ pub struct ClaudeGateStatusResponse {
     pub storage_backend: String,
     /// Unix timestamp when token expires, if authenticated
     pub token_expires_at: Option<i64>,
+    /// Whether keyring (secret service) is available on this system
+    pub keyring_available: bool,
 }
 
 /// Get Claude Gate OAuth status
 ///
-/// Returns authentication status, storage backend, and token expiration.
+/// Returns authentication status, storage backend, token expiration, and keyring availability.
 #[tauri::command]
 pub async fn claude_gate_get_status(
     state: State<'_, AppState>,
@@ -7602,10 +7627,17 @@ pub async fn claude_gate_get_status(
         None
     };
 
+    // Check if keyring is available on this system
+    #[cfg(feature = "keyring")]
+    let keyring_available = crate::claude_gate::KeyringTokenStorage::is_available();
+    #[cfg(not(feature = "keyring"))]
+    let keyring_available = false;
+
     Ok(ClaudeGateStatusResponse {
         authenticated,
         storage_backend,
         token_expires_at,
+        keyring_available,
     })
 }
 
@@ -7650,15 +7682,33 @@ pub struct ClaudeGateOAuthCompleteResponse {
 /// Exchange the authorization code for tokens and store them.
 ///
 /// # Arguments
-/// * `code` - The authorization code from the OAuth callback
-/// * `state` - Optional state parameter for CSRF verification
+/// * `code` - The authorization code from the OAuth callback. May also be in
+///   `code#state` format where the state is embedded after a `#` character.
+/// * `oauth_state` - Optional state parameter for CSRF verification (if not embedded in code)
 #[tauri::command]
 pub async fn claude_gate_complete_oauth(
     code: String,
     oauth_state: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<ClaudeGateOAuthCompleteResponse, String> {
-    match state.claude_gate.complete_oauth_flow(&code, oauth_state.as_deref()).await {
+    // Parse code#state format if present
+    let (actual_code, embedded_state) = if let Some(hash_pos) = code.find('#') {
+        let (c, s) = code.split_at(hash_pos);
+        (c.to_string(), Some(s[1..].to_string())) // Skip the '#' character
+    } else {
+        (code, None)
+    };
+
+    // Use embedded state if present, otherwise use the provided oauth_state
+    let final_state = embedded_state.or(oauth_state);
+
+    log::debug!(
+        "OAuth complete: code_len={}, state_provided={}",
+        actual_code.len(),
+        final_state.is_some()
+    );
+
+    match state.claude_gate.complete_oauth_flow(&actual_code, final_state.as_deref()).await {
         Ok(_token) => {
             log::info!("Claude Gate OAuth flow completed successfully");
             Ok(ClaudeGateOAuthCompleteResponse {
@@ -7728,6 +7778,47 @@ pub async fn claude_gate_set_storage_backend(
         success: true,
         active_backend: active,
     })
+}
+
+/// Model info returned from Claude Gate API
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClaudeGateModelInfo {
+    /// Model ID (e.g., "claude-sonnet-4-20250514")
+    pub id: String,
+    /// Display name (may be same as ID if not provided)
+    pub name: String,
+}
+
+/// List available models from Claude Gate API
+///
+/// Requires authentication. Returns list of models the user can access.
+#[tauri::command]
+pub async fn claude_gate_list_models(
+    state: State<'_, AppState>,
+) -> Result<Vec<ClaudeGateModelInfo>, String> {
+    // Check if authenticated
+    if !state.claude_gate.is_authenticated().await? {
+        return Err("Not authenticated. Please log in first.".to_string());
+    }
+
+    // Get models from API
+    let models = state.claude_gate.list_models().await?;
+
+    // Convert to response format
+    let model_infos: Vec<ClaudeGateModelInfo> = models
+        .into_iter()
+        .map(|m| ClaudeGateModelInfo {
+            id: m.id.clone(),
+            name: if m.display_name.is_empty() {
+                m.id
+            } else {
+                m.display_name
+            },
+        })
+        .collect();
+
+    log::info!("Claude Gate: Listed {} models", model_infos.len());
+    Ok(model_infos)
 }
 
 // ============================================================================

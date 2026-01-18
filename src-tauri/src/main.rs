@@ -582,6 +582,7 @@ fn main() {
             commands::claude_gate_complete_oauth,
             commands::claude_gate_logout,
             commands::claude_gate_set_storage_backend,
+            commands::claude_gate_list_models,
 
             // Utility Commands
             commands::open_url_in_browser,
