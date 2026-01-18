@@ -354,8 +354,13 @@ proptest! {
 
     /// Property: Generated names do not contain offensive content (basic filter)
     ///
-    /// This is a basic filter checking for common offensive substrings.
+    /// This is a basic filter checking for offensive words at word boundaries.
     /// Real production systems would use more sophisticated content moderation.
+    ///
+    /// Note: We check for whole-word matches only, not substrings, because fantasy
+    /// names often contain innocent substrings that match offensive patterns:
+    /// - "Zanazin" contains "nazi" but is a legitimate dwarven name
+    /// - "Cassandra" contains "ass", "Michelle" contains "hell", etc.
     #[test]
     fn prop_no_offensive_content(
         seed in any::<u64>(),
@@ -367,11 +372,6 @@ proptest! {
 
         // Basic offensive content filter - common slurs and profanity
         // This is a simplified list; production would use comprehensive filtering
-        // Note: Some words removed as they cause false positives with fantasy names:
-        // - "die" appears in celestial names like "Paxoladiel", "Amadiel"
-        // - "ass" appears in names like "Cassandra", "Tassilo"
-        // - "hell" appears in names like "Michelle", "Hellena"
-        // - "death" could appear in dark elf names legitimately
         let offensive_patterns = [
             "fuck", "shit", "damn", "bitch", "cunt", "dick",
             "piss", "crap", "slut", "whore", "bastard", "cock", "pussy",
@@ -379,10 +379,29 @@ proptest! {
             "kill", "murder", "hate", "racist", "sexist",
         ];
 
+        // Helper: check if pattern appears as a whole word (at word boundaries)
+        // Word boundaries are: start/end of string, spaces, hyphens, apostrophes
+        let contains_whole_word = |text: &str, pattern: &str| -> bool {
+            for (idx, _) in text.match_indices(pattern) {
+                let before_ok = idx == 0 || {
+                    let prev_char = text[..idx].chars().last().unwrap();
+                    !prev_char.is_alphabetic()
+                };
+                let after_ok = idx + pattern.len() >= text.len() || {
+                    let next_char = text[idx + pattern.len()..].chars().next().unwrap();
+                    !next_char.is_alphabetic()
+                };
+                if before_ok && after_ok {
+                    return true;
+                }
+            }
+            false
+        };
+
         for pattern in &offensive_patterns {
             prop_assert!(
-                !name_lower.contains(pattern),
-                "Generated name '{}' should not contain offensive pattern '{}'",
+                !contains_whole_word(&name_lower, pattern),
+                "Generated name '{}' should not contain offensive word '{}'",
                 result.name,
                 pattern
             );
