@@ -231,7 +231,11 @@ async fn ensure_exclamation_templates_index(client: &Client) -> Result<Index, St
 async fn ensure_index(client: &Client, name: &str, primary_key: &str) -> Result<Index, String> {
     match client.get_index(name).await {
         Ok(idx) => Ok(idx),
-        Err(_) => {
+        Err(meilisearch_sdk::errors::Error::Meilisearch(err))
+            if err.error_code == meilisearch_sdk::errors::ErrorCode::IndexNotFound =>
+        {
+            // Index doesn't exist, create it
+            log::info!("Index '{}' not found, creating...", name);
             let task = client
                 .create_index(name, Some(primary_key))
                 .await
@@ -246,6 +250,10 @@ async fn ensure_index(client: &Client, name: &str, primary_key: &str) -> Result<
             .map_err(|e| format!("Timeout waiting for index '{}' creation: {}", name, e))?;
 
             Ok(client.index(name))
+        }
+        Err(e) => {
+            // Other errors (connectivity, auth, etc.) should be surfaced
+            Err(format!("Failed to get index '{}': {}", name, e))
         }
     }
 }
