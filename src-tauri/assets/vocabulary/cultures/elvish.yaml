@@ -145,7 +145,7 @@ phrases:
   about_dwarves:
     - text: "The mountain-folk mean well, in their own... grounded way."
       formality: 6
-      toneMarkers: [diplomatic, slightly_condescending]
+      toneMarkers: [diplomatic, condescending]
       priority: 6
     - text: "Our histories are intertwined, for good and ill."
       formality: 6

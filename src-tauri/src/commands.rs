@@ -8238,7 +8238,7 @@ pub struct PhraseInput {
     pub category: String,
     #[serde(default = "default_formality")]
     pub formality: u8,
-    pub tone: Option<String>,
+    pub tones: Option<Vec<String>>,
     #[serde(default)]
     pub tags: Vec<String>,
 }
@@ -8616,8 +8616,8 @@ pub async fn create_vocabulary_bank(
     for phrase in request.phrases {
         let mut phrase_def = PhraseDefinition::new(&phrase.text);
         phrase_def.formality = phrase.formality;
-        if let Some(tone) = phrase.tone {
-            phrase_def.tone_markers = vec![tone];
+        if let Some(tones) = phrase.tones {
+            phrase_def.tone_markers = tones;
         }
         phrase_def.context_tags = phrase.tags;
 
@@ -8740,8 +8740,8 @@ pub async fn update_vocabulary_bank(
     for phrase in request.phrases {
         let mut phrase_def = PhraseDefinition::new(&phrase.text);
         phrase_def.formality = phrase.formality;
-        if let Some(tone) = phrase.tone {
-            phrase_def.tone_markers = vec![tone];
+        if let Some(tones) = phrase.tones {
+            phrase_def.tone_markers = tones;
         }
         phrase_def.context_tags = phrase.tags;
 
@@ -9045,10 +9045,6 @@ pub async fn resolve_archetype(
         .map_err(|e| e.to_string())?;
 
     // Cache the result
-    let sources: Vec<String> = resolved.resolution_metadata
-        .as_ref()
-        .map(|m| m.layers_checked.clone())
-        .unwrap_or_default();
     registry.cache_resolved(&resolution_query, resolved.clone()).await;
 
     Ok(ResolvedArchetypeResponse::from(resolved))

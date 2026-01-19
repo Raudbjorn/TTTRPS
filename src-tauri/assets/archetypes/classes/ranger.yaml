@@ -48,11 +48,7 @@ vocabularyBankId: style_common
 
 namingCultures:
   - culture: common
-    weight: 0.6
-  - culture: wilderness
-    weight: 0.4
-    patternOverrides:
-      epithetProbability: 0.5
+    weight: 1.0
 
 statTendencies:
   modifiers:

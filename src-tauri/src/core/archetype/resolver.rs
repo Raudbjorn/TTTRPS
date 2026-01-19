@@ -443,9 +443,13 @@ impl ArchetypeResolver {
             if visited.contains(&current_id) {
                 // Build cycle path
                 let cycle_start = chain.iter().position(|x| x == &current_id).unwrap();
-                let cycle_path: Vec<String> = chain[cycle_start..].to_vec();
+                let cycle_path: Vec<String> = chain[cycle_start..]
+                    .iter()
+                    .cloned()
+                    .chain(std::iter::once(current_id))
+                    .collect();
                 return Err(ArchetypeError::CircularResolution {
-                    cycle_path: cycle_path.into_iter().chain(std::iter::once(current_id)).collect(),
+                    cycle_path,
                 });
             }
 

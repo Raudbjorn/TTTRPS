@@ -91,6 +91,7 @@ phrases:
       priority: 6
 
   expressions:
+    # Intentional use of the nonstandard contraction "ain't" for casual speech style.
     - text: "Well, ain't that something!"
       formality: 2
       toneMarkers: [surprised, impressed]
@@ -111,7 +112,7 @@ phrases:
   small_talk:
     - text: "Weather's been something, hasn't it?"
       formality: 3
-      toneMarkers: [conversational]
+      toneMarkers: [conversational, casual]
       priority: 8
     - text: "Heard any good rumors lately?"
       formality: 2

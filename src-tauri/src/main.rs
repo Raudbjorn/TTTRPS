@@ -129,16 +129,21 @@ fn main() {
                 if sc_for_archetype.wait_for_health(15).await {
                     // Get the Meilisearch config to create the client
                     let config = ttrpg_assistant::core::sidecar_manager::MeilisearchConfig::default();
-                    let meili_client = meilisearch_sdk::client::Client::new(
+                    let meili_client = match meilisearch_sdk::client::Client::new(
                         &config.url(),
                         Some(&config.master_key),
-                    ).expect("Failed to create Meilisearch client for archetypes");
+                    ) {
+                        Ok(client) => client,
+                        Err(e) => {
+                            log::error!("Failed to create Meilisearch client for archetypes: {}", e);
+                            return;
+                        }
+                    };
 
                     // Initialize the archetype registry
                     match ttrpg_assistant::core::archetype::ArchetypeRegistry::new(meili_client.clone()).await {
                         Ok(registry) => {
-                            let count = registry.count().await;
-                            log::info!("Archetype registry initialized with {} archetypes", count);
+                            log::info!("Archetype registry initialized");
                             // Update the AppState with the registry
                             if let Some(app_state) = app_handle_for_archetype.try_state::<commands::AppState>() {
                                 *app_state.archetype_registry.write().await = Some(std::sync::Arc::new(registry));

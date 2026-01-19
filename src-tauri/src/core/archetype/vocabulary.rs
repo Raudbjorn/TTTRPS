@@ -707,10 +707,14 @@ impl VocabularyBankManager {
                 entry.push(phrase.clone());
             }
 
-            // Sort by priority (higher first) and truncate
+            // Keep only the top MAX_PHRASES_PER_CATEGORY by priority (higher first)
             if entry.len() > MAX_PHRASES_PER_CATEGORY {
-                entry.sort_by(|a, b| b.priority.cmp(&a.priority));
-                entry.truncate(MAX_PHRASES_PER_CATEGORY);
+                let n = MAX_PHRASES_PER_CATEGORY;
+                // Partially partition so the top `n` elements (by descending priority)
+                // are in the first `n` positions, then sort only that prefix.
+                entry.select_nth_unstable_by(n - 1, |a, b| b.priority.cmp(&a.priority));
+                entry[..n].sort_by(|a, b| b.priority.cmp(&a.priority));
+                entry.truncate(n);
             }
         }
 
@@ -836,7 +840,7 @@ impl VocabularyBankManager {
     async fn persist_bank(&self, client: &Client, bank: &VocabularyBank) -> Result<()> {
         let index = client.index(INDEX_VOCABULARY_BANKS);
 
-        let task = index.add_documents(&[bank], Some("id")).await?;
+        let task = index.add_documents(&[bank], Some("definition.id")).await?;
 
         task.wait_for_completion(
             client,

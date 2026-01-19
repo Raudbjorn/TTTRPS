@@ -602,13 +602,16 @@ impl CacheManager {
 
         let mut cache = self.cache.write().await;
 
-        // Check if we'll evict
-        if cache.len() >= self.config.capacity && !cache.contains(&cache_key) {
-            let mut stats = self.stats.write().await;
-            stats.evictions += 1;
-        }
+        // Use push to detect eviction
+        let result = cache.push(cache_key.clone(), entry);
 
-        cache.put(cache_key, entry);
+        if let Some((evicted_key, _)) = result {
+            // If the evicted key is different from the inserted key, it was an eviction due to capacity
+            if evicted_key != cache_key {
+                let mut stats = self.stats.write().await;
+                stats.evictions += 1;
+            }
+        }
 
         // Update size stat
         let mut stats = self.stats.write().await;

@@ -32,7 +32,7 @@
 //! let affinities = blend_for_archetype(&registry, "dwarf_merchant").await?;
 //!
 //! // For NPCGenerator
-//! let context = npc_context_for_archetype(&registry, "guard", "dwarf").await?;
+//! let context = npc_context_for_archetype(&registry, "guard").await?;
 //!
 //! // For NameGenerator
 //! let naming = naming_context_for_archetype(&registry, "elf").await?;

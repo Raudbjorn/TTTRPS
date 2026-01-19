@@ -257,7 +257,7 @@ impl SettingPack {
         if !is_valid_semver(&self.version) {
             return Err(ArchetypeError::SettingPackInvalid {
                 pack_id: self.id.clone(),
-                reason: format!("Invalid version format: '{}' (expected MAJOR.MINOR.PATCH)", self.version),
+                reason: format!("Invalid version format: '{}' (expecting MAJOR.MINOR.PATCH)", self.version),
             });
         }
 
@@ -996,7 +996,8 @@ pub fn is_valid_semver(version: &str) -> bool {
     if parts.len() != 3 {
         return false;
     }
-    parts.iter().all(|p| p.parse::<u32>().is_ok())
+    // Check that each part is a non-empty string of digits and parses to u32
+    parts.iter().all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()) && p.parse::<u32>().is_ok())
 }
 
 /// Parse a semantic version into (major, minor, patch) components.
