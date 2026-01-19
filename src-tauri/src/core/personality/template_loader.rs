@@ -89,12 +89,6 @@ impl TemplateLoadResult {
         self.templates.len()
     }
 
-    /// Alias for `templates_loaded` for backwards compatibility.
-    #[deprecated(note = "use `templates_loaded` for clearer method naming")]
-    pub fn success_count(&self) -> usize {
-        self.templates_loaded()
-    }
-
     /// Get the count of failed loads.
     pub fn error_count(&self) -> usize {
         self.errors.len()
