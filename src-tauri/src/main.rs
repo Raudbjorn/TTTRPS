@@ -176,18 +176,6 @@ fn main() {
                 }
             });
 
-            // Start LLM proxy service for OpenAI-compatible API
-            let llm_manager_proxy = llm_manager.clone();
-            tauri::async_runtime::spawn(async move {
-                match llm_manager_proxy.write().await.ensure_proxy().await {
-                    Ok(url) => {
-                        log::info!("LLM proxy service started at {}", url);
-                    }
-                    Err(e) => {
-                        log::error!("Failed to start LLM proxy service: {}", e);
-                    }
-                }
-            });
 
             // Initialize Meilisearch Chat Client (fixes "Meilisearch chat client not configured" error)
             let sidecar_config = sidecar_manager.config().clone();
@@ -582,28 +570,11 @@ fn main() {
             commands::claude_desktop_send_message,
             commands::configure_claude_desktop,
 
-            // Claude Code CLI Commands
-            commands::get_claude_code_status,
-            commands::claude_code_login,
-            commands::claude_code_logout,
-            commands::claude_code_install_skill,
-            commands::claude_code_install_cli,
-
-            // Gemini CLI Status & Extension Commands
-            commands::check_gemini_cli_status,
-            commands::launch_gemini_cli_login,
-            commands::check_gemini_cli_extension,
-            commands::install_gemini_cli_extension,
-            commands::link_gemini_cli_extension,
-            commands::uninstall_gemini_cli_extension,
 
             // Meilisearch Chat Provider Commands
             commands::list_chat_providers,
             commands::configure_chat_workspace,
             commands::get_chat_workspace_settings,
-            commands::is_llm_proxy_running,
-            commands::get_llm_proxy_url,
-            commands::list_proxy_providers,
             commands::configure_meilisearch_chat,
             commands::get_current_proxy_provider,
 
