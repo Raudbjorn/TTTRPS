@@ -205,8 +205,9 @@ pub use meilisearch::{
     INDEX_BLEND_RULES, INDEX_PERSONALITY_TEMPLATES,
 };
 pub use types::{
-    BlendComponent, BlendRule, BlendRuleDocument, BlendRuleId, ContextDetectionResult,
-    PersonalityId, SettingPersonalityTemplate, TemplateDocument, TemplateId,
+    BlendComponent, BlendRule, BlendRuleDocument, BlendRuleId, BlendWeightEntry,
+    ContextDetectionResult, PersonalityId, SettingPersonalityTemplate, TemplateDocument,
+    TemplateId,
 };
 
 // Phase 2 re-exports
@@ -226,8 +227,8 @@ pub use context_detector::{
     COMBAT_SESSION_BOOST, DEFAULT_HISTORY_SIZE, DETECTION_TARGET_MS,
 };
 pub use blend_rules::{
-    BlendRuleStore, BlendRuleWithWeights, BlendWeightEntry, BulkImportResult as RuleBulkImportResult,
-    RuleCacheStats, DEFAULT_RULE_CACHE_CAPACITY,
+    BlendRuleStore, BulkImportResult as RuleBulkImportResult, RuleCacheStats,
+    DEFAULT_RULE_CACHE_CAPACITY,
 };
 
 // Phase 4 re-exports

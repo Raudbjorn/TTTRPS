@@ -498,12 +498,13 @@ impl BlendRuleStore {
 
     /// Convert a BlendRuleDocument to BlendRule.
     fn document_to_rule(&self, doc: BlendRuleDocument) -> Result<BlendRule, PersonalityExtensionError> {
-        // Note: BlendRuleDocument doesn't contain blend_weights directly
-        // We need to fetch the full rule data
-        // For now, create a stub rule and indicate it needs full data
+        // Convert blend_weights from Vec<BlendWeightEntry> to HashMap<PersonalityId, f32>
+        let blend_weights: HashMap<PersonalityId, f32> = doc
+            .blend_weights
+            .into_iter()
+            .map(|entry| (PersonalityId::new(entry.personality_id), entry.weight))
+            .collect();
 
-        // In a real implementation, you might store blend_weights in the document
-        // or have a separate lookup. Here we create a minimal rule.
         Ok(BlendRule {
             id: BlendRuleId::new(doc.id),
             name: doc.name,
@@ -513,7 +514,7 @@ impl BlendRuleStore {
             enabled: doc.enabled,
             is_builtin: doc.is_builtin,
             campaign_id: doc.campaign_id,
-            blend_weights: HashMap::new(), // Would need separate storage/lookup
+            blend_weights,
             tags: doc.tags,
             created_at: doc.created_at,
             updated_at: doc.updated_at,
@@ -560,78 +561,6 @@ pub struct RuleCacheStats {
     pub cap: usize,
 }
 
-// ============================================================================
-// Extended BlendRule with serializable weights
-// ============================================================================
-
-/// A BlendRule with weights stored in a serializable format.
-///
-/// This is used for storing rules in Meilisearch with their weights intact.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct BlendRuleWithWeights {
-    /// The base rule document fields.
-    #[serde(flatten)]
-    pub rule: BlendRuleDocument,
-
-    /// Blend weights as a vec of (personality_id, weight) tuples.
-    pub blend_weights: Vec<BlendWeightEntry>,
-}
-
-/// A single blend weight entry for serialization.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct BlendWeightEntry {
-    /// Personality ID.
-    pub personality_id: String,
-
-    /// Weight (0.0-1.0).
-    pub weight: f32,
-}
-
-impl From<&BlendRule> for BlendRuleWithWeights {
-    fn from(rule: &BlendRule) -> Self {
-        let weights: Vec<BlendWeightEntry> = rule
-            .blend_weights
-            .iter()
-            .map(|(id, w)| BlendWeightEntry {
-                personality_id: id.to_string(),
-                weight: *w,
-            })
-            .collect();
-
-        Self {
-            rule: rule.clone().into(),
-            blend_weights: weights,
-        }
-    }
-}
-
-impl TryFrom<BlendRuleWithWeights> for BlendRule {
-    type Error = BlendRuleError;
-
-    fn try_from(value: BlendRuleWithWeights) -> Result<Self, Self::Error> {
-        let mut weights: HashMap<PersonalityId, f32> = HashMap::new();
-        for entry in value.blend_weights {
-            weights.insert(PersonalityId::new(entry.personality_id), entry.weight);
-        }
-
-        Ok(BlendRule {
-            id: BlendRuleId::new(value.rule.id),
-            name: value.rule.name,
-            description: value.rule.description,
-            context: value.rule.context,
-            priority: value.rule.priority,
-            enabled: value.rule.enabled,
-            is_builtin: value.rule.is_builtin,
-            campaign_id: value.rule.campaign_id,
-            blend_weights: weights,
-            tags: value.rule.tags,
-            created_at: value.rule.created_at,
-            updated_at: value.rule.updated_at,
-        })
-    }
-}
 
 // ============================================================================
 // Tests
@@ -671,17 +600,29 @@ mod tests {
     }
 
     #[test]
-    fn test_blend_rule_with_weights_conversion() {
+    fn test_blend_rule_document_conversion() {
         let rule = sample_rule("Test Rule", "combat_encounter");
 
-        let with_weights = BlendRuleWithWeights::from(&rule);
+        // Convert to document (for storage)
+        let doc: BlendRuleDocument = rule.clone().into();
 
-        assert_eq!(with_weights.rule.name, "Test Rule");
-        assert_eq!(with_weights.blend_weights.len(), 2);
+        assert_eq!(doc.name, "Test Rule");
+        assert_eq!(doc.blend_weights.len(), 2);
 
-        let back: BlendRule = with_weights.try_into().unwrap();
-        assert_eq!(back.name, "Test Rule");
-        assert_eq!(back.blend_weights.len(), 2);
+        // Verify weights are preserved in the document
+        let tactical_weight = doc
+            .blend_weights
+            .iter()
+            .find(|w| w.personality_id == "tactical_advisor")
+            .expect("tactical_advisor weight should be present");
+        assert!((tactical_weight.weight - 0.6).abs() < 0.001);
+
+        let active_weight = doc
+            .blend_weights
+            .iter()
+            .find(|w| w.personality_id == "active")
+            .expect("active weight should be present");
+        assert!((active_weight.weight - 0.4).abs() < 0.001);
     }
 
     #[test]

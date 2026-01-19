@@ -655,6 +655,17 @@ impl From<SettingPersonalityTemplate> for TemplateDocument {
     }
 }
 
+/// A single blend weight entry for serialization.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BlendWeightEntry {
+    /// Personality ID.
+    pub personality_id: String,
+
+    /// Weight (0.0-1.0).
+    pub weight: f32,
+}
+
 /// Meilisearch document representation of a blend rule.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -689,6 +700,11 @@ pub struct BlendRuleDocument {
     #[serde(default)]
     pub tags: Vec<String>,
 
+    /// Blend weights as a vec of (personality_id, weight) pairs.
+    /// Stored as a nested structure for Meilisearch.
+    #[serde(default)]
+    pub blend_weights: Vec<BlendWeightEntry>,
+
     /// Creation timestamp (sortable).
     pub created_at: String,
 
@@ -698,6 +714,15 @@ pub struct BlendRuleDocument {
 
 impl From<BlendRule> for BlendRuleDocument {
     fn from(rule: BlendRule) -> Self {
+        let blend_weights = rule
+            .blend_weights
+            .iter()
+            .map(|(id, w)| BlendWeightEntry {
+                personality_id: id.to_string(),
+                weight: *w,
+            })
+            .collect();
+
         Self {
             id: rule.id.into_inner(),
             name: rule.name,
@@ -708,6 +733,7 @@ impl From<BlendRule> for BlendRuleDocument {
             is_builtin: rule.is_builtin,
             campaign_id: rule.campaign_id,
             tags: rule.tags,
+            blend_weights,
             created_at: rule.created_at,
             updated_at: rule.updated_at,
         }
