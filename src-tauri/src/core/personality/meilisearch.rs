@@ -603,27 +603,47 @@ impl PersonalityIndexManager {
     }
 
     /// Delete both personality indexes entirely.
+    ///
+    /// Logs warnings for individual index deletion failures but continues
+    /// to attempt all deletions. This is intentional since cleanup should
+    /// be best-effort - partial cleanup is better than failing early.
     pub async fn delete_indexes(&self) -> Result<(), PersonalityExtensionError> {
         // Delete templates index
-        if let Ok(task) = self.client.delete_index(INDEX_PERSONALITY_TEMPLATES).await {
-            let _ = task
-                .wait_for_completion(
-                    &self.client,
-                    Some(Duration::from_millis(INDEX_TASK_POLL_MS)),
-                    Some(Duration::from_secs(INDEX_TASK_TIMEOUT_SECS)),
-                )
-                .await;
+        match self.client.delete_index(INDEX_PERSONALITY_TEMPLATES).await {
+            Ok(task) => {
+                if let Err(e) = task
+                    .wait_for_completion(
+                        &self.client,
+                        Some(Duration::from_millis(INDEX_TASK_POLL_MS)),
+                        Some(Duration::from_secs(INDEX_TASK_TIMEOUT_SECS)),
+                    )
+                    .await
+                {
+                    log::warn!("Failed to wait for templates index deletion: {}", e);
+                }
+            }
+            Err(e) => {
+                log::warn!("Failed to delete templates index: {}", e);
+            }
         }
 
         // Delete rules index
-        if let Ok(task) = self.client.delete_index(INDEX_BLEND_RULES).await {
-            let _ = task
-                .wait_for_completion(
-                    &self.client,
-                    Some(Duration::from_millis(INDEX_TASK_POLL_MS)),
-                    Some(Duration::from_secs(INDEX_TASK_TIMEOUT_SECS)),
-                )
-                .await;
+        match self.client.delete_index(INDEX_BLEND_RULES).await {
+            Ok(task) => {
+                if let Err(e) = task
+                    .wait_for_completion(
+                        &self.client,
+                        Some(Duration::from_millis(INDEX_TASK_POLL_MS)),
+                        Some(Duration::from_secs(INDEX_TASK_TIMEOUT_SECS)),
+                    )
+                    .await
+                {
+                    log::warn!("Failed to wait for blend rules index deletion: {}", e);
+                }
+            }
+            Err(e) => {
+                log::warn!("Failed to delete blend rules index: {}", e);
+            }
         }
 
         log::info!("Deleted personality indexes");

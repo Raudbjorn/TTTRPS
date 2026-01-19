@@ -360,6 +360,7 @@ mod tests {
             .detect_text_only("Roll for initiative! Attack the goblin!")
             .unwrap();
 
+        // Note: ContextDetectionResult.context is a String (for JSON serialization)
         assert_eq!(result.context, "combat_encounter");
         assert!(result.confidence > 0.3);
     }

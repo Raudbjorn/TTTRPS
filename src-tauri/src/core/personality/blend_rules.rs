@@ -27,6 +27,7 @@ use lru::LruCache;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::num::NonZeroUsize;
+use std::sync::Arc;
 use tokio::sync::Mutex;
 
 /// Escape a value for safe use in Meilisearch filter expressions.
@@ -53,8 +54,8 @@ pub const MEILISEARCH_POLL_MS: u64 = 100;
 
 /// Store for blend rules with Meilisearch backend and LRU caching.
 pub struct BlendRuleStore {
-    /// Meilisearch index manager.
-    index_manager: PersonalityIndexManager,
+    /// Meilisearch index manager (shared via Arc for efficiency).
+    index_manager: Arc<PersonalityIndexManager>,
 
     /// LRU cache for frequently accessed rules.
     cache: Mutex<LruCache<BlendRuleId, BlendRule>>,
@@ -65,8 +66,8 @@ pub struct BlendRuleStore {
 }
 
 impl BlendRuleStore {
-    /// Create a new blend rule store.
-    pub fn new(index_manager: PersonalityIndexManager) -> Self {
+    /// Create a new blend rule store with a shared index manager.
+    pub fn new(index_manager: Arc<PersonalityIndexManager>) -> Self {
         let cap = NonZeroUsize::new(DEFAULT_RULE_CACHE_CAPACITY).unwrap();
         Self {
             index_manager,
@@ -76,7 +77,7 @@ impl BlendRuleStore {
     }
 
     /// Create with custom cache capacity.
-    pub fn with_capacity(index_manager: PersonalityIndexManager, capacity: usize) -> Self {
+    pub fn with_capacity(index_manager: Arc<PersonalityIndexManager>, capacity: usize) -> Self {
         let cap = NonZeroUsize::new(capacity).unwrap_or(NonZeroUsize::new(1).unwrap());
         Self {
             index_manager,

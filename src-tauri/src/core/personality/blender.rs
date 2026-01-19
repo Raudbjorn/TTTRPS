@@ -44,6 +44,12 @@ pub const MIN_FORMALITY: u8 = 1;
 /// Maximum formality value.
 pub const MAX_FORMALITY: u8 = 10;
 
+/// Multiplier for list blending proportional selection.
+/// Uses 2x to ensure adequate representation from lower-weight profiles.
+/// Without this, profiles with weight 0.2 contributing only 20% of items
+/// may not contribute meaningfully to small lists.
+const BLEND_LIST_MULTIPLIER: f32 = 2.0;
+
 // ============================================================================
 // BlendSpec - Specification for a blend operation
 // ============================================================================
@@ -542,8 +548,8 @@ impl PersonalityBlender {
 
         for (profile, weight) in profiles {
             let items = extractor(profile);
-            // Take proportional number of items based on weight
-            let count = (items.len() as f32 * weight * 2.0).ceil() as usize;
+            // Take proportional number of items based on weight, with multiplier for representation
+            let count = (items.len() as f32 * weight * BLEND_LIST_MULTIPLIER).ceil() as usize;
             for item in items.iter().take(count.max(1)) {
                 let item_lower = item.to_lowercase();
                 if !seen.contains(&item_lower) {

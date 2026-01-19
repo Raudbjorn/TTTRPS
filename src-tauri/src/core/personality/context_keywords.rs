@@ -7,6 +7,15 @@ use super::context::GameplayContext;
 use std::collections::HashMap;
 
 // ============================================================================
+// Constants
+// ============================================================================
+
+/// Normalization factor for confidence scores.
+/// A raw score of 3.0 (about 3-4 keyword matches) produces ~1.0 confidence.
+/// Chosen based on empirical testing of typical TTRPG context detection inputs.
+const CONFIDENCE_NORMALIZATION_FACTOR: f32 = 3.0;
+
+// ============================================================================
 // Keyword Configuration
 // ============================================================================
 
@@ -498,16 +507,14 @@ impl ContextDetector {
 
         let (best_context, best_score, best_keywords) = scores.remove(0);
 
-        // Normalize score to 0.0-1.0 range
-        // A score of 3.0 (about 3-4 keyword matches) should give ~1.0 confidence
-        // This uses a logarithmic-like scaling that saturates smoothly
-        let confidence = (best_score / 3.0).min(1.0);
+        // Normalize score to 0.0-1.0 range using saturation scaling
+        let confidence = (best_score / CONFIDENCE_NORMALIZATION_FACTOR).min(1.0);
 
         // Check for ambiguity
         let is_ambiguous = scores
             .first()
             .map(|(_, score, _)| {
-                let second_confidence = (score / 3.0).min(1.0);
+                let second_confidence = (score / CONFIDENCE_NORMALIZATION_FACTOR).min(1.0);
                 (confidence - second_confidence).abs() < self.config.ambiguity_threshold
             })
             .unwrap_or(false);
@@ -516,7 +523,7 @@ impl ContextDetector {
         let alternatives: Vec<(GameplayContext, f32)> = scores
             .into_iter()
             .take(3)
-            .map(|(ctx, score, _)| (ctx, (score / 3.0).min(1.0)))
+            .map(|(ctx, score, _)| (ctx, (score / CONFIDENCE_NORMALIZATION_FACTOR).min(1.0)))
             .collect();
 
         // Check minimum confidence

@@ -510,9 +510,9 @@ impl AppState {
             personality_index_manager.clone()
         ));
 
-        // Create blend rule store
+        // Create blend rule store (reuses shared index manager)
         let blend_rule_store = Arc::new(BlendRuleStore::new(
-            PersonalityIndexManager::new(&meilisearch_url, Some(&meilisearch_key))
+            personality_index_manager.clone()
         ));
 
         // Create personality blender and contextual manager
@@ -8411,7 +8411,7 @@ pub async fn export_personality_template(
         .ok_or_else(|| "Template not found".to_string())?;
 
     // Convert to YAML
-    serde_yaml::to_string(&template).map_err(|e| format!("YAML serialization failed: {}", e))
+    serde_yaml_ng::to_string(&template).map_err(|e| format!("YAML serialization failed: {}", e))
 }
 
 /// Import a personality template from YAML
@@ -8421,7 +8421,7 @@ pub async fn import_personality_template(
     state: State<'_, AppState>,
 ) -> Result<TemplatePreviewResponse, String> {
     // Parse YAML
-    let template: SettingTemplate = serde_yaml::from_str(&yaml_content)
+    let template: SettingTemplate = serde_yaml_ng::from_str(&yaml_content)
         .map_err(|e| format!("YAML parse failed: {}", e))?;
 
     // Save template
@@ -8472,7 +8472,13 @@ pub async fn get_blend_rule(
     context: String,
     state: State<'_, AppState>,
 ) -> Result<Option<BlendRuleResponse>, String> {
-    let ctx: GameplayContext = context.parse().unwrap_or(GameplayContext::Unknown);
+    let ctx: GameplayContext = match context.parse() {
+        Ok(c) => c,
+        Err(e) => {
+            log::warn!("Failed to parse gameplay context '{}': {}. Defaulting to Unknown.", context, e);
+            GameplayContext::Unknown
+        }
+    };
     let rule = state.blend_rule_store
         .get_rule_for_context(campaign_id.as_deref(), &ctx)
         .await

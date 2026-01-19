@@ -518,7 +518,7 @@ impl SettingTemplateStore {
         use super::templates::TemplateYaml;
 
         let yaml: TemplateYaml = template.clone().into();
-        serde_yaml::to_string(&yaml).map_err(|e| {
+        serde_yaml_ng::to_string(&yaml).map_err(|e| {
             PersonalityExtensionError::internal(format!("Failed to serialize template to YAML: {}", e))
         })
     }
@@ -530,7 +530,7 @@ impl SettingTemplateStore {
     pub fn import_from_yaml(&self, yaml: &str) -> Result<SettingTemplate, PersonalityExtensionError> {
         use super::templates::{TemplateValidationConfig, TemplateYaml};
 
-        let template_yaml: TemplateYaml = serde_yaml::from_str(yaml).map_err(|e| {
+        let template_yaml: TemplateYaml = serde_yaml_ng::from_str(yaml).map_err(|e| {
             TemplateError::ParseError {
                 file: "<string>".to_string(),
                 line: e.location().map(|loc| loc.line()).unwrap_or(0),

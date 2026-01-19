@@ -6,8 +6,8 @@
 //! ## Validation Rules
 //!
 //! - `id`: Non-empty string
-//! - `name`: Non-empty string, max 200 characters
-//! - `description`: Optional, max 2000 characters if present
+//! - `name`: Non-empty string, max 100 characters
+//! - `description`: Optional, max 500 characters if present
 //! - `game_system`: Optional, but recommended for filtering
 //! - `setting_name`: Optional, but recommended for filtering
 //! - `base_profile`: Non-empty string, must reference existing profile

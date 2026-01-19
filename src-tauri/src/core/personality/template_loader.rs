@@ -85,8 +85,14 @@ impl TemplateLoadResult {
     }
 
     /// Get the count of successfully loaded templates.
-    pub fn success_count(&self) -> usize {
+    pub fn templates_loaded(&self) -> usize {
         self.templates.len()
+    }
+
+    /// Alias for `templates_loaded` for backwards compatibility.
+    #[deprecated(note = "use `templates_loaded` for clearer method naming")]
+    pub fn success_count(&self) -> usize {
+        self.templates_loaded()
     }
 
     /// Get the count of failed loads.
@@ -362,7 +368,7 @@ impl TemplateLoader {
         mark_builtin: bool,
     ) -> Result<SettingTemplate, PersonalityExtensionError> {
         // Parse the YAML
-        let yaml: TemplateYaml = serde_yaml::from_str(content).map_err(|e| {
+        let yaml: TemplateYaml = serde_yaml_ng::from_str(content).map_err(|e| {
             let line = e.location().map(|loc| loc.line());
             TemplateError::ParseError {
                 file: source_path.display().to_string(),
@@ -427,7 +433,7 @@ impl TemplateLoader {
     /// Export a template to YAML string.
     pub fn export_to_yaml(&self, template: &SettingTemplate) -> Result<String, PersonalityExtensionError> {
         let yaml: TemplateYaml = template.clone().into();
-        serde_yaml::to_string(&yaml).map_err(|e| {
+        serde_yaml_ng::to_string(&yaml).map_err(|e| {
             PersonalityExtensionError::internal(format!("Failed to serialize template to YAML: {}", e))
         })
     }
@@ -487,7 +493,7 @@ impl TemplateLoader {
 
     /// Import a template from YAML string.
     pub fn import_from_yaml(&self, yaml: &str) -> Result<SettingTemplate, PersonalityExtensionError> {
-        let template_yaml: TemplateYaml = serde_yaml::from_str(yaml).map_err(|e| {
+        let template_yaml: TemplateYaml = serde_yaml_ng::from_str(yaml).map_err(|e| {
             TemplateError::ParseError {
                 file: "<string>".to_string(),
                 line: e.location().map(|loc| loc.line()).unwrap_or(0),
@@ -524,7 +530,25 @@ impl TemplateLoader {
 
 impl Default for TemplateLoader {
     fn default() -> Self {
-        Self::new().expect("Failed to create default TemplateLoader")
+        match Self::new() {
+            Ok(loader) => loader,
+            Err(e) => {
+                log::warn!(
+                    "Failed to create TemplateLoader with default paths: {}. \
+                     Using fallback paths.",
+                    e
+                );
+                // Fallback to current directory-based paths
+                Self::with_directories(
+                    std::env::current_dir()
+                        .unwrap_or_else(|_| PathBuf::from("."))
+                        .join("assets/settings"),
+                    std::env::current_dir()
+                        .unwrap_or_else(|_| PathBuf::from("."))
+                        .join("user_templates"),
+                )
+            }
+        }
     }
 }
 
