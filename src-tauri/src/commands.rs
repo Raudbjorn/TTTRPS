@@ -34,6 +34,14 @@ use crate::core::session_manager::{
 };
 use crate::core::character_gen::{CharacterGenerator, GenerationOptions, Character, SystemInfo};
 use crate::core::npc_gen::{NPCGenerator, NPCGenerationOptions, NPC, NPCStore};
+// NPC Extensions - Vocabulary, Names, and Dialects
+use crate::core::npc_gen::{
+    VocabularyBank, Formality, PhraseEntry,
+    CulturalNamingRules, NameStructure,
+    DialectDefinition, DialectTransformer, DialectTransformResult, Intensity,
+    load_yaml_file, get_vocabulary_dir, get_names_dir, get_dialects_dir,
+    NpcIndexStats, ensure_npc_indexes, get_npc_index_stats,
+};
 use crate::core::location_gen::{LocationGenerator, LocationGenerationOptions, Location};
 use crate::core::personality::{
     PersonalityApplicationManager, ActivePersonalityContext, SceneMood, ContentType, StyledContent, PersonalityPreview,
@@ -2875,6 +2883,134 @@ pub fn search_npcs(
     state: State<'_, AppState>,
 ) -> Result<Vec<NPC>, String> {
     Ok(state.npc_store.search(&query, campaign_id.as_deref()))
+}
+
+// ============================================================================
+// NPC Extensions - Vocabulary, Names, and Dialects Commands
+// ============================================================================
+
+/// Load a vocabulary bank from YAML file
+#[tauri::command]
+pub async fn load_vocabulary_bank(path: String) -> Result<VocabularyBank, String> {
+    load_yaml_file(&std::path::PathBuf::from(path))
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Get the vocabulary directory path
+#[tauri::command]
+pub fn get_vocabulary_directory() -> String {
+    get_vocabulary_dir().to_string_lossy().to_string()
+}
+
+/// Get a random phrase from a vocabulary bank
+#[tauri::command]
+pub fn get_vocabulary_phrase(
+    bank: VocabularyBank,
+    category: String,
+    formality: String,
+) -> Result<Option<PhraseEntry>, String> {
+    let formality = Formality::from_str(&formality);
+    let mut rng = rand::thread_rng();
+
+    let phrase = match category.as_str() {
+        "greeting" | "greetings" => bank.get_greeting(formality, &mut rng),
+        "farewell" | "farewells" => bank.get_farewell(formality, &mut rng),
+        "exclamation" | "exclamations" => bank.get_exclamation(&mut rng),
+        "negotiation" => bank.get_negotiation_phrase(&mut rng),
+        "combat" => bank.get_combat_phrase(&mut rng),
+        _ => None,
+    };
+
+    Ok(phrase.cloned())
+}
+
+/// Load cultural naming rules from YAML file
+#[tauri::command]
+pub async fn load_naming_rules(path: String) -> Result<CulturalNamingRules, String> {
+    load_yaml_file(&std::path::PathBuf::from(path))
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Get the names directory path
+#[tauri::command]
+pub fn get_names_directory() -> String {
+    get_names_dir().to_string_lossy().to_string()
+}
+
+/// Get a random structure from cultural naming rules
+#[tauri::command]
+pub fn get_random_name_structure(
+    rules: CulturalNamingRules,
+) -> NameStructure {
+    let mut rng = rand::thread_rng();
+    rules.random_structure(&mut rng)
+}
+
+/// Validate cultural naming rules
+#[tauri::command]
+pub fn validate_naming_rules(
+    rules: CulturalNamingRules,
+) -> Result<(), String> {
+    rules.validate().map_err(|e| e.to_string())
+}
+
+/// Load a dialect definition from YAML file
+#[tauri::command]
+pub async fn load_dialect(path: String) -> Result<DialectDefinition, String> {
+    load_yaml_file(&std::path::PathBuf::from(path))
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Get the dialects directory path
+#[tauri::command]
+pub fn get_dialects_directory() -> String {
+    get_dialects_dir().to_string_lossy().to_string()
+}
+
+/// Transform text using a dialect
+#[tauri::command]
+pub fn apply_dialect(
+    dialect: DialectDefinition,
+    text: String,
+    intensity: String,
+) -> Result<DialectTransformResult, String> {
+    let intensity = Intensity::from_str(&intensity);
+    let mut rng = rand::thread_rng();
+    let transformer = DialectTransformer::new(dialect).with_intensity(intensity);
+    Ok(transformer.transform(&text, &mut rng))
+}
+
+/// Initialize NPC extension indexes in Meilisearch
+#[tauri::command]
+pub async fn initialize_npc_indexes(
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    ensure_npc_indexes(state.search_client.get_client())
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Get NPC index statistics
+#[tauri::command]
+pub async fn get_npc_indexes_stats(
+    state: State<'_, AppState>,
+) -> Result<NpcIndexStats, String> {
+    get_npc_index_stats(state.search_client.get_client())
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Clear NPC indexes
+#[tauri::command]
+pub async fn clear_npc_indexes(
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    crate::core::npc_gen::clear_npc_indexes(state.search_client.get_client())
+        .await
+        .map_err(|e| e.to_string())
 }
 
 // ============================================================================
