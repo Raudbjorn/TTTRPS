@@ -383,7 +383,7 @@ async fn test_document_delete() {
     .expect("Task should complete");
 
     // Verify deletion
-    let result: Result<serde_json::Value, _> = index.get_document("knight").await;
+    let result: std::result::Result<serde_json::Value, _> = index.get_document("knight").await;
     assert!(result.is_err(), "Document should not exist after deletion");
 
     // Cleanup
@@ -766,7 +766,7 @@ async fn test_document_not_found() {
     let index = client.index(&index_name);
 
     // Try to get non-existent document
-    let result: Result<serde_json::Value, _> = index.get_document("nonexistent").await;
+    let result: std::result::Result<serde_json::Value, _> = index.get_document("nonexistent").await;
     assert!(result.is_err(), "Should fail for non-existent document");
 
     // Cleanup
@@ -811,7 +811,7 @@ async fn test_invalid_filter() {
     .expect("Task should complete");
 
     // Try invalid filter (category not set as filterable)
-    let result: Result<meilisearch_sdk::search::SearchResults<serde_json::Value>, _> = index
+    let result: std::result::Result<meilisearch_sdk::search::SearchResults<serde_json::Value>, _> = index
         .search()
         .with_query("")
         .with_filter("category = 'class'")

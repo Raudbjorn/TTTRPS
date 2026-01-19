@@ -68,7 +68,7 @@ use super::types::{
 /// # Examples
 ///
 /// ```rust
-/// use crate::core::archetype::resolution::ResolutionQuery;
+/// use ttrpg_assistant::core::archetype::resolution::ResolutionQuery;
 ///
 /// // Direct archetype lookup
 /// let query = ResolutionQuery::single("knight_errant");
@@ -157,6 +157,7 @@ impl ResolutionQuery {
     /// # Examples
     ///
     /// ```rust
+    /// use ttrpg_assistant::core::archetype::resolution::ResolutionQuery;
     /// let query = ResolutionQuery::single("knight_errant");
     /// assert!(query.archetype_id.is_some());
     /// ```
@@ -181,6 +182,7 @@ impl ResolutionQuery {
     /// # Examples
     ///
     /// ```rust
+    /// use ttrpg_assistant::core::archetype::resolution::ResolutionQuery;
     /// let query = ResolutionQuery::for_npc("merchant")
     ///     .with_race("dwarf");
     /// ```
@@ -347,6 +349,7 @@ impl PartialEq for ResolutionQuery {
 /// # Examples
 ///
 /// ```rust
+/// use ttrpg_assistant::core::archetype::resolution::ResolutionQuery;
 /// let query = ResolutionQuery::builder()
 ///     .npc_role("guard")
 ///     .race("dwarf")

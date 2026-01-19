@@ -34,7 +34,7 @@ use super::error::{ArchetypeError, Result};
 /// # Examples
 ///
 /// ```rust
-/// use crate::core::archetype::types::ArchetypeId;
+/// use ttrpg_assistant::core::archetype::types::ArchetypeId;
 ///
 /// let id = ArchetypeId::new("knight_errant");
 /// assert_eq!(id.as_str(), "knight_errant");

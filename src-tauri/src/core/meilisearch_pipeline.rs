@@ -112,6 +112,7 @@ const MAX_SLUG_LENGTH: usize = 64;
 /// # Examples
 /// ```
 /// use std::path::Path;
+/// use ttrpg_assistant::core::meilisearch_pipeline::generate_source_slug;
 /// let slug = generate_source_slug(Path::new("Delta Green - Handler's Guide.pdf"), None);
 /// assert_eq!(slug, "delta-green-handlers-guide");
 /// ```

@@ -986,6 +986,7 @@ impl From<&SettingPack> for SettingPackSummary {
 /// # Examples
 ///
 /// ```
+/// use ttrpg_assistant::core::archetype::setting_pack::is_valid_semver;
 /// assert!(is_valid_semver("1.0.0"));
 /// assert!(is_valid_semver("2.10.5"));
 /// assert!(!is_valid_semver("1.0"));
