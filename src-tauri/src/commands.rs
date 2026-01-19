@@ -57,7 +57,6 @@ use crate::core::personality::{
 };
 use crate::core::credentials::CredentialManager;
 use crate::core::audio::AudioVolumes;
-use crate::core::claude_cdp::{ClaudeDesktopManager, ClaudeDesktopStatus};
 // Claude Gate OAuth client
 use crate::claude_gate::{ClaudeClient, FileTokenStorage, TokenInfo};
 #[cfg(feature = "keyring")]
@@ -428,8 +427,6 @@ pub struct AppState {
     pub world_state_manager: WorldStateManager,
     pub relationship_manager: RelationshipManager,
     pub location_manager: crate::core::location_manager::LocationManager,
-    // Claude Desktop CDP bridge
-    pub claude_desktop_manager: Arc<AsyncRwLock<ClaudeDesktopManager>>,
     // Document extraction settings
     pub extraction_settings: AsyncRwLock<crate::ingestion::ExtractionSettings>,
     // Claude Gate OAuth client
@@ -467,7 +464,6 @@ impl AppState {
         WorldStateManager,
         RelationshipManager,
         crate::core::location_manager::LocationManager,
-        Arc<AsyncRwLock<ClaudeDesktopManager>>,
         Arc<AsyncRwLock<crate::core::llm::LLMManager>>,
         Arc<ClaudeGateState>,
         Arc<SettingPackLoader>,
@@ -542,7 +538,6 @@ impl AppState {
             WorldStateManager::default(),
             RelationshipManager::default(),
             crate::core::location_manager::LocationManager::new(),
-            Arc::new(AsyncRwLock::new(ClaudeDesktopManager::new())),
             Arc::new(AsyncRwLock::new(crate::core::llm::LLMManager::new())),
             claude_gate,
             Arc::new(SettingPackLoader::new()),
@@ -617,7 +612,7 @@ pub struct HealthStatus {
 // ============================================================================
 
 /// Providers that can auto-detect or have default models, so model selection is optional
-const PROVIDERS_WITH_OPTIONAL_MODEL: &[&str] = &["claude-code", "claude-desktop", "gemini-cli"];
+const PROVIDERS_WITH_OPTIONAL_MODEL: &[&str] = &[];
 
 
 fn get_config_path(app_handle: &tauri::AppHandle) -> PathBuf {
@@ -689,11 +684,6 @@ pub async fn configure_llm(
             host: settings.host.unwrap_or_else(|| "http://localhost:11434".to_string()),
             model: settings.model,
         },
-        "claude" => LLMConfig::Claude {
-            api_key: settings.api_key.clone().ok_or("Claude requires an API key")?,
-            model: settings.model,
-            max_tokens: 4096,
-        },
         "gemini" => LLMConfig::Gemini {
             api_key: settings.api_key.clone().ok_or("Gemini requires an API key")?,
             model: settings.model,
@@ -729,16 +719,7 @@ pub async fn configure_llm(
             api_key: settings.api_key.clone().ok_or("DeepSeek requires an API key")?,
             model: settings.model,
         },
-        "claude-code" => LLMConfig::ClaudeCode {
-            timeout_secs: 300, // 5 minute default
-            model: if settings.model.is_empty() { None } else { Some(settings.model) },
-            working_dir: None, // Not needed for TTRPG prompts (no file operations)
-        },
-        "gemini-cli" => LLMConfig::GeminiCli {
-            model: settings.model,
-            timeout_secs: 120, // 2 minute default
-        },
-        "claude-gate" => LLMConfig::ClaudeGate {
+        "claude" => LLMConfig::Claude {
             storage_backend: "auto".to_string(), // Will use configured backend from AppState
             model: settings.model,
             max_tokens: 8192, // Default max tokens
@@ -779,19 +760,6 @@ pub async fn configure_llm(
         router.add_provider(provider).await;
     }
 
-    // Configure Meilisearch Chat (RAG)
-    // This registers the provider with the LLM proxy so Meilisearch can route through it
-    {
-        let manager = state.llm_manager.write().await;
-        // Ensure chat client is configured (uses Meilisearch host from search_client)
-        manager.set_chat_client(state.search_client.host(), Some(&state.sidecar_manager.config().master_key)).await;
-        // Use default system prompt (None)
-        if let Err(e) = manager.configure_for_chat(&config, None).await {
-            log::error!("Failed to configure Meilisearch chat: {}", e);
-            // Don't fail the whole request, but log it.
-            // The UI might want to know, but partial success is better than failure.
-        }
-    }
 
     Ok(format!("Configured {} provider successfully", provider_name))
 }
@@ -829,14 +797,10 @@ pub async fn chat(
     // Use unified LLM Manager using Meilisearch Chat (RAG-enabled)
     let manager = state.llm_manager.clone();
 
-    // Ensure properly configured for this provider
+    // Ensure chat client is configured
     {
         let manager_guard = manager.write().await;
-        // Ensure chat client is configured (uses Meilisearch host from search_client)
         manager_guard.set_chat_client(state.search_client.host(), Some(&state.sidecar_manager.config().master_key)).await;
-        // This ensures the correct provider is registered with proxy if needed
-        manager_guard.configure_for_chat(&config, Some(&system_prompt)).await
-            .map_err(|e| format!("Failed to configure chat: {}", e))?;
     }
 
     // Prepare messages
@@ -874,10 +838,7 @@ pub async fn chat(
         LLMConfig::Cohere { model, .. } => model.clone(),
         LLMConfig::DeepSeek { model, .. } => model.clone(),
         LLMConfig::Ollama { model, .. } => model.clone(),
-        LLMConfig::ClaudeDesktop { .. } => "claude-desktop".to_string(),
-        LLMConfig::ClaudeCode { model, .. } => model.clone().unwrap_or_else(|| "claude-code".to_string()),
-        LLMConfig::GeminiCli { model, .. } => model.clone(),
-        LLMConfig::ClaudeGate { model, .. } => model.clone(),
+        LLMConfig::Claude { model, .. } => model.clone(),
         LLMConfig::Meilisearch { model, .. } => model.clone(),
     };
 
@@ -1004,29 +965,8 @@ pub fn get_llm_config(state: State<'_, AppState>) -> Result<Option<LLMSettings>,
             model: model.clone(),
             embedding_model: None,
         },
-        LLMConfig::ClaudeDesktop { port, .. } => LLMSettings {
-            provider: "claude-desktop".to_string(),
-            api_key: None, // No API key needed - uses Claude Desktop auth
-            host: Some(format!("localhost:{}", port)),
-            model: "claude-desktop".to_string(),
-            embedding_model: None,
-        },
-        LLMConfig::ClaudeCode { model, .. } => LLMSettings {
-            provider: "claude-code".to_string(),
-            api_key: None, // No API key needed - uses Claude Code auth
-            host: None,
-            model: model.clone().unwrap_or_else(|| "claude-code".to_string()),
-            embedding_model: None,
-        },
-        LLMConfig::GeminiCli { model, .. } => LLMSettings {
-            provider: "gemini-cli".to_string(),
-            api_key: None, // No API key needed - uses Google account auth
-            host: None,
-            model: model.clone(),
-            embedding_model: None,
-        },
-        LLMConfig::ClaudeGate { model, .. } => LLMSettings {
-            provider: "claude-gate".to_string(),
+        LLMConfig::Claude { model, .. } => LLMSettings {
+            provider: "claude".to_string(),
             api_key: None, // No API key needed - uses OAuth
             host: None,
             model: model.clone(),
@@ -1237,9 +1177,6 @@ pub async fn stream_chat(
         let manager_guard = manager.write().await;
         // Ensure chat client is configured (uses Meilisearch host from search_client)
         manager_guard.set_chat_client(state.search_client.host(), Some(&state.sidecar_manager.config().master_key)).await;
-        // This ensures the correct provider is registered with proxy if needed
-        manager_guard.configure_for_chat(&config, system_prompt.as_deref()).await
-            .map_err(|e| format!("Failed to configure chat: {}", e))?;
     }
 
     let manager_guard = manager.read().await;
@@ -7085,270 +7022,14 @@ fn parse_difficulty(s: &str) -> Difficulty {
 }
 
 // ============================================================================
-// Claude Desktop CDP Commands
-// ============================================================================
-
-/// Connect to a running Claude Desktop instance via CDP.
-#[tauri::command]
-pub async fn connect_claude_desktop(
-    port: Option<u16>,
-    state: State<'_, AppState>,
-) -> Result<ClaudeDesktopStatus, String> {
-    let manager = state.claude_desktop_manager.clone();
-
-    // Update port if specified
-    if let Some(p) = port {
-        let guard = manager.read().await;
-        guard.update_config(Some(p), None).await;
-    }
-
-    // Connect (lock released after block)
-    {
-        let guard = manager.read().await;
-        guard.connect().await.map_err(|e| e.to_string())?;
-    }
-
-    // Get status (separate lock acquisition)
-    let guard = manager.read().await;
-    let status = guard.status().await;
-    Ok(status)
-}
-
-/// Launch Claude Desktop with CDP enabled and connect.
-#[tauri::command]
-pub async fn launch_claude_desktop(
-    state: State<'_, AppState>,
-) -> Result<ClaudeDesktopStatus, String> {
-    let manager = state.claude_desktop_manager.clone();
-
-    // Connect or launch
-    {
-        let guard = manager.read().await;
-        guard.connect_or_launch().await.map_err(|e| e.to_string())?;
-    }
-
-    // Get status
-    let guard = manager.read().await;
-    let status = guard.status().await;
-    Ok(status)
-}
-
-/// Try to connect to Claude Desktop, launch if not running.
-#[tauri::command]
-pub async fn connect_or_launch_claude_desktop(
-    port: Option<u16>,
-    state: State<'_, AppState>,
-) -> Result<ClaudeDesktopStatus, String> {
-    let manager = state.claude_desktop_manager.clone();
-
-    // Update port if specified
-    if let Some(p) = port {
-        let guard = manager.read().await;
-        guard.update_config(Some(p), None).await;
-    }
-
-    // Connect or launch
-    {
-        let guard = manager.read().await;
-        guard.connect_or_launch().await.map_err(|e| e.to_string())?;
-    }
-
-    // Get status
-    let guard = manager.read().await;
-    let status = guard.status().await;
-    Ok(status)
-}
-
-/// Disconnect from Claude Desktop.
-#[tauri::command]
-pub async fn disconnect_claude_desktop(
-    kill_if_launched: Option<bool>,
-    state: State<'_, AppState>,
-) -> Result<(), String> {
-    let manager = state.claude_desktop_manager.clone();
-    let guard = manager.read().await;
-
-    if kill_if_launched.unwrap_or(false) {
-        guard.disconnect_and_kill().await;
-    } else {
-        guard.disconnect().await;
-    }
-
-    Ok(())
-}
-
-/// Get Claude Desktop connection status.
-#[tauri::command]
-pub async fn get_claude_desktop_status(
-    state: State<'_, AppState>,
-) -> Result<ClaudeDesktopStatus, String> {
-    let manager = state.claude_desktop_manager.clone();
-    let guard = manager.read().await;
-    let status = guard.status().await;
-    Ok(status)
-}
-
-/// Start a new conversation in Claude Desktop.
-#[tauri::command]
-pub async fn claude_desktop_new_conversation(
-    state: State<'_, AppState>,
-) -> Result<(), String> {
-    let manager = state.claude_desktop_manager.clone();
-    let guard = manager.read().await;
-    guard.new_conversation().await.map_err(|e| e.to_string())
-}
-
-/// Get conversation history from Claude Desktop.
-#[tauri::command]
-pub async fn claude_desktop_get_history(
-    state: State<'_, AppState>,
-) -> Result<Vec<crate::core::claude_cdp::Message>, String> {
-    let manager = state.claude_desktop_manager.clone();
-    let guard = manager.read().await;
-    guard.get_conversation().await.map_err(|e| e.to_string())
-}
-
-/// Check if Claude Desktop binary is installed.
-#[tauri::command]
-pub fn detect_claude_desktop() -> Option<String> {
-    ClaudeDesktopManager::detect_claude_binary()
-}
-
-/// Send a message to Claude Desktop and get response.
-#[tauri::command]
-pub async fn claude_desktop_send_message(
-    message: String,
-    state: State<'_, AppState>,
-) -> Result<String, String> {
-    let manager = state.claude_desktop_manager.clone();
-    let guard = manager.read().await;
-    guard.send_message(&message).await.map_err(|e| e.to_string())
-}
-
-/// Update Claude Desktop CDP configuration.
-#[tauri::command]
-pub async fn configure_claude_desktop(
-    port: Option<u16>,
-    timeout_secs: Option<u64>,
-    state: State<'_, AppState>,
-) -> Result<(), String> {
-    let manager = state.claude_desktop_manager.clone();
-    let guard = manager.read().await;
-    guard.update_config(port, timeout_secs).await;
-    Ok(())
-}
 
 // ============================================================================
 // Claude Code CLI Commands
 // ============================================================================
 
-/// Get Claude Code CLI status (installed, logged in, version).
-#[tauri::command]
-pub async fn get_claude_code_status() -> crate::core::llm::providers::ClaudeCodeStatus {
-    crate::core::llm::providers::ClaudeCodeProvider::get_status().await
-}
-
-/// Spawn the Claude Code login flow (opens browser for OAuth).
-#[tauri::command]
-pub async fn claude_code_login() -> Result<(), String> {
-    crate::core::llm::providers::ClaudeCodeProvider::login().await
-}
-
-/// Logout from Claude Code.
-#[tauri::command]
-pub async fn claude_code_logout() -> Result<(), String> {
-    crate::core::llm::providers::ClaudeCodeProvider::logout().await
-}
-
-/// Install the claude-code-bridge skill to Claude Code.
-#[tauri::command]
-pub async fn claude_code_install_skill() -> Result<(), String> {
-    crate::core::llm::providers::ClaudeCodeProvider::install_skill().await
-}
-
-/// Install Claude Code CLI via npm (opens terminal).
-#[tauri::command]
-pub async fn claude_code_install_cli() -> Result<(), String> {
-    crate::core::llm::providers::ClaudeCodeProvider::install_cli().await
-}
-
 // ============================================================================
 // Gemini CLI Status and Extension Commands
 // ============================================================================
-
-/// Status of Gemini CLI installation and authentication.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GeminiCliStatus {
-    pub is_installed: bool,
-    pub is_authenticated: bool,
-    pub message: String,
-}
-
-/// Status of Gemini CLI extension installation.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GeminiCliExtensionStatus {
-    pub is_installed: bool,
-    pub message: String,
-}
-
-/// Check Gemini CLI installation and authentication status.
-#[tauri::command]
-pub async fn check_gemini_cli_status() -> GeminiCliStatus {
-    use crate::core::llm::providers::GeminiCliProvider;
-
-    let (is_installed, is_authenticated, message) = GeminiCliProvider::check_status().await;
-    GeminiCliStatus {
-        is_installed,
-        is_authenticated,
-        message,
-    }
-}
-
-/// Launch Gemini CLI for authentication.
-#[tauri::command]
-pub fn launch_gemini_cli_login() -> Result<(), String> {
-    use crate::core::llm::providers::GeminiCliProvider;
-
-    GeminiCliProvider::launch_login()
-        .map(|_| ())
-        .map_err(|e| format!("Failed to launch Gemini CLI: {}", e))
-}
-
-/// Check if the Sidecar DM extension is installed.
-#[tauri::command]
-pub async fn check_gemini_cli_extension() -> GeminiCliExtensionStatus {
-    use crate::core::llm::providers::GeminiCliProvider;
-
-    let (is_installed, message) = GeminiCliProvider::check_extension_status().await;
-    GeminiCliExtensionStatus {
-        is_installed,
-        message,
-    }
-}
-
-/// Install the Sidecar DM extension from a source (git URL or local path).
-#[tauri::command]
-pub async fn install_gemini_cli_extension(source: String) -> Result<String, String> {
-    use crate::core::llm::providers::GeminiCliProvider;
-
-    GeminiCliProvider::install_extension(&source).await
-}
-
-/// Link a local extension directory for development.
-#[tauri::command]
-pub async fn link_gemini_cli_extension(path: String) -> Result<String, String> {
-    use crate::core::llm::providers::GeminiCliProvider;
-
-    GeminiCliProvider::link_extension(&path).await
-}
-
-/// Uninstall the Sidecar DM extension.
-#[tauri::command]
-pub async fn uninstall_gemini_cli_extension() -> Result<String, String> {
-    use crate::core::llm::providers::GeminiCliProvider;
-
-    GeminiCliProvider::uninstall_extension().await
-}
 
 // ============================================================================
 // Meilisearch Chat Provider Commands
@@ -7415,29 +7096,6 @@ pub async fn get_chat_workspace_settings(
     client.get_workspace_settings(&workspace_id).await
 }
 
-/// Check if the LLM proxy is running.
-#[tauri::command]
-pub async fn is_llm_proxy_running(
-    state: State<'_, AppState>,
-) -> Result<bool, String> {
-    let manager = state.llm_manager.read().await;
-    Ok(manager.is_proxy_running().await)
-}
-
-/// Get the LLM proxy URL.
-#[tauri::command]
-pub fn get_llm_proxy_url() -> String {
-    "http://127.0.0.1:18787".to_string()
-}
-
-/// List providers currently registered with the LLM proxy.
-#[tauri::command]
-pub async fn list_proxy_providers(
-    state: State<'_, AppState>,
-) -> Result<Vec<String>, String> {
-    let manager = state.llm_manager.read().await;
-    Ok(manager.list_proxy_providers().await)
-}
 
 /// Configure Meilisearch chat workspace with individual parameters.
 ///
@@ -7446,9 +7104,8 @@ pub async fn list_proxy_providers(
 ///
 /// # Arguments
 /// * `provider` - Provider type: "openai", "claude", "mistral", "gemini", "ollama",
-///                "openrouter", "groq", "together", "cohere", "deepseek",
-///                "claude-code", "claude-desktop"
-/// * `api_key` - API key for the provider (optional for ollama, claude-code, claude-desktop)
+///                "openrouter", "groq", "together", "cohere", "deepseek"
+/// * `api_key` - API key for the provider (optional for ollama)
 /// * `model` - Model to use (optional, uses provider default if not specified)
 /// * `custom_system_prompt` - Custom system prompt (optional)
 /// * `host` - Host URL for ollama (optional, defaults to localhost:11434)
@@ -7509,14 +7166,6 @@ pub async fn configure_meilisearch_chat(
             api_key: api_key.ok_or("Grok requires an API key")?,
             model,
         },
-        "claude-code" => ChatProviderConfig::ClaudeCode {
-            timeout_secs: Some(300),
-            model,
-        },
-        "claude-desktop" => ChatProviderConfig::ClaudeDesktop {
-            port: None,
-            timeout_secs: Some(120),
-        },
         _ => {
             let valid_providers = crate::core::meilisearch_chat::list_chat_providers()
                 .into_iter()
@@ -7544,14 +7193,6 @@ pub async fn configure_meilisearch_chat(
     Ok(())
 }
 
-/// Get the currently active proxy provider.
-#[tauri::command]
-pub async fn get_current_proxy_provider(
-    state: State<'_, AppState>,
-) -> Result<Option<String>, String> {
-    let manager = state.llm_manager.read().await;
-    Ok(manager.current_proxy_provider().await)
-}
 
 // ============================================================================
 // Model Selection Commands

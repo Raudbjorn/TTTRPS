@@ -10,14 +10,8 @@ use crate::bindings::{
     check_llm_health, configure_llm, get_llm_config, list_claude_models, list_gemini_models,
     list_ollama_models, list_openai_models, list_openrouter_models, list_provider_models,
     save_api_key, HealthStatus, LLMSettings, ModelInfo, OllamaModel,
-    // Claude Code CLI
-    get_claude_code_status, claude_code_login,
-    claude_code_install_cli, claude_code_install_skill, ClaudeCodeStatus,
     // Claude Gate OAuth
     claude_gate_get_status, claude_gate_list_models, ClaudeGateStatus,
-    // Gemini CLI
-    check_gemini_cli_status, launch_gemini_cli_login, check_gemini_cli_extension,
-    install_gemini_cli_extension, GeminiCliStatus, GeminiCliExtensionStatus,
     // LLM Proxy
     is_llm_proxy_running, get_llm_proxy_url, list_proxy_providers,
     // Embedding configuration
@@ -40,10 +34,7 @@ pub enum LLMProvider {
     Together,
     Cohere,
     DeepSeek,
-    ClaudeCode,
-    ClaudeDesktop,
     ClaudeGate,
-    GeminiCli,
 }
 
 impl std::fmt::Display for LLMProvider {
@@ -59,10 +50,7 @@ impl std::fmt::Display for LLMProvider {
             LLMProvider::Together => write!(f, "Together"),
             LLMProvider::Cohere => write!(f, "Cohere"),
             LLMProvider::DeepSeek => write!(f, "DeepSeek"),
-            LLMProvider::ClaudeCode => write!(f, "Claude Code"),
-            LLMProvider::ClaudeDesktop => write!(f, "Claude Desktop"),
-            LLMProvider::ClaudeGate => write!(f, "Claude Gate"),
-            LLMProvider::GeminiCli => write!(f, "Gemini CLI"),
+            LLMProvider::ClaudeGate => write!(f, "Claude"),
         }
     }
 }
@@ -80,10 +68,7 @@ impl LLMProvider {
             LLMProvider::Together => "together".to_string(),
             LLMProvider::Cohere => "cohere".to_string(),
             LLMProvider::DeepSeek => "deepseek".to_string(),
-            LLMProvider::ClaudeCode => "claude-code".to_string(),
-            LLMProvider::ClaudeDesktop => "claude-desktop".to_string(),
-            LLMProvider::ClaudeGate => "claude-gate".to_string(),
-            LLMProvider::GeminiCli => "gemini-cli".to_string(),
+            LLMProvider::ClaudeGate => "claude".to_string(),
         }
     }
 
@@ -98,10 +83,7 @@ impl LLMProvider {
             "Together" | "together" => LLMProvider::Together,
             "Cohere" | "cohere" => LLMProvider::Cohere,
             "DeepSeek" | "deepseek" => LLMProvider::DeepSeek,
-            "ClaudeCode" | "claude-code" => LLMProvider::ClaudeCode,
-            "ClaudeDesktop" | "claude-desktop" => LLMProvider::ClaudeDesktop,
-            "ClaudeGate" | "claude-gate" => LLMProvider::ClaudeGate,
-            "GeminiCli" | "gemini-cli" => LLMProvider::GeminiCli,
+            "ClaudeGate" | "claude-gate" | "claude" => LLMProvider::ClaudeGate,
             _ => LLMProvider::Ollama,
         }
     }
@@ -118,20 +100,14 @@ impl LLMProvider {
             LLMProvider::Together => "API Key",
             LLMProvider::Cohere => "API Key",
             LLMProvider::DeepSeek => "sk-...",
-            LLMProvider::ClaudeCode => "Uses CLI authentication",
-            LLMProvider::ClaudeDesktop => "Uses Desktop authentication",
             LLMProvider::ClaudeGate => "Uses OAuth authentication",
-            LLMProvider::GeminiCli => "Uses Google account authentication",
         }
     }
 
     fn label_text(&self) -> &'static str {
         match self {
             LLMProvider::Ollama => "Ollama Host",
-            LLMProvider::ClaudeCode => "Status",
-            LLMProvider::ClaudeDesktop => "Status",
             LLMProvider::ClaudeGate => "Status",
-            LLMProvider::GeminiCli => "Status",
             _ => "API Key",
         }
     }
@@ -148,10 +124,7 @@ impl LLMProvider {
             LLMProvider::Together => "meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo",
             LLMProvider::Cohere => "command-r-plus",
             LLMProvider::DeepSeek => "deepseek-chat",
-            LLMProvider::ClaudeCode => "claude-sonnet-4-20250514",
-            LLMProvider::ClaudeDesktop => "claude-sonnet-4-20250514",
             LLMProvider::ClaudeGate => "claude-sonnet-4-20250514",
-            LLMProvider::GeminiCli => "gemini-3-pro-preview",
         }
     }
 
@@ -167,10 +140,7 @@ impl LLMProvider {
             LLMProvider::Cohere => Some("https://dashboard.cohere.com/api-keys"),
             LLMProvider::DeepSeek => Some("https://platform.deepseek.com/api_keys"),
             LLMProvider::Ollama => Some("https://ollama.com/download"),
-            LLMProvider::ClaudeCode => None, // Uses CLI authentication
-            LLMProvider::ClaudeDesktop => None, // Uses Desktop authentication
             LLMProvider::ClaudeGate => None, // Uses OAuth authentication
-            LLMProvider::GeminiCli => None, // Uses Google account authentication
         }
     }
 
@@ -181,10 +151,7 @@ impl LLMProvider {
             LLMProvider::OpenAI => "text-emerald-400", // OpenAI Green
             LLMProvider::Ollama => "text-white", // Ollama White
             LLMProvider::OpenRouter => "text-violet-400",
-            LLMProvider::ClaudeCode => "text-orange-400", // Anthropic Sienna
-            LLMProvider::ClaudeDesktop => "text-orange-400", // Anthropic Sienna
             LLMProvider::ClaudeGate => "text-orange-400", // Anthropic Sienna
-            LLMProvider::GeminiCli => "text-blue-400", // Gemini Blue
             _ => "text-[var(--accent-primary)]",
         }
     }
@@ -245,18 +212,6 @@ pub fn LLMSettingsView() -> impl IntoView {
 
     // Statuses
     let provider_statuses = RwSignal::new(HashMap::<String, bool>::new());
-    let claude_code_status = RwSignal::new(ClaudeCodeStatus::default());
-    let claude_code_loading = RwSignal::new(false);
-    let gemini_cli_status = RwSignal::new(GeminiCliStatus {
-        is_installed: false,
-        is_authenticated: false,
-        message: String::new(),
-    });
-    let gemini_cli_extension = RwSignal::new(GeminiCliExtensionStatus {
-        is_installed: false,
-        message: String::new(),
-    });
-    let gemini_cli_loading = RwSignal::new(false);
 
     // Claude Gate OAuth status (for badge display and model fetching)
     let claude_gate_status = RwSignal::new(ClaudeGateStatus::default());
@@ -366,34 +321,8 @@ pub fn LLMSettingsView() -> impl IntoView {
                 }
             }
             // Claude Desktop uses Desktop authentication
-            statuses.insert("claude-desktop".to_string(), true);
 
-            // Check Claude Code CLI status
-            match get_claude_code_status().await {
-                Ok(status) => {
-                    statuses.insert("claude-code".to_string(), status.installed && status.logged_in);
-                    claude_code_status.set(status);
-                }
-                Err(_) => {
-                    statuses.insert("claude-code".to_string(), false);
-                }
-            }
 
-            // Check Gemini CLI status
-            match check_gemini_cli_status().await {
-                Ok(status) => {
-                    statuses.insert(LLMProvider::GeminiCli.to_string_key(), status.is_installed && status.is_authenticated);
-                    gemini_cli_status.set(status);
-                }
-                Err(_) => {
-                    statuses.insert(LLMProvider::GeminiCli.to_string_key(), false);
-                }
-            }
-
-            // Check Gemini CLI extension status
-            if let Ok(ext_status) = check_gemini_cli_extension().await {
-                gemini_cli_extension.set(ext_status);
-            }
 
             // Check Claude Gate OAuth status
             match claude_gate_get_status().await {
@@ -411,45 +340,7 @@ pub fn LLMSettingsView() -> impl IntoView {
     };
 
     // Refresh Claude Code status
-    let refresh_claude_code_status = move || {
-        claude_code_loading.set(true);
-        spawn_local(async move {
-            match get_claude_code_status().await {
-                Ok(status) => {
-                    let is_ready = status.installed && status.logged_in;
-                    provider_statuses.update(|map| { map.insert("claude-code".to_string(), is_ready); });
-                    claude_code_status.set(status);
-                }
-                Err(e) => {
-                    show_error("Claude Code Status", Some(&e), None);
-                }
-            }
-            claude_code_loading.set(false);
-        });
-    };
 
-    // Refresh Gemini CLI status
-    let refresh_gemini_cli_status = move || {
-        gemini_cli_loading.set(true);
-        spawn_local(async move {
-            match check_gemini_cli_status().await {
-                Ok(status) => {
-                    let is_ready = status.is_installed && status.is_authenticated;
-                    provider_statuses.update(|map| { map.insert(LLMProvider::GeminiCli.to_string_key(), is_ready); });
-                    gemini_cli_status.set(status);
-                }
-                Err(e) => {
-                    show_error("Gemini CLI Status", Some(&e), None);
-                }
-            }
-            // Also check extension status
-            match check_gemini_cli_extension().await {
-                Ok(ext_status) => gemini_cli_extension.set(ext_status),
-                Err(e) => show_error("Gemini Extension Status", Some(&e), None),
-            }
-            gemini_cli_loading.set(false);
-        });
-    };
 
     // --- On Mount ---
     Effect::new(move |_| {
@@ -520,10 +411,10 @@ pub fn LLMSettingsView() -> impl IntoView {
              is_saving.set(true);
              save_status.set("Saving...".to_string());
              spawn_local(async move {
-                 // ClaudeCode, ClaudeDesktop, ClaudeGate, and GeminiCli don't need API keys - they use CLI/Desktop/OAuth/Google auth
+                 // ClaudeGate doesn't need API keys - it uses OAuth authentication
                  let needs_api_key = !matches!(
                      provider,
-                     LLMProvider::Ollama | LLMProvider::ClaudeCode | LLMProvider::ClaudeDesktop | LLMProvider::ClaudeGate | LLMProvider::GeminiCli
+                     LLMProvider::Ollama | LLMProvider::ClaudeGate
                  );
                  let key_to_save = if needs_api_key && !key_or_host.is_empty() {
                       match save_api_key(provider.to_string_key(), key_or_host.clone()).await {
@@ -580,24 +471,12 @@ pub fn LLMSettingsView() -> impl IntoView {
                  model_name.set("llama3.2".to_string());
                  fetch_ollama_models("http://localhost:11434".to_string());
             },
-            LLMProvider::ClaudeCode | LLMProvider::ClaudeDesktop => {
-                 // No API key needed - uses CLI/Desktop authentication
-                 api_key_or_host.set(String::new());
-                 model_name.set(p.default_model().to_string());
-                 cloud_models.set(Vec::new());
-            },
             LLMProvider::ClaudeGate => {
                  // No API key needed - uses OAuth authentication
                  api_key_or_host.set(String::new());
                  model_name.set(p.default_model().to_string());
                  // Fetch models from API if authenticated
                  fetch_cloud_models(LLMProvider::ClaudeGate, None);
-            },
-            LLMProvider::GeminiCli => {
-                 // No API key needed - uses Google account authentication
-                 api_key_or_host.set(String::new());
-                 model_name.set(p.default_model().to_string());
-                 cloud_models.set(Vec::new());
             },
             _ => {
                  api_key_or_host.set(String::new());
@@ -616,10 +495,8 @@ pub fn LLMSettingsView() -> impl IntoView {
         LLMProvider::Ollama,
         LLMProvider::OpenAI,
         LLMProvider::Claude,
-        LLMProvider::ClaudeCode,
         LLMProvider::ClaudeGate,
         LLMProvider::Gemini,
-        LLMProvider::GeminiCli,
         LLMProvider::OpenRouter,
         LLMProvider::Mistral,
         LLMProvider::Groq,
@@ -658,10 +535,7 @@ pub fn LLMSettingsView() -> impl IntoView {
                             <p class="text-sm text-[var(--text-muted)]">
                                 {move || match selected_provider.get() {
                                     LLMProvider::Ollama => "Running locally on your machine.",
-                                    LLMProvider::ClaudeCode => "Uses Claude Code CLI authentication.",
-                                    LLMProvider::ClaudeDesktop => "Uses Claude Desktop authentication.",
                                     LLMProvider::ClaudeGate => "Uses Anthropic OAuth authentication.",
-                                    LLMProvider::GeminiCli => "Uses Google account authentication (free tier).",
                                     _ => "Cloud-based inference.",
                                 }}
                             </p>
@@ -687,263 +561,7 @@ pub fn LLMSettingsView() -> impl IntoView {
                                 })}
                             </div>
                             {move || {
-                                if selected_provider.get() == LLMProvider::ClaudeCode {
-                                    // Claude Code status panel
-                                    let status = claude_code_status.get();
-                                    let is_loading = claude_code_loading.get();
-                                    view! {
-                                        <div class="p-4 rounded-lg bg-[var(--bg-deep)] border border-[var(--border-subtle)] space-y-3">
-                                            // Status indicators
-                                            <div class="flex flex-wrap gap-2">
-                                                <div class=move || format!(
-                                                    "flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium {}",
-                                                    if status.installed { "bg-green-500/20 text-green-400" } else { "bg-red-500/20 text-red-400" }
-                                                )>
-                                                    <span class=move || format!(
-                                                        "w-2 h-2 rounded-full {}",
-                                                        if status.installed { "bg-green-400" } else { "bg-red-400" }
-                                                    )></span>
-                                                    {if status.installed { "CLI Installed" } else { "CLI Not Installed" }}
-                                                </div>
-                                                <div class=move || format!(
-                                                    "flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium {}",
-                                                    if status.logged_in { "bg-green-500/20 text-green-400" } else { "bg-yellow-500/20 text-yellow-400" }
-                                                )>
-                                                    <span class=move || format!(
-                                                        "w-2 h-2 rounded-full {}",
-                                                        if status.logged_in { "bg-green-400" } else { "bg-yellow-400" }
-                                                    )></span>
-                                                    {if status.logged_in { "Logged In" } else { "Not Logged In" }}
-                                                </div>
-                                                {status.version.clone().map(|v| view! {
-                                                    <div class="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium bg-blue-500/20 text-blue-400">
-                                                        {format!("v{}", v)}
-                                                    </div>
-                                                })}
-                                            </div>
-
-                                            // Error message if any
-                                            {status.error.clone().map(|e| view! {
-                                                <p class="text-xs text-red-400">{e}</p>
-                                            })}
-
-                                            // Action buttons
-                                            <div class="flex flex-wrap gap-2 pt-2">
-                                                {move || if !status.installed {
-                                                    view! {
-                                                        <button
-                                                            class="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--accent-primary)] text-white hover:opacity-90 transition-opacity disabled:opacity-50"
-                                                            disabled=is_loading
-                                                            on:click=move |_| {
-                                                                spawn_local(async move {
-                                                                    match claude_code_install_cli().await {
-                                                                        Ok(_) => show_success("Installing CLI", Some("Opening terminal...")),
-                                                                        Err(e) => show_error("Install Failed", Some(&e), None),
-                                                                    }
-                                                                });
-                                                            }
-                                                        >
-                                                            "Install CLI"
-                                                        </button>
-                                                    }.into_any()
-                                                } else if !status.logged_in {
-                                                    view! {
-                                                        <button
-                                                            class="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--accent-primary)] text-white hover:opacity-90 transition-opacity disabled:opacity-50"
-                                                            disabled=is_loading
-                                                            on:click=move |_| {
-                                                                spawn_local(async move {
-                                                                    match claude_code_login().await {
-                                                                        Ok(_) => show_success("Logging In", Some("Opening terminal...")),
-                                                                        Err(e) => show_error("Login Failed", Some(&e), None),
-                                                                    }
-                                                                });
-                                                            }
-                                                        >
-                                                            "Login"
-                                                        </button>
-                                                    }.into_any()
-                                                } else {
-                                                    view! { <span></span> }.into_any()
-                                                }}
-
-                                                <button
-                                                    class="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--bg-elevated)] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] transition-colors disabled:opacity-50"
-                                                    disabled=is_loading
-                                                    on:click=move |_| refresh_claude_code_status()
-                                                >
-                                                    {if is_loading { "Checking..." } else { "Refresh Status" }}
-                                                </button>
-
-                                                {move || if status.installed && status.logged_in && !status.skill_installed {
-                                                    view! {
-                                                        <button
-                                                            class="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--bg-elevated)] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] transition-colors disabled:opacity-50"
-                                                            disabled=is_loading
-                                                            on:click=move |_| {
-                                                                spawn_local(async move {
-                                                                    match claude_code_install_skill().await {
-                                                                        Ok(_) => {
-                                                                            show_success("Skill Installed", None);
-                                                                            refresh_claude_code_status();
-                                                                        }
-                                                                        Err(e) => show_error("Install Failed", Some(&e), None),
-                                                                    }
-                                                                });
-                                                            }
-                                                        >
-                                                            "Install Bridge Skill"
-                                                        </button>
-                                                    }.into_any()
-                                                } else {
-                                                    view! { <span></span> }.into_any()
-                                                }}
-                                            </div>
-                                        </div>
-                                    }.into_any()
-                                } else if selected_provider.get() == LLMProvider::GeminiCli {
-                                    // Gemini CLI status panel - capture signals for reactive updates
-                                    view! {
-                                        <div class="p-4 rounded-lg bg-[var(--bg-deep)] border border-[var(--border-subtle)] space-y-3">
-                                            // Status indicators
-                                            <div class="flex flex-wrap gap-2">
-                                                <div class=move || {
-                                                    let status = gemini_cli_status.get();
-                                                    format!(
-                                                        "flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium {}",
-                                                        if status.is_installed { "bg-green-500/20 text-green-400" } else { "bg-red-500/20 text-red-400" }
-                                                    )
-                                                }>
-                                                    <span class=move || {
-                                                        let status = gemini_cli_status.get();
-                                                        format!(
-                                                            "w-2 h-2 rounded-full {}",
-                                                            if status.is_installed { "bg-green-400" } else { "bg-red-400" }
-                                                        )
-                                                    }></span>
-                                                    {move || if gemini_cli_status.get().is_installed { "CLI Installed" } else { "CLI Not Installed" }}
-                                                </div>
-                                                <div class=move || {
-                                                    let status = gemini_cli_status.get();
-                                                    format!(
-                                                        "flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium {}",
-                                                        if status.is_authenticated { "bg-green-500/20 text-green-400" } else { "bg-yellow-500/20 text-yellow-400" }
-                                                    )
-                                                }>
-                                                    <span class=move || {
-                                                        let status = gemini_cli_status.get();
-                                                        format!(
-                                                            "w-2 h-2 rounded-full {}",
-                                                            if status.is_authenticated { "bg-green-400" } else { "bg-yellow-400" }
-                                                        )
-                                                    }></span>
-                                                    {move || if gemini_cli_status.get().is_authenticated { "Authenticated" } else { "Not Authenticated" }}
-                                                </div>
-                                                <div class=move || {
-                                                    let ext_status = gemini_cli_extension.get();
-                                                    format!(
-                                                        "flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium {}",
-                                                        if ext_status.is_installed { "bg-green-500/20 text-green-400" } else { "bg-gray-500/20 text-gray-400" }
-                                                    )
-                                                }>
-                                                    <span class=move || {
-                                                        let ext_status = gemini_cli_extension.get();
-                                                        format!(
-                                                            "w-2 h-2 rounded-full {}",
-                                                            if ext_status.is_installed { "bg-green-400" } else { "bg-gray-400" }
-                                                        )
-                                                    }></span>
-                                                    {move || if gemini_cli_extension.get().is_installed { "Extension Installed" } else { "Extension Not Installed" }}
-                                                </div>
-                                            </div>
-
-                                            // Status message
-                                            {move || {
-                                                let status = gemini_cli_status.get();
-                                                (!status.message.is_empty()).then(|| view! {
-                                                    <p class="text-xs text-[var(--text-muted)]">{status.message.clone()}</p>
-                                                })
-                                            }}
-
-                                            // Action buttons
-                                            <div class="flex flex-wrap gap-2 pt-2">
-                                                {move || {
-                                                    let status = gemini_cli_status.get();
-                                                    let is_loading = gemini_cli_loading.get();
-                                                    if !status.is_installed {
-                                                        view! {
-                                                            <a
-                                                                href="https://github.com/google-gemini/gemini-cli"
-                                                                target="_blank"
-                                                                rel="noopener noreferrer"
-                                                                class="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--accent-primary)] text-white hover:opacity-90 transition-opacity"
-                                                            >
-                                                                "Install Gemini CLI"
-                                                            </a>
-                                                        }.into_any()
-                                                    } else if !status.is_authenticated {
-                                                        view! {
-                                                            <button
-                                                                class="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--accent-primary)] text-white hover:opacity-90 transition-opacity disabled:opacity-50"
-                                                                disabled=is_loading
-                                                                on:click=move |_| {
-                                                                    spawn_local(async move {
-                                                                        match launch_gemini_cli_login().await {
-                                                                            Ok(_) => show_success("Launching Gemini CLI", Some("Opening terminal for authentication...")),
-                                                                            Err(e) => show_error("Launch Failed", Some(&e), None),
-                                                                        }
-                                                                    });
-                                                                }
-                                                            >
-                                                                "Login with Google"
-                                                            </button>
-                                                        }.into_any()
-                                                    } else {
-                                                        view! { <span></span> }.into_any()
-                                                    }
-                                                }}
-
-                                                <button
-                                                    class="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--bg-elevated)] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] transition-colors disabled:opacity-50"
-                                                    disabled=move || gemini_cli_loading.get()
-                                                    on:click=move |_| refresh_gemini_cli_status()
-                                                >
-                                                    {move || if gemini_cli_loading.get() { "Checking..." } else { "Refresh Status" }}
-                                                </button>
-
-                                                {move || {
-                                                    let status = gemini_cli_status.get();
-                                                    let ext_status = gemini_cli_extension.get();
-                                                    let is_loading = gemini_cli_loading.get();
-                                                    if status.is_installed && status.is_authenticated && !ext_status.is_installed {
-                                                        view! {
-                                                            <button
-                                                                class="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--bg-elevated)] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] transition-colors disabled:opacity-50"
-                                                                disabled=is_loading
-                                                                on:click=move |_| {
-                                                                    spawn_local(async move {
-                                                                        // Install extension from GitHub repository
-                                                                        match install_gemini_cli_extension(SIDECAR_DM_EXTENSION_URL.to_string()).await {
-                                                                            Ok(msg) => {
-                                                                                show_success("Extension Installed", Some(&msg));
-                                                                                refresh_gemini_cli_status();
-                                                                            }
-                                                                            Err(e) => show_error("Install Failed", Some(&e), None),
-                                                                        }
-                                                                    });
-                                                                }
-                                                            >
-                                                                "Install Sidecar DM Extension"
-                                                            </button>
-                                                        }.into_any()
-                                                    } else {
-                                                        view! { <span></span> }.into_any()
-                                                    }
-                                                }}
-                                            </div>
-                                        </div>
-                                    }.into_any()
-                                } else if selected_provider.get() == LLMProvider::ClaudeGate {
+                                if selected_provider.get() == LLMProvider::ClaudeGate {
                                     // Claude Gate OAuth panel - uses shared component
                                     view! {
                                         <div class="space-y-3">
@@ -971,8 +589,7 @@ pub fn LLMSettingsView() -> impl IntoView {
                                         <Input
                                             value=api_key_or_host
                                             placeholder=Signal::derive(move || selected_provider.get().placeholder_text().to_string())
-                                            r#type=Signal::derive(move || if matches!(selected_provider.get(), LLMProvider::Ollama | LLMProvider::ClaudeDesktop) { "text".to_string() } else { "password".to_string() })
-                                            disabled=Signal::derive(move || matches!(selected_provider.get(), LLMProvider::ClaudeDesktop))
+                                            r#type=Signal::derive(move || if matches!(selected_provider.get(), LLMProvider::Ollama) { "text".to_string() } else { "password".to_string() })
                                         />
                                     }.into_any()
                                 }
