@@ -48,6 +48,12 @@ use crate::core::personality::{
     NPCDialogueStyler, NarrationStyleManager, NarrationType, PersonalitySettings,
     ExtendedPersonalityPreview, PreviewResponse, NarrativeTone, VocabularyLevel,
     NarrativeStyle, VerbosityLevel, GenreConvention, PersonalityStore,
+    // Phase 4: Personality Extensions
+    SettingTemplate, SettingTemplateStore, TemplateLoader, GameplayContext,
+    BlendRule, BlendRuleStore, PersonalityBlender, GameplayContextDetector,
+    SessionStateSnapshot, ContextualPersonalityManager, ContextualPersonalityResult,
+    ContextDetectionResult, PersonalityId, BlendRuleId, TemplateId, BlendComponent,
+    PersonalityIndexManager, ContextualConfig, BlenderCacheStats, RuleCacheStats,
 };
 use crate::core::credentials::CredentialManager;
 use crate::core::audio::AudioVolumes;
@@ -436,6 +442,11 @@ pub struct AppState {
     pub vocabulary_manager: AsyncRwLock<Option<Arc<VocabularyBankManager>>>,
     // Setting Pack Loader for campaign setting customization
     pub setting_pack_loader: Arc<SettingPackLoader>,
+    // Phase 4: Personality Extensions
+    pub template_store: Arc<SettingTemplateStore>,
+    pub blend_rule_store: Arc<BlendRuleStore>,
+    pub personality_blender: Arc<PersonalityBlender>,
+    pub contextual_personality_manager: Arc<ContextualPersonalityManager>,
 }
 
 // Helper init for default state components
@@ -460,6 +471,11 @@ impl AppState {
         Arc<AsyncRwLock<crate::core::llm::LLMManager>>,
         Arc<ClaudeGateState>,
         Arc<SettingPackLoader>,
+        // Phase 4: Personality Extensions
+        Arc<SettingTemplateStore>,
+        Arc<BlendRuleStore>,
+        Arc<PersonalityBlender>,
+        Arc<ContextualPersonalityManager>,
     ) {
         let sidecar_config = MeilisearchConfig::default();
         let search_client = SearchClient::new(
@@ -478,6 +494,34 @@ impl AppState {
                     .expect("Failed to initialize Claude Gate with file storage"))
             }
         };
+
+        // Phase 4: Initialize Personality Extension components
+        let meilisearch_url = sidecar_config.url();
+        let meilisearch_key = sidecar_config.master_key.clone();
+
+        // Create shared index manager for personality extensions
+        let personality_index_manager = Arc::new(PersonalityIndexManager::new(
+            &meilisearch_url,
+            Some(&meilisearch_key),
+        ));
+
+        // Create template store using from_manager (synchronous)
+        let template_store = Arc::new(SettingTemplateStore::from_manager(
+            personality_index_manager.clone()
+        ));
+
+        // Create blend rule store (reuses shared index manager)
+        let blend_rule_store = Arc::new(BlendRuleStore::new(
+            personality_index_manager.clone()
+        ));
+
+        // Create personality blender and contextual manager
+        let personality_blender = Arc::new(PersonalityBlender::new());
+        let contextual_personality_manager = Arc::new(ContextualPersonalityManager::new(
+            personality_blender.clone(),
+            blend_rule_store.clone(),
+            personality_store.clone(),
+        ));
 
         (
             CampaignManager::new(),
@@ -502,6 +546,11 @@ impl AppState {
             Arc::new(AsyncRwLock::new(crate::core::llm::LLMManager::new())),
             claude_gate,
             Arc::new(SettingPackLoader::new()),
+            // Phase 4: Personality Extensions
+            template_store,
+            blend_rule_store,
+            personality_blender,
+            contextual_personality_manager,
         )
     }
 }
@@ -8037,6 +8086,558 @@ pub async fn claude_gate_list_models(
 
     log::info!("Claude Gate: Listed {} models", model_infos.len());
     Ok(model_infos)
+}
+
+// ============================================================================
+// Phase 4: Personality Extension Commands (TASK-PERS-014, TASK-PERS-015, TASK-PERS-016, TASK-PERS-017)
+// ============================================================================
+
+// ----------------------------------------------------------------------------
+// Request/Response Types for Personality Extensions
+// ----------------------------------------------------------------------------
+
+/// Request for applying a template to a campaign
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApplyTemplateRequest {
+    /// Template ID to apply
+    pub template_id: String,
+    /// Campaign ID to apply the template to
+    pub campaign_id: String,
+    /// Optional session ID for immediate application
+    #[serde(default)]
+    pub session_id: Option<String>,
+}
+
+/// Request for creating a template from an existing personality
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateTemplateFromPersonalityRequest {
+    /// Personality ID to create template from
+    pub personality_id: String,
+    /// Name for the new template
+    pub name: String,
+    /// Optional description
+    #[serde(default)]
+    pub description: Option<String>,
+    /// Optional game system
+    #[serde(default)]
+    pub game_system: Option<String>,
+    /// Optional setting name
+    #[serde(default)]
+    pub setting_name: Option<String>,
+}
+
+/// Request for setting a blend rule
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SetBlendRuleRequest {
+    /// Rule name
+    pub name: String,
+    /// Context this rule applies to (e.g., "combat_encounter")
+    pub context: String,
+    /// Campaign ID (None for global rules)
+    #[serde(default)]
+    pub campaign_id: Option<String>,
+    /// Blend components as [(personality_id, weight)]
+    pub components: Vec<BlendComponentInput>,
+    /// Priority (higher = evaluated first)
+    #[serde(default)]
+    pub priority: i32,
+    /// Optional description
+    #[serde(default)]
+    pub description: Option<String>,
+    /// Tags for categorization
+    #[serde(default)]
+    pub tags: Vec<String>,
+}
+
+/// Input for a blend component
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BlendComponentInput {
+    /// Personality ID
+    pub personality_id: String,
+    /// Weight (0.0-1.0)
+    pub weight: f32,
+}
+
+/// Request for context detection
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DetectContextRequest {
+    /// User input text to analyze
+    pub user_input: String,
+    /// Optional session state for enhanced detection
+    #[serde(default)]
+    pub session_state: Option<SessionStateSnapshot>,
+}
+
+/// Request for contextual personality lookup
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GetContextualPersonalityRequest {
+    /// Campaign ID
+    pub campaign_id: String,
+    /// User input text
+    pub user_input: String,
+    /// Optional session state
+    #[serde(default)]
+    pub session_state: Option<SessionStateSnapshot>,
+}
+
+/// Response for template preview
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TemplatePreviewResponse {
+    /// Template ID
+    pub id: String,
+    /// Template name
+    pub name: String,
+    /// Description
+    pub description: Option<String>,
+    /// Base profile ID
+    pub base_profile: String,
+    /// Game system
+    pub game_system: Option<String>,
+    /// Setting name
+    pub setting_name: Option<String>,
+    /// Whether it's a built-in template
+    pub is_builtin: bool,
+    /// Tags
+    pub tags: Vec<String>,
+    /// Number of vocabulary entries
+    pub vocabulary_count: usize,
+    /// Number of common phrases
+    pub phrase_count: usize,
+}
+
+impl From<SettingTemplate> for TemplatePreviewResponse {
+    fn from(template: SettingTemplate) -> Self {
+        Self {
+            id: template.id.to_string(),
+            name: template.name.clone(),
+            description: template.description.clone(),
+            base_profile: template.base_profile.to_string(),
+            game_system: template.game_system.clone(),
+            setting_name: template.setting_name.clone(),
+            is_builtin: template.is_builtin,
+            tags: template.tags.clone(),
+            vocabulary_count: template.vocabulary.len(),
+            phrase_count: template.common_phrases.len(),
+        }
+    }
+}
+
+/// Response for blend rule
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BlendRuleResponse {
+    /// Rule ID
+    pub id: String,
+    /// Rule name
+    pub name: String,
+    /// Description
+    pub description: Option<String>,
+    /// Context
+    pub context: String,
+    /// Priority
+    pub priority: i32,
+    /// Whether the rule is enabled
+    pub enabled: bool,
+    /// Whether it's a built-in rule
+    pub is_builtin: bool,
+    /// Campaign ID
+    pub campaign_id: Option<String>,
+    /// Blend weights
+    pub blend_weights: Vec<BlendComponentInput>,
+    /// Tags
+    pub tags: Vec<String>,
+}
+
+impl From<BlendRule> for BlendRuleResponse {
+    fn from(rule: BlendRule) -> Self {
+        Self {
+            id: rule.id.to_string(),
+            name: rule.name,
+            description: rule.description,
+            context: rule.context,
+            priority: rule.priority,
+            enabled: rule.enabled,
+            is_builtin: rule.is_builtin,
+            campaign_id: rule.campaign_id,
+            blend_weights: rule
+                .blend_weights
+                .into_iter()
+                .map(|(id, weight)| BlendComponentInput {
+                    personality_id: id.to_string(),
+                    weight,
+                })
+                .collect(),
+            tags: rule.tags,
+        }
+    }
+}
+
+// ----------------------------------------------------------------------------
+// TASK-PERS-014: Template Tauri Commands
+// ----------------------------------------------------------------------------
+
+/// List all personality templates
+#[tauri::command]
+pub async fn list_personality_templates(
+    state: State<'_, AppState>,
+) -> Result<Vec<TemplatePreviewResponse>, String> {
+    let templates = state.template_store.list_with_limit(1000).await.map_err(|e| e.to_string())?;
+    Ok(templates.into_iter().map(TemplatePreviewResponse::from).collect())
+}
+
+/// Filter templates by game system
+#[tauri::command]
+pub async fn filter_templates_by_game_system(
+    game_system: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<TemplatePreviewResponse>, String> {
+    let templates = state.template_store.filter_by_game_system(&game_system).await.map_err(|e| e.to_string())?;
+    Ok(templates.into_iter().map(TemplatePreviewResponse::from).collect())
+}
+
+/// Filter templates by setting name
+#[tauri::command]
+pub async fn filter_templates_by_setting(
+    setting_name: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<TemplatePreviewResponse>, String> {
+    let templates = state.template_store.filter_by_setting(&setting_name).await.map_err(|e| e.to_string())?;
+    Ok(templates.into_iter().map(TemplatePreviewResponse::from).collect())
+}
+
+/// Search personality templates by keyword
+#[tauri::command]
+pub async fn search_personality_templates(
+    query: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<TemplatePreviewResponse>, String> {
+    let templates = state.template_store.search_with_limit(&query, 100).await.map_err(|e| e.to_string())?;
+    Ok(templates.into_iter().map(TemplatePreviewResponse::from).collect())
+}
+
+/// Get template preview by ID
+#[tauri::command]
+pub async fn get_template_preview(
+    template_id: String,
+    state: State<'_, AppState>,
+) -> Result<Option<TemplatePreviewResponse>, String> {
+    let id = TemplateId::new(template_id);
+    let template = state.template_store.get(&id).await.map_err(|e| e.to_string())?;
+    Ok(template.map(TemplatePreviewResponse::from))
+}
+
+/// Apply a template to a campaign
+#[tauri::command]
+pub async fn apply_template_to_campaign(
+    request: ApplyTemplateRequest,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    let id = TemplateId::new(&request.template_id);
+
+    // Get the template
+    let template = state.template_store.get(&id).await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Template not found: {}", request.template_id))?;
+
+    // Get the base profile that the template extends
+    let base_profile = state.personality_store.get(template.base_profile.as_str())
+        .map_err(|e| format!("Base profile not found: {}", e))?;
+
+    // Convert template to profile by applying overrides to base
+    let profile = template.to_personality_profile(&base_profile);
+    let profile_id = profile.id.clone();
+
+    // Store the generated profile
+    state.personality_store.create(profile)
+        .map_err(|e| format!("Failed to store profile: {}", e))?;
+
+    log::info!(
+        "Applied template '{}' to campaign '{}', created profile '{}'",
+        template.name,
+        request.campaign_id,
+        profile_id
+    );
+
+    Ok(profile_id)
+}
+
+/// Create a template from an existing personality profile
+#[tauri::command]
+pub async fn create_template_from_personality(
+    request: CreateTemplateFromPersonalityRequest,
+    state: State<'_, AppState>,
+) -> Result<TemplatePreviewResponse, String> {
+    // Get the source personality
+    let profile = state.personality_store.get(&request.personality_id)
+        .map_err(|e| format!("Personality not found: {}", e))?;
+
+    // Create template from profile using the builder
+    let mut template = SettingTemplate::new(&request.name, PersonalityId::new(&request.personality_id));
+    template.description = request.description;
+    template.game_system = request.game_system;
+    template.setting_name = request.setting_name;
+
+    // Copy common phrases from the profile
+    template.common_phrases = profile.speech_patterns.common_phrases.clone();
+
+    // Copy tags
+    template.tags = profile.tags.clone();
+
+    // Save template
+    state.template_store.save(&template).await.map_err(|e| e.to_string())?;
+
+    log::info!("Created template '{}' from personality '{}'", template.name, request.personality_id);
+
+    Ok(TemplatePreviewResponse::from(template))
+}
+
+/// Export a personality template to YAML
+#[tauri::command]
+pub async fn export_personality_template(
+    template_id: String,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    let id = TemplateId::new(template_id);
+
+    let template = state.template_store.get(&id).await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| "Template not found".to_string())?;
+
+    // Convert to YAML
+    serde_yaml_ng::to_string(&template).map_err(|e| format!("YAML serialization failed: {}", e))
+}
+
+/// Import a personality template from YAML
+#[tauri::command]
+pub async fn import_personality_template(
+    yaml_content: String,
+    state: State<'_, AppState>,
+) -> Result<TemplatePreviewResponse, String> {
+    // Parse YAML
+    let template: SettingTemplate = serde_yaml_ng::from_str(&yaml_content)
+        .map_err(|e| format!("YAML parse failed: {}", e))?;
+
+    // Save template
+    state.template_store.save(&template).await.map_err(|e| e.to_string())?;
+
+    log::info!("Imported template '{}'", template.name);
+
+    Ok(TemplatePreviewResponse::from(template))
+}
+
+// ----------------------------------------------------------------------------
+// TASK-PERS-015: Blend Rule Tauri Commands
+// ----------------------------------------------------------------------------
+
+/// Set (create or update) a blend rule
+#[tauri::command]
+pub async fn set_blend_rule(
+    request: SetBlendRuleRequest,
+    state: State<'_, AppState>,
+) -> Result<BlendRuleResponse, String> {
+    // Build the blend rule
+    let mut rule = BlendRule::new(&request.name, &request.context);
+    rule.campaign_id = request.campaign_id;
+    rule.priority = request.priority;
+    rule.description = request.description;
+    rule.tags = request.tags;
+
+    // Add components
+    for comp in request.components {
+        rule = rule.with_component(PersonalityId::new(comp.personality_id), comp.weight);
+    }
+
+    // Normalize weights
+    rule.normalize_weights();
+
+    // Save rule
+    let saved = state.blend_rule_store.set_rule(rule).await.map_err(|e| e.to_string())?;
+
+    log::info!("Set blend rule '{}' for context '{}'", saved.name, saved.context);
+
+    Ok(BlendRuleResponse::from(saved))
+}
+
+/// Get a blend rule by campaign and context
+#[tauri::command]
+pub async fn get_blend_rule(
+    campaign_id: Option<String>,
+    context: String,
+    state: State<'_, AppState>,
+) -> Result<Option<BlendRuleResponse>, String> {
+    let ctx: GameplayContext = match context.parse() {
+        Ok(c) => c,
+        Err(e) => {
+            log::warn!("Failed to parse gameplay context '{}': {}. Defaulting to Unknown.", context, e);
+            GameplayContext::Unknown
+        }
+    };
+    let rule = state.blend_rule_store
+        .get_rule_for_context(campaign_id.as_deref(), &ctx)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(rule.map(BlendRuleResponse::from))
+}
+
+/// List blend rules for a campaign
+#[tauri::command]
+pub async fn list_blend_rules(
+    campaign_id: String,
+    state: State<'_, AppState>,
+) -> Result<Vec<BlendRuleResponse>, String> {
+    let rules = state.blend_rule_store
+        .list_by_campaign(&campaign_id, 1000)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(rules.into_iter().map(BlendRuleResponse::from).collect())
+}
+
+/// Delete a blend rule
+#[tauri::command]
+pub async fn delete_blend_rule(
+    rule_id: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let id = BlendRuleId::new(rule_id);
+    state.blend_rule_store.delete_rule(&id).await.map_err(|e| e.to_string())?;
+
+    log::info!("Deleted blend rule '{}'", id);
+
+    Ok(())
+}
+
+// ----------------------------------------------------------------------------
+// TASK-PERS-016: Context Detection Commands
+// ----------------------------------------------------------------------------
+
+/// Detect gameplay context from input
+#[tauri::command]
+pub async fn detect_gameplay_context(
+    request: DetectContextRequest,
+    state: State<'_, AppState>,
+) -> Result<ContextDetectionResult, String> {
+    let result = state.contextual_personality_manager
+        .detect_context(&request.user_input, request.session_state.as_ref())
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(result)
+}
+
+// ----------------------------------------------------------------------------
+// TASK-PERS-017: Contextual Personality Commands
+// ----------------------------------------------------------------------------
+
+/// Get contextual personality for a session
+///
+/// Combines context detection, blend rule lookup, and personality blending
+/// to return the appropriate personality for the current conversation context.
+#[tauri::command]
+pub async fn get_contextual_personality(
+    request: GetContextualPersonalityRequest,
+    state: State<'_, AppState>,
+) -> Result<ContextualPersonalityResult, String> {
+    let result = state.contextual_personality_manager
+        .get_contextual_personality(
+            &request.campaign_id,
+            request.session_state.as_ref(),
+            &request.user_input,
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(result)
+}
+
+/// Get the current smoothed context without applying blend rules
+#[tauri::command]
+pub async fn get_current_context(
+    state: State<'_, AppState>,
+) -> Result<Option<String>, String> {
+    let context = state.contextual_personality_manager.current_context().await;
+    Ok(context.map(|c| c.as_str().to_string()))
+}
+
+/// Clear context detection history for a fresh start
+#[tauri::command]
+pub async fn clear_context_history(
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    state.contextual_personality_manager.clear_context_history().await;
+    log::info!("Cleared context detection history");
+    Ok(())
+}
+
+/// Get contextual personality configuration
+#[tauri::command]
+pub async fn get_contextual_personality_config(
+    state: State<'_, AppState>,
+) -> Result<ContextualConfig, String> {
+    Ok(state.contextual_personality_manager.config().await)
+}
+
+/// Update contextual personality configuration
+#[tauri::command]
+pub async fn set_contextual_personality_config(
+    config: ContextualConfig,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    state.contextual_personality_manager.set_config(config).await;
+    log::info!("Updated contextual personality configuration");
+    Ok(())
+}
+
+/// Get personality blender cache statistics
+#[tauri::command]
+pub async fn get_blender_cache_stats(
+    state: State<'_, AppState>,
+) -> Result<BlenderCacheStats, String> {
+    Ok(state.personality_blender.cache_stats().await)
+}
+
+/// Get blend rule cache statistics
+#[tauri::command]
+pub async fn get_blend_rule_cache_stats(
+    state: State<'_, AppState>,
+) -> Result<RuleCacheStats, String> {
+    Ok(state.blend_rule_store.cache_stats().await)
+}
+
+/// List all gameplay context types
+#[tauri::command]
+pub fn list_gameplay_contexts() -> Vec<GameplayContextInfo> {
+    GameplayContext::all_defined()
+        .into_iter()
+        .map(|ctx| GameplayContextInfo {
+            id: ctx.as_str().to_string(),
+            name: ctx.display_name().to_string(),
+            description: ctx.description().to_string(),
+            is_combat_related: ctx.is_combat_related(),
+        })
+        .collect()
+}
+
+/// Info about a gameplay context for the frontend
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GameplayContextInfo {
+    /// Context ID (e.g., "combat_encounter")
+    pub id: String,
+    /// Display name (e.g., "Combat Encounter")
+    pub name: String,
+    /// Description of when this context applies
+    pub description: String,
+    /// Whether this is a combat-related context
+    pub is_combat_related: bool,
 }
 
 // ============================================================================
