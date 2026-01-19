@@ -565,14 +565,14 @@ impl ResolvedArchetype {
     pub fn primary_naming_culture(&self) -> Option<&NamingCultureWeight> {
         self.naming_cultures
             .iter()
-            .max_by(|a, b| a.weight.partial_cmp(&b.weight).unwrap_or(std::cmp::Ordering::Equal))
+            .max_by(|a, b| a.weight.total_cmp(&b.weight))
     }
 
     /// Get the primary (highest weight) NPC role.
     pub fn primary_role(&self) -> Option<&NpcRoleMapping> {
         self.npc_role_mapping
             .iter()
-            .max_by(|a, b| a.weight.partial_cmp(&b.weight).unwrap_or(std::cmp::Ordering::Equal))
+            .max_by(|a, b| a.weight.total_cmp(&b.weight))
     }
 
     /// Builder method to set metadata.
