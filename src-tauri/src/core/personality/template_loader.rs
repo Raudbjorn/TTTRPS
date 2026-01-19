@@ -337,7 +337,7 @@ impl TemplateLoader {
 
         log::info!(
             "Loaded {} templates from {}, {} errors",
-            result.success_count(),
+            result.templates_loaded(),
             dir.display(),
             result.error_count()
         );
@@ -721,7 +721,7 @@ base_profile: default
         // Should have processed 2 YAML files
         assert_eq!(result.files_processed, 2);
         // One should have loaded successfully
-        assert_eq!(result.success_count(), 1);
+        assert_eq!(result.templates_loaded(), 1);
         // One should have failed
         assert_eq!(result.error_count(), 1);
     }
@@ -759,7 +759,7 @@ base_profile: default
 
         // Load from user directory
         let result = loader.load_user_templates().await.unwrap();
-        assert_eq!(result.success_count(), 1);
+        assert_eq!(result.templates_loaded(), 1);
         assert_eq!(result.templates[0].name, "Test Template");
 
         // Delete the template
@@ -795,7 +795,7 @@ base_profile: default
         let mut result = TemplateLoadResult::new("/test/path");
 
         assert!(result.is_success());
-        assert_eq!(result.success_count(), 0);
+        assert_eq!(result.templates_loaded(), 0);
         assert_eq!(result.error_count(), 0);
 
         result.errors.push(LoadError {
