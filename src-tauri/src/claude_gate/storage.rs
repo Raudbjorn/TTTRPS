@@ -8,6 +8,10 @@ use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::Arc;
+#[cfg(feature = "keyring")]
+use std::sync::Mutex;
+#[cfg(feature = "keyring")]
+use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use tokio::sync::RwLock;
@@ -919,10 +923,23 @@ pub struct KeyringTokenStorage {
 
 #[cfg(feature = "keyring")]
 impl KeyringTokenStorage {
+    /// Default service name for token storage.
+    const DEFAULT_SERVICE: &'static str = "claude-gate";
+    /// Default user/account name for token storage.
+    const DEFAULT_USER: &'static str = "anthropic";
+    /// Service name used for availability testing (separate from token storage).
+    const AVAILABILITY_TEST_SERVICE: &'static str = "claude-gate-availability-test";
+    /// User name used for availability testing.
+    const AVAILABILITY_TEST_USER: &'static str = "test";
+    /// Test value written during availability check.
+    const AVAILABILITY_TEST_VALUE: &'static str = "availability-check";
+    /// How long to cache the availability check result (avoids repeated D-Bus calls).
+    const AVAILABILITY_CACHE_DURATION: Duration = Duration::from_secs(60);
+
     /// Create a new keyring storage with the default service name.
     #[must_use]
     pub fn new() -> Self {
-        Self::with_service("claude-gate")
+        Self::with_service(Self::DEFAULT_SERVICE)
     }
 
     /// Create a new keyring storage with a custom service name.
@@ -930,14 +947,112 @@ impl KeyringTokenStorage {
     pub fn with_service(service: impl Into<String>) -> Self {
         Self {
             service: service.into(),
-            user: "anthropic".to_string(),
+            user: Self::DEFAULT_USER.to_string(),
         }
     }
 
     /// Check if the keyring is available on this system.
+    ///
+    /// This performs actual keyring read AND write operations to verify the secret
+    /// service is fully accessible. Simply creating an Entry doesn't test the D-Bus
+    /// connection, and some systems allow reads but not writes (or vice versa).
+    ///
+    /// The result is cached for 60 seconds to avoid repeated D-Bus roundtrips,
+    /// which can be slow or hang in misconfigured environments.
+    ///
+    /// The test writes a temporary value, reads it back, and cleans up.
     pub fn is_available() -> bool {
-        // Try to create an entry and check if it works
-        keyring::Entry::new("claude-gate-test", "test").is_ok()
+        // Cache structure: (result, timestamp)
+        static CACHE: Mutex<Option<(bool, Instant)>> = Mutex::new(None);
+
+        // Check cache first
+        if let Ok(cache) = CACHE.lock() {
+            if let Some((result, timestamp)) = *cache {
+                if timestamp.elapsed() < Self::AVAILABILITY_CACHE_DURATION {
+                    tracing::debug!(
+                        target: "claude_gate::keyring",
+                        cached = true,
+                        available = result,
+                        "is_available: returning cached result"
+                    );
+                    return result;
+                }
+            }
+        }
+
+        // Perform the actual availability check
+        let result = Self::check_availability_impl();
+
+        // Update cache
+        if let Ok(mut cache) = CACHE.lock() {
+            *cache = Some((result, Instant::now()));
+        }
+
+        result
+    }
+
+    /// Internal implementation of the availability check (not cached).
+    fn check_availability_impl() -> bool {
+        // Try to create an entry for testing
+        let entry = match keyring::Entry::new(Self::AVAILABILITY_TEST_SERVICE, Self::AVAILABILITY_TEST_USER) {
+            Ok(e) => e,
+            Err(e) => {
+                tracing::debug!(
+                    target: "claude_gate::keyring",
+                    error = %e,
+                    service = Self::AVAILABILITY_TEST_SERVICE,
+                    "is_available: entry creation failed"
+                );
+                return false;
+            }
+        };
+
+        // Test write access - this is where most failures occur (D-Bus errors, etc.)
+        if let Err(e) = entry.set_password(Self::AVAILABILITY_TEST_VALUE) {
+            tracing::debug!(
+                target: "claude_gate::keyring",
+                error = %e,
+                service = Self::AVAILABILITY_TEST_SERVICE,
+                "is_available: write test failed"
+            );
+            return false;
+        }
+
+        // Test read access and verify the value
+        match entry.get_password() {
+            Ok(value) if value == Self::AVAILABILITY_TEST_VALUE => {
+                // Success - clean up the test entry
+                let _ = entry.delete_password();
+                tracing::debug!(
+                    target: "claude_gate::keyring",
+                    available = true,
+                    "is_available: keyring is fully functional"
+                );
+                true
+            }
+            Ok(unexpected) => {
+                // Unexpected value - keyring may be corrupted or shared
+                let _ = entry.delete_password();
+                tracing::debug!(
+                    target: "claude_gate::keyring",
+                    expected = Self::AVAILABILITY_TEST_VALUE,
+                    actual = %unexpected,
+                    "is_available: read returned unexpected value"
+                );
+                false
+            }
+            Err(e) => {
+                // Read failed - clean up and return false
+                let _ = entry.delete_password();
+                tracing::debug!(
+                    target: "claude_gate::keyring",
+                    error = %e,
+                    service = Self::AVAILABILITY_TEST_SERVICE,
+                    "is_available: read test failed"
+                );
+                false
+            }
+        }
     }
 
     fn entry(&self) -> Result<keyring::Entry> {
