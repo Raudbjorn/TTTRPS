@@ -64,20 +64,19 @@ use crate::core::session::notes::{
 // Archetype Registry imports
 use crate::core::archetype::{
     // Core types
-    Archetype, ArchetypeCategory, ArchetypeId, ArchetypeSummary,
+    Archetype, ArchetypeCategory,
     // Registry
     ArchetypeRegistry,
     // Resolution
-    ResolutionQuery, ResolvedArchetype, ResolutionMetadata,
+    ResolutionQuery, ResolvedArchetype,
     // Setting packs
-    SettingPack, SettingPackSummary, ArchetypeOverride,
     // Vocabulary
     VocabularyBank, VocabularyBankManager, VocabularyBankSummary,
     PhraseFilterOptions, BankListFilter,
     // Component types
     PersonalityAffinity, NpcRoleMapping, NamingCultureWeight, StatTendencies,
     // Cache
-    CacheStats as ArchetypeCacheStats,
+    // Cache
     // Setting pack loader
     SettingPackLoader,
 };
@@ -3400,8 +3399,6 @@ async fn ingest_document_with_progress_internal(
 ) -> Result<IngestResult, String> {
     use tauri::Emitter;
     use crate::core::meilisearch_pipeline::MeilisearchPipeline;
-    use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::sync::Arc;
 
     let path_buf = std::path::PathBuf::from(&path);
     if !path_buf.exists() {
@@ -7201,7 +7198,7 @@ pub async fn configure_chat_workspace(
 
     // Ensure Meilisearch client is configured
     {
-        let manager_guard = manager.read().await;
+        let _manager_guard = manager.read().await;
         // We can't access chat_client easily to check if it's set without lock,
         // but set_chat_client handles it.
     }
@@ -7547,7 +7544,7 @@ pub async fn list_active_ttrpg_ingestion_jobs(
 // Extraction Settings Commands
 // ============================================================================
 
-use crate::ingestion::{ExtractionSettings, TokenReductionLevel, OcrBackend, SupportedFormats};
+use crate::ingestion::{ExtractionSettings, SupportedFormats};
 
 /// Get current extraction settings
 #[tauri::command]
