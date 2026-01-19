@@ -8,6 +8,7 @@ pub mod campaign;
 pub mod credentials;
 pub mod personality_base;
 pub mod personality;
+pub mod archetype;
 pub mod session_manager;
 pub mod character_gen;
 pub mod npc_gen;
@@ -52,5 +53,3 @@ pub mod security;
 // Session sub-modules (TASK-014, TASK-015, TASK-017)
 pub mod session;
 
-// Claude Desktop CDP bridge
-pub mod claude_cdp;

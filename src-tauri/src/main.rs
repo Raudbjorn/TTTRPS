@@ -40,7 +40,9 @@ fn main() {
             }
 
             // Initialize managers (Meilisearch-based)
-            let (cm, sm, ns, creds, vm, sidecar_manager, search_client, personality_store, personality_manager, pipeline, _llm_router, version_manager, world_state_manager, relationship_manager, location_manager, claude_desktop_manager, llm_manager, claude_gate) =
+            let (cm, sm, ns, creds, vm, sidecar_manager, search_client, personality_store, personality_manager, pipeline, _llm_router, version_manager, world_state_manager, relationship_manager, location_manager, claude_desktop_manager, llm_manager, claude_gate, setting_pack_loader,
+                // Phase 4: Personality Extensions
+                template_store, blend_rule_store, personality_blender, contextual_personality_manager) =
                 commands::AppState::init_defaults();
 
             // Initialize Database
@@ -102,7 +104,7 @@ fn main() {
                 credentials: creds,
                 voice_manager,
                 sidecar_manager: sidecar_manager.clone(),
-                search_client,
+                search_client: search_client.clone(),
                 personality_store,
                 personality_manager,
                 ingestion_pipeline: pipeline,
@@ -115,20 +117,65 @@ fn main() {
                 llm_manager: llm_manager.clone(), // Clone for auto-configure block
                 extraction_settings: tokio::sync::RwLock::new(ingestion::ExtractionSettings::default()),
                 claude_gate,
+                // Archetype Registry fields - initialized lazily after Meilisearch starts
+                archetype_registry: tokio::sync::RwLock::new(None), // Initialized after Meilisearch is ready
+                vocabulary_manager: tokio::sync::RwLock::new(None), // Initialized after Meilisearch is ready
+                setting_pack_loader,
+                // Phase 4: Personality Extensions
+                template_store,
+                blend_rule_store,
+                personality_blender,
+                contextual_personality_manager,
             });
 
-            // Start LLM proxy service for OpenAI-compatible API
-            let llm_manager_proxy = llm_manager.clone();
+            // Initialize Archetype Registry after Meilisearch starts
+            let sc_for_archetype = search_client;
+            let app_handle_for_archetype = app.handle().clone();
             tauri::async_runtime::spawn(async move {
-                match llm_manager_proxy.write().await.ensure_proxy().await {
-                    Ok(url) => {
-                        log::info!("LLM proxy service started at {}", url);
+                // Wait for Meilisearch to be ready
+                if sc_for_archetype.wait_for_health(15).await {
+                    // Get the Meilisearch config to create the client
+                    let config = ttrpg_assistant::core::sidecar_manager::MeilisearchConfig::default();
+                    let meili_client = match meilisearch_sdk::client::Client::new(
+                        &config.url(),
+                        Some(&config.master_key),
+                    ) {
+                        Ok(client) => client,
+                        Err(e) => {
+                            log::error!("Failed to create Meilisearch client for archetypes: {}", e);
+                            return;
+                        }
+                    };
+
+                    // Initialize the archetype registry
+                    match ttrpg_assistant::core::archetype::ArchetypeRegistry::new(meili_client.clone()).await {
+                        Ok(registry) => {
+                            log::info!("Archetype registry initialized");
+                            // Update the AppState with the registry
+                            if let Some(app_state) = app_handle_for_archetype.try_state::<commands::AppState>() {
+                                *app_state.archetype_registry.write().await = Some(std::sync::Arc::new(registry));
+                                log::info!("Archetype registry stored in AppState");
+                            }
+                        }
+                        Err(e) => {
+                            log::error!("Failed to initialize archetype registry: {}", e);
+                        }
                     }
-                    Err(e) => {
-                        log::error!("Failed to start LLM proxy service: {}", e);
+
+                    // Initialize the vocabulary manager (not async)
+                    let manager = ttrpg_assistant::core::archetype::VocabularyBankManager::with_meilisearch(meili_client);
+                    let count = manager.count().await;
+                    log::info!("Vocabulary manager initialized with {} banks", count);
+                    // Update the AppState with the manager
+                    if let Some(app_state) = app_handle_for_archetype.try_state::<commands::AppState>() {
+                        *app_state.vocabulary_manager.write().await = Some(std::sync::Arc::new(manager));
+                        log::info!("Vocabulary manager stored in AppState");
                     }
+                } else {
+                    log::warn!("Meilisearch not ready after 15 seconds - archetype registry not initialized");
                 }
             });
+
 
             // Initialize Meilisearch Chat Client (fixes "Meilisearch chat client not configured" error)
             let sidecar_config = sidecar_manager.config().clone();
@@ -523,28 +570,11 @@ fn main() {
             commands::claude_desktop_send_message,
             commands::configure_claude_desktop,
 
-            // Claude Code CLI Commands
-            commands::get_claude_code_status,
-            commands::claude_code_login,
-            commands::claude_code_logout,
-            commands::claude_code_install_skill,
-            commands::claude_code_install_cli,
-
-            // Gemini CLI Status & Extension Commands
-            commands::check_gemini_cli_status,
-            commands::launch_gemini_cli_login,
-            commands::check_gemini_cli_extension,
-            commands::install_gemini_cli_extension,
-            commands::link_gemini_cli_extension,
-            commands::uninstall_gemini_cli_extension,
 
             // Meilisearch Chat Provider Commands
             commands::list_chat_providers,
             commands::configure_chat_workspace,
             commands::get_chat_workspace_settings,
-            commands::is_llm_proxy_running,
-            commands::get_llm_proxy_url,
-            commands::list_proxy_providers,
             commands::configure_meilisearch_chat,
             commands::get_current_proxy_provider,
 
@@ -585,8 +615,69 @@ fn main() {
             commands::claude_gate_set_storage_backend,
             commands::claude_gate_list_models,
 
+            // Phase 4: Personality Extension Commands (TASK-PERS-014, TASK-PERS-015, TASK-PERS-016, TASK-PERS-017)
+            // Template Commands
+            commands::list_personality_templates,
+            commands::filter_templates_by_game_system,
+            commands::filter_templates_by_setting,
+            commands::search_personality_templates,
+            commands::get_template_preview,
+            commands::apply_template_to_campaign,
+            commands::create_template_from_personality,
+            commands::export_personality_template,
+            commands::import_personality_template,
+            // Blend Rule Commands
+            commands::set_blend_rule,
+            commands::get_blend_rule,
+            commands::list_blend_rules,
+            commands::delete_blend_rule,
+            // Context Detection Commands
+            commands::detect_gameplay_context,
+            commands::list_gameplay_contexts,
+            // Contextual Personality Commands
+            commands::get_contextual_personality,
+            commands::get_current_context,
+            commands::clear_context_history,
+            commands::get_contextual_personality_config,
+            commands::set_contextual_personality_config,
+            commands::get_blender_cache_stats,
+            commands::get_blend_rule_cache_stats,
+
             // Utility Commands
             commands::open_url_in_browser,
+
+            // Archetype Registry Commands (TASK-ARCH-060)
+            commands::create_archetype,
+            commands::get_archetype,
+            commands::list_archetypes,
+            commands::update_archetype,
+            commands::delete_archetype,
+            commands::archetype_exists,
+            commands::count_archetypes,
+
+            // Vocabulary Bank Commands (TASK-ARCH-061)
+            commands::create_vocabulary_bank,
+            commands::get_vocabulary_bank,
+            commands::list_vocabulary_banks,
+            commands::update_vocabulary_bank,
+            commands::delete_vocabulary_bank,
+            commands::get_phrases,
+
+            // Setting Pack Commands (TASK-ARCH-062)
+            commands::load_setting_pack,
+            commands::list_setting_packs,
+            commands::get_setting_pack,
+            commands::activate_setting_pack,
+            commands::deactivate_setting_pack,
+            commands::get_active_setting_pack,
+            commands::get_setting_pack_versions,
+
+            // Archetype Resolution Commands (TASK-ARCH-063)
+            commands::resolve_archetype,
+            commands::resolve_for_npc,
+            commands::get_archetype_cache_stats,
+            commands::clear_archetype_cache,
+            commands::is_archetype_registry_ready,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
