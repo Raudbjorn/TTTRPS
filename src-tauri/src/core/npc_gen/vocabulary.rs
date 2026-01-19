@@ -521,7 +521,7 @@ impl VocabularyBank {
             });
         }
 
-        // Check for invalid frequency values
+        // Check for invalid frequency values across all phrase categories
         for phrase in self.greetings.all_phrases() {
             if !(0.0..=1.0).contains(&phrase.frequency) {
                 return Err(VocabularyError::InvalidStructure {
@@ -529,6 +529,66 @@ impl VocabularyBank {
                     reason: format!(
                         "Invalid frequency {} in greeting phrase",
                         phrase.frequency
+                    ),
+                });
+            }
+        }
+
+        for phrase in self.farewells.all_phrases() {
+            if !(0.0..=1.0).contains(&phrase.frequency) {
+                return Err(VocabularyError::InvalidStructure {
+                    bank_id: self.id.clone(),
+                    reason: format!(
+                        "Invalid frequency {} in farewell phrase",
+                        phrase.frequency
+                    ),
+                });
+            }
+        }
+
+        for phrase in &self.exclamations {
+            if !(0.0..=1.0).contains(&phrase.frequency) {
+                return Err(VocabularyError::InvalidStructure {
+                    bank_id: self.id.clone(),
+                    reason: format!(
+                        "Invalid frequency {} in exclamation phrase",
+                        phrase.frequency
+                    ),
+                });
+            }
+        }
+
+        for phrase in &self.negotiation {
+            if !(0.0..=1.0).contains(&phrase.frequency) {
+                return Err(VocabularyError::InvalidStructure {
+                    bank_id: self.id.clone(),
+                    reason: format!(
+                        "Invalid frequency {} in negotiation phrase",
+                        phrase.frequency
+                    ),
+                });
+            }
+        }
+
+        for phrase in &self.combat {
+            if !(0.0..=1.0).contains(&phrase.frequency) {
+                return Err(VocabularyError::InvalidStructure {
+                    bank_id: self.id.clone(),
+                    reason: format!(
+                        "Invalid frequency {} in combat phrase",
+                        phrase.frequency
+                    ),
+                });
+            }
+        }
+
+        for pattern in &self.speech_patterns {
+            if !(0.0..=1.0).contains(&pattern.frequency) {
+                return Err(VocabularyError::InvalidStructure {
+                    bank_id: self.id.clone(),
+                    reason: format!(
+                        "Invalid frequency {} in speech pattern",
+                        pattern.frequency
                     ),
                 });
             }

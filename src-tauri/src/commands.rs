@@ -38,10 +38,9 @@ use crate::core::npc_gen::{NPCGenerator, NPCGenerationOptions, NPC, NPCStore};
 use crate::core::npc_gen::{
     VocabularyBank, Formality, PhraseEntry,
     CulturalNamingRules, NameStructure,
-    Gender as NpcGender,
     DialectDefinition, DialectTransformer, DialectTransformResult, Intensity,
     load_yaml_file, get_vocabulary_dir, get_names_dir, get_dialects_dir,
-    NpcIndexStats, ensure_npc_indexes, get_npc_index_stats, clear_npc_indexes,
+    NpcIndexStats, ensure_npc_indexes, get_npc_index_stats,
 };
 use crate::core::location_gen::{LocationGenerator, LocationGenerationOptions, Location};
 use crate::core::personality::{
@@ -2976,10 +2975,10 @@ pub async fn get_npc_indexes_stats(
 
 /// Clear NPC indexes
 #[tauri::command]
-pub async fn clear_npc_indexes_cmd(
+pub async fn clear_npc_indexes(
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    clear_npc_indexes(state.search_client.get_client())
+    crate::core::npc_gen::clear_npc_indexes(state.search_client.get_client())
         .await
         .map_err(|e| e.to_string())
 }

@@ -170,7 +170,7 @@ impl PhoneticRule {
         let flags = if self.case_sensitive { "" } else { "(?i)" };
         let full_pattern = format!("{}{}", flags, pattern);
 
-        Regex::new(&full_pattern).map_err(|e| DialectError::invalid_regex(&self.id, &self.id, e))
+        Regex::new(&full_pattern).map_err(|e| DialectError::invalid_regex("unknown", &self.id, e))
     }
 
     /// Check if this rule should be applied based on frequency and intensity.
@@ -256,7 +256,7 @@ impl GrammaticalRule {
 
     /// Build the regex pattern for this rule.
     pub fn build_pattern(&self) -> Result<Regex, DialectError> {
-        Regex::new(&self.pattern).map_err(|e| DialectError::invalid_regex(&self.id, &self.id, e))
+        Regex::new(&self.pattern).map_err(|e| DialectError::invalid_regex("unknown", &self.id, e))
     }
 
     /// Check if this rule should be applied based on frequency and intensity.
@@ -680,9 +680,13 @@ impl DialectTransformer {
 
         for (word, alternatives) in &self.dialect.vocabulary_replacements {
             if let Some(replacement) = alternatives.choose(rng) {
-                // Simple word replacement (case-insensitive)
-                let pattern = format!(r"(?i)\b{}\b", regex::escape(word));
-                if let Ok(re) = Regex::new(&pattern) {
+                // Use the pattern cache for vocabulary replacements to improve performance
+                let cache_key = format!("vocab:{}", word);
+                if let Ok(re) = self.get_or_compile_pattern(&cache_key, || {
+                    let pattern_str = format!(r"(?i)\b{}\b", regex::escape(word));
+                    Regex::new(&pattern_str)
+                        .map_err(|e| DialectError::invalid_regex(&self.dialect.id, &cache_key, e))
+                }) {
                     result = re.replace_all(&result, replacement.as_str()).into_owned();
                 }
             }
@@ -701,20 +705,20 @@ impl DialectTransformer {
         F: FnOnce() -> Result<Regex, DialectError>,
     {
         // Check read cache first
-        {
-            let cache = PATTERN_CACHE.read().unwrap();
-            if let Some(pattern) = cache.get(cache_key) {
-                return Ok(pattern.clone());
-            }
+        if let Some(pattern) = PATTERN_CACHE.read().unwrap().get(cache_key) {
+            return Ok(pattern.clone());
+        }
+
+        // Acquire write lock
+        let mut cache = PATTERN_CACHE.write().unwrap();
+        // Double-check in case another thread compiled it while waiting for write lock
+        if let Some(pattern) = cache.get(cache_key) {
+            return Ok(pattern.clone());
         }
 
         // Compile and cache
         let pattern = compile()?;
-        {
-            let mut cache = PATTERN_CACHE.write().unwrap();
-            cache.insert(cache_key.to_string(), pattern.clone());
-        }
-
+        cache.insert(cache_key.to_string(), pattern.clone());
         Ok(pattern)
     }
 
@@ -889,7 +893,7 @@ mod tests {
         let mut invalid_regex = DialectDefinition::new("invalid");
         invalid_regex.grammatical_rules.push(GrammaticalRule::new(
             "bad",
-            r"(?P<unclosed",  // Invalid regex - unclosed named capture group
+            r"(?P<unclosed",  // Invalid regex - named capture group is missing closing '>' and pattern
             "replacement",
         ));
         assert!(invalid_regex.validate().is_err());

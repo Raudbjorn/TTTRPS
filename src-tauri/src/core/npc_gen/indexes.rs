@@ -312,23 +312,72 @@ pub async fn get_npc_index_stats(client: &Client) -> Result<NpcIndexStats, Strin
     let mut stats = NpcIndexStats::default();
 
     // Get vocabulary phrase count
-    if let Ok(index) = client.get_index(INDEX_VOCABULARY_BANKS).await {
-        if let Ok(index_stats) = index.get_stats().await {
-            stats.vocabulary_phrase_count = index_stats.number_of_documents as u64;
+    match client.get_index(INDEX_VOCABULARY_BANKS).await {
+        Ok(index) => match index.get_stats().await {
+            Ok(index_stats) => {
+                stats.vocabulary_phrase_count = index_stats.number_of_documents as u64;
+            }
+            Err(e) => {
+                log::warn!(
+                    "Failed to get stats for index '{}': {}",
+                    INDEX_VOCABULARY_BANKS,
+                    e
+                );
+            }
+        },
+        Err(e) => {
+            // Log but don't fail - index may not exist yet
+            log::debug!(
+                "Index '{}' not found or inaccessible: {}",
+                INDEX_VOCABULARY_BANKS,
+                e
+            );
         }
     }
 
     // Get name component count
-    if let Ok(index) = client.get_index(INDEX_NAME_COMPONENTS).await {
-        if let Ok(index_stats) = index.get_stats().await {
-            stats.name_component_count = index_stats.number_of_documents as u64;
+    match client.get_index(INDEX_NAME_COMPONENTS).await {
+        Ok(index) => match index.get_stats().await {
+            Ok(index_stats) => {
+                stats.name_component_count = index_stats.number_of_documents as u64;
+            }
+            Err(e) => {
+                log::warn!(
+                    "Failed to get stats for index '{}': {}",
+                    INDEX_NAME_COMPONENTS,
+                    e
+                );
+            }
+        },
+        Err(e) => {
+            log::debug!(
+                "Index '{}' not found or inaccessible: {}",
+                INDEX_NAME_COMPONENTS,
+                e
+            );
         }
     }
 
     // Get exclamation template count
-    if let Ok(index) = client.get_index(INDEX_EXCLAMATION_TEMPLATES).await {
-        if let Ok(index_stats) = index.get_stats().await {
-            stats.exclamation_template_count = index_stats.number_of_documents as u64;
+    match client.get_index(INDEX_EXCLAMATION_TEMPLATES).await {
+        Ok(index) => match index.get_stats().await {
+            Ok(index_stats) => {
+                stats.exclamation_template_count = index_stats.number_of_documents as u64;
+            }
+            Err(e) => {
+                log::warn!(
+                    "Failed to get stats for index '{}': {}",
+                    INDEX_EXCLAMATION_TEMPLATES,
+                    e
+                );
+            }
+        },
+        Err(e) => {
+            log::debug!(
+                "Index '{}' not found or inaccessible: {}",
+                INDEX_EXCLAMATION_TEMPLATES,
+                e
+            );
         }
     }
 
