@@ -523,21 +523,7 @@ pub enum ChatProviderConfig {
         #[serde(default)]
         model: Option<String>,
     },
-    /// Claude Code CLI (via proxy, no API key needed)
-    ClaudeCode {
-        #[serde(default)]
-        timeout_secs: Option<u64>,
-        #[serde(default)]
-        model: Option<String>,
-    },
-    /// Claude Desktop CDP (via proxy, no API key needed)
-    ClaudeDesktop {
-        #[serde(default)]
-        port: Option<u16>,
-        #[serde(default)]
-        timeout_secs: Option<u64>,
-    },
-    /// Claude Gate OAuth (via proxy, no API key needed - uses OAuth tokens)
+    /// Claude OAuth (via proxy, no API key needed - uses OAuth tokens)
     ClaudeGate {
         model: String,
         #[serde(default)]
@@ -561,9 +547,7 @@ impl ChatProviderConfig {
             ChatProviderConfig::Cohere { .. } => "cohere",
             ChatProviderConfig::DeepSeek { .. } => "deepseek",
             ChatProviderConfig::Grok { .. } => "grok",
-            ChatProviderConfig::ClaudeCode { .. } => "claude-code",
-            ChatProviderConfig::ClaudeDesktop { .. } => "claude-desktop",
-            ChatProviderConfig::ClaudeGate { .. } => "claude-gate",
+            ChatProviderConfig::ClaudeGate { .. } => "claude",
         }
     }
 
@@ -607,15 +591,8 @@ impl ChatProviderConfig {
             ChatProviderConfig::Grok { model, .. } => {
                 model.as_deref().unwrap_or(GROK_DEFAULT_MODEL)
             }
-            ChatProviderConfig::ClaudeCode { model, .. } => {
-                return format!(
-                    "claude-code:{}",
-                    model.clone().unwrap_or_else(|| model_selector().select_model_sync())
-                );
-            }
-            ChatProviderConfig::ClaudeDesktop { .. } => "claude-desktop",
             ChatProviderConfig::ClaudeGate { model, .. } => {
-                return format!("claude-gate:{}", model);
+                return format!("claude:{}", model);
             }
         };
         format!("{}:{}", provider, model)
@@ -789,19 +766,8 @@ impl ChatProviderConfig {
                 organization_id: None,
                 base_url: Some(GROK_API_BASE_URL.to_string()),
             },
-            ChatProviderConfig::ClaudeCode { timeout_secs, model } => ProviderConfig::ClaudeCode {
-                timeout_secs: timeout_secs.unwrap_or(300),
-                model: model.clone(),
-                working_dir: None,
-            },
-            ChatProviderConfig::ClaudeDesktop { port, timeout_secs } => {
-                ProviderConfig::ClaudeDesktop {
-                    port: port.unwrap_or(9333),
-                    timeout_secs: timeout_secs.unwrap_or(120),
-                }
-            }
             ChatProviderConfig::ClaudeGate { model, max_tokens } => {
-                ProviderConfig::ClaudeGate {
+                ProviderConfig::Claude {
                     storage_backend: "auto".to_string(),
                     model: model.clone(),
                     max_tokens: max_tokens.unwrap_or(8192),
@@ -907,20 +873,6 @@ pub fn list_chat_providers() -> Vec<ChatProviderInfo> {
             description: "Grok models from xAI",
             requires_api_key: true,
             is_native: true,  // OpenAI-compatible, no proxy needed
-        },
-        ChatProviderInfo {
-            id: "claude-code",
-            name: "Claude Code CLI",
-            description: "Uses existing Claude Code authentication",
-            requires_api_key: false,
-            is_native: false,
-        },
-        ChatProviderInfo {
-            id: "claude-desktop",
-            name: "Claude Desktop",
-            description: "Uses existing Claude Desktop app",
-            requires_api_key: false,
-            is_native: false,
         },
     ]
 }
@@ -1504,19 +1456,10 @@ impl MeilisearchChatClient {
                 api_key: api_key.clone(),
                 model: model.clone(),
             },
-            ProviderConfig::ClaudeCode { timeout_secs, model, .. } => ChatProviderConfig::ClaudeCode {
-                timeout_secs: Some(*timeout_secs),
-                model: model.clone(),
-            },
-            ProviderConfig::ClaudeDesktop { port, timeout_secs } => ChatProviderConfig::ClaudeDesktop {
-                port: Some(*port),
-                timeout_secs: Some(*timeout_secs),
-            },
-            ProviderConfig::ClaudeGate { model, max_tokens, .. } => ChatProviderConfig::ClaudeGate {
+            ProviderConfig::Claude { model, max_tokens, .. } => ChatProviderConfig::ClaudeGate {
                 model: model.clone(),
                 max_tokens: Some(*max_tokens),
             },
-            ProviderConfig::GeminiCli { .. } => return Err("Gemini CLI not supported for Meilisearch chat yet".to_string()),
             ProviderConfig::Meilisearch { .. } => return Err("Recursive Meilisearch configuration".to_string()),
         };
 
@@ -1732,20 +1675,11 @@ impl DMChatManager {
                 api_key: api_key.clone(),
                 model: model.clone(),
             },
-            ProviderConfig::ClaudeCode { timeout_secs, model, .. } => ChatProviderConfig::ClaudeCode {
-                timeout_secs: Some(*timeout_secs),
-                model: model.clone(),
-            },
-            ProviderConfig::ClaudeDesktop { port, timeout_secs } => ChatProviderConfig::ClaudeDesktop {
-                port: Some(*port),
-                timeout_secs: Some(*timeout_secs),
-            },
-            ProviderConfig::ClaudeGate { model, max_tokens, .. } => ChatProviderConfig::ClaudeGate {
+            ProviderConfig::Claude { model, max_tokens, .. } => ChatProviderConfig::ClaudeGate {
                 model: model.clone(),
                 max_tokens: Some(*max_tokens),
             },
             // Handle GeminiCLI as generic or unsupported for now if no direct map
-            ProviderConfig::GeminiCli { .. } => return Err("Gemini CLI not supported for Meilisearch chat yet".to_string()),
 
             // Meilisearch provider is for using Meilisearch as a provider, creating a loop if we configure it here
             ProviderConfig::Meilisearch { .. } => return Err("Recursive Meilisearch configuration".to_string()),
@@ -1828,11 +1762,6 @@ mod tests {
         };
         assert_eq!(azure.provider_id(), "azure");
 
-        let claude_code = ChatProviderConfig::ClaudeCode {
-            timeout_secs: Some(120),
-            model: Some("claude-3-sonnet".to_string()),
-        };
-        assert_eq!(claude_code.provider_id(), "claude-code");
     }
 
     #[test]

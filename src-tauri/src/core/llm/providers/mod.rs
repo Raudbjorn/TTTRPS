@@ -5,12 +5,8 @@
 
 mod ollama;
 mod claude;
-mod claude_code;
-mod claude_desktop;
-mod claude_gate;
 mod openai;
 mod gemini;
-mod gemini_cli;
 mod openrouter;
 mod mistral;
 mod groq;
@@ -20,13 +16,9 @@ mod deepseek;
 mod meilisearch;
 
 pub use ollama::OllamaProvider;
-pub use claude::ClaudeProvider;
-pub use claude_code::{ClaudeCodeProvider, ClaudeCodeStatus};
-pub use claude_desktop::ClaudeDesktopProvider;
-pub use claude_gate::{ClaudeGateProvider, ClaudeGateStatus, StorageBackend};
+pub use claude::{ClaudeProvider, ClaudeStatus, StorageBackend};
 pub use openai::OpenAIProvider;
 pub use gemini::GeminiProvider;
-pub use gemini_cli::GeminiCliProvider;
 pub use openrouter::OpenRouterProvider;
 pub use mistral::MistralProvider;
 pub use groq::GroqProvider;
@@ -44,11 +36,6 @@ pub enum ProviderConfig {
     Ollama {
         host: String,
         model: String,
-    },
-    Claude {
-        api_key: String,
-        model: String,
-        max_tokens: u32,
     },
     OpenAI {
         api_key: String,
@@ -85,24 +72,8 @@ pub enum ProviderConfig {
         api_key: String,
         model: String,
     },
-    /// Claude Desktop via CDP (no API key needed, uses existing Claude Desktop auth)
-    ClaudeDesktop {
-        port: u16,          // CDP port (default 9333)
-        timeout_secs: u64,  // Response timeout (default 120s)
-    },
-    /// Claude Code via CLI (no API key needed, uses existing Claude Code auth)
-    ClaudeCode {
-        timeout_secs: u64,          // Response timeout (default 300s)
-        model: Option<String>,      // Optional model override
-        working_dir: Option<String>, // Optional working directory
-    },
-    /// Gemini CLI (no API key needed, uses Google account auth)
-    GeminiCli {
-        model: String,      // Model to use (default: gemini-2.5-pro)
-        timeout_secs: u64,  // Response timeout (default 120s)
-    },
-    /// Claude Gate (OAuth-based, no API key needed)
-    ClaudeGate {
+    /// Claude (OAuth-based, no API key needed)
+    Claude {
         storage_backend: String,  // Storage backend: "file", "keyring", "memory", "auto"
         model: String,            // Model to use (e.g., "claude-sonnet-4-20250514")
         max_tokens: u32,          // Max tokens for responses (default 8192)
@@ -121,9 +92,6 @@ impl ProviderConfig {
         match self {
             ProviderConfig::Ollama { host, model } => {
                 Arc::new(OllamaProvider::new(host.clone(), model.clone()))
-            }
-            ProviderConfig::Claude { api_key, model, max_tokens } => {
-                Arc::new(ClaudeProvider::new(api_key.clone(), model.clone(), *max_tokens))
             }
             ProviderConfig::OpenAI { api_key, model, max_tokens, organization_id, base_url } => {
                 Arc::new(OpenAIProvider::new(
@@ -155,24 +123,15 @@ impl ProviderConfig {
             ProviderConfig::DeepSeek { api_key, model } => {
                 Arc::new(DeepSeekProvider::new(api_key.clone(), model.clone()))
             }
-            ProviderConfig::ClaudeDesktop { port, timeout_secs } => {
-                Arc::new(ClaudeDesktopProvider::with_config(*port, *timeout_secs))
-            }
-            ProviderConfig::ClaudeCode { timeout_secs, model, working_dir } => {
-                Arc::new(ClaudeCodeProvider::with_config(*timeout_secs, model.clone(), working_dir.clone()))
-            }
-            ProviderConfig::GeminiCli { model, timeout_secs } => {
-                Arc::new(GeminiCliProvider::with_config(model.clone(), *timeout_secs))
-            }
-            ProviderConfig::ClaudeGate { storage_backend, model, max_tokens } => {
+            ProviderConfig::Claude { storage_backend, model, max_tokens } => {
                 // Attempt to create the provider; fall back to memory storage on failure
                 // In practice, the caller should validate configuration beforehand
-                match ClaudeGateProvider::from_storage_name(storage_backend, model.clone(), *max_tokens) {
+                match ClaudeProvider::from_storage_name(storage_backend, model.clone(), *max_tokens) {
                     Ok(provider) => Arc::new(provider),
                     Err(e) => {
                         // Fall back to memory storage on error to avoid panicking
-                        tracing::warn!("Failed to create ClaudeGate provider with {} storage: {}. Falling back to memory.", storage_backend, e);
-                        Arc::new(ClaudeGateProvider::with_memory().expect("Memory storage should always work"))
+                        tracing::warn!("Failed to create Claude provider with {} storage: {}. Falling back to memory.", storage_backend, e);
+                        Arc::new(ClaudeProvider::with_memory().expect("Memory storage should always work"))
                     }
                 }
             }
@@ -196,10 +155,6 @@ impl ProviderConfig {
             ProviderConfig::Together { .. } => "together",
             ProviderConfig::Cohere { .. } => "cohere",
             ProviderConfig::DeepSeek { .. } => "deepseek",
-            ProviderConfig::ClaudeDesktop { .. } => "claude-desktop",
-            ProviderConfig::ClaudeCode { .. } => "claude-code",
-            ProviderConfig::GeminiCli { .. } => "gemini-cli",
-            ProviderConfig::ClaudeGate { .. } => "claude-gate",
             ProviderConfig::Meilisearch { .. } => "meilisearch",
         }
     }
@@ -215,10 +170,6 @@ impl ProviderConfig {
 
             // Others need proxy to look like OpenAI
             ProviderConfig::Claude { .. } => true,
-            ProviderConfig::ClaudeDesktop { .. } => true,
-            ProviderConfig::ClaudeCode { .. } => true,
-            ProviderConfig::ClaudeGate { .. } => true,
-            ProviderConfig::GeminiCli { .. } => true,
 
             // OpenAI-compatible but might need header tweaking or proxy for consistency
             ProviderConfig::OpenRouter { .. } => true,
@@ -245,10 +196,6 @@ impl ProviderConfig {
             ProviderConfig::Together { model, .. } => model.clone(),
             ProviderConfig::Cohere { model, .. } => model.clone(),
             ProviderConfig::DeepSeek { model, .. } => model.clone(),
-            ProviderConfig::ClaudeDesktop { .. } => "claude-desktop".to_string(),
-            ProviderConfig::ClaudeCode { model, .. } => model.clone().unwrap_or_else(|| "claude-code".to_string()),
-            ProviderConfig::GeminiCli { model, .. } => model.clone(),
-            ProviderConfig::ClaudeGate { model, .. } => model.clone(),
             ProviderConfig::Meilisearch { model, .. } => model.clone(),
         }
     }
@@ -267,7 +214,7 @@ mod tests {
         assert_eq!(ollama.provider_id(), "ollama");
 
         let claude = ProviderConfig::Claude {
-            api_key: "test".to_string(),
+            storage_backend: "memory".to_string(),
             model: "claude-3-sonnet".to_string(),
             max_tokens: 4096,
         };
@@ -312,7 +259,7 @@ mod tests {
     fn test_provider_config_requires_proxy_non_native() {
         // Non-native providers need proxy
         let claude = ProviderConfig::Claude {
-            api_key: "test".to_string(),
+            storage_backend: "memory".to_string(),
             model: "claude-3-sonnet".to_string(),
             max_tokens: 4096,
         };
