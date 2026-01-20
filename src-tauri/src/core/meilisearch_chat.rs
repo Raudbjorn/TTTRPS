@@ -710,9 +710,9 @@ impl ChatProviderConfig {
                     base_url: None,
                 }
             }
-            ChatProviderConfig::Claude { api_key, model, max_tokens } => {
+            ChatProviderConfig::Claude { api_key: _, model, max_tokens } => {
                 ProviderConfig::Claude {
-                    api_key: api_key.clone(),
+                    storage_backend: "auto".to_string(),
                     model: model.as_deref().unwrap_or("claude-sonnet-4-20250514").to_string(),
                     max_tokens: max_tokens.unwrap_or(4096),
                 }
@@ -1419,8 +1419,8 @@ impl MeilisearchChatClient {
                 model: Some(model.clone()),
                 organization_id: organization_id.clone(),
             },
-            ProviderConfig::Claude { api_key, model, max_tokens } => ChatProviderConfig::Claude {
-                api_key: api_key.clone(),
+            ProviderConfig::Claude { storage_backend: _, model, max_tokens } => ChatProviderConfig::Claude {
+                api_key: String::new(), // Claude uses OAuth, not API key
                 model: Some(model.clone()),
                 max_tokens: Some(*max_tokens),
             },
@@ -1633,8 +1633,8 @@ impl DMChatManager {
                 model: Some(model.clone()),
                 organization_id: organization_id.clone(),
             },
-            ProviderConfig::Claude { api_key, model, max_tokens } => ChatProviderConfig::Claude {
-                api_key: api_key.clone(),
+            ProviderConfig::Claude { storage_backend: _, model, max_tokens } => ChatProviderConfig::Claude {
+                api_key: String::new(), // Claude uses OAuth, not API key
                 model: Some(model.clone()),
                 max_tokens: Some(*max_tokens),
             },
