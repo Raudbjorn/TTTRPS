@@ -1419,11 +1419,7 @@ impl MeilisearchChatClient {
                 model: Some(model.clone()),
                 organization_id: organization_id.clone(),
             },
-            ProviderConfig::Claude { storage_backend: _, model, max_tokens } => ChatProviderConfig::Claude {
-                api_key: String::new(), // Claude uses OAuth, not API key
-                model: Some(model.clone()),
-                max_tokens: Some(*max_tokens),
-            },
+            // Note: ProviderConfig::Claude is OAuth-based - handled by ClaudeGate mapping below
             ProviderConfig::Mistral { api_key, model } => ChatProviderConfig::Mistral {
                 api_key: api_key.clone(),
                 model: Some(model.clone()),
@@ -1505,7 +1501,7 @@ impl DMChatManager {
     pub async fn initialize(
         &self,
         llm_api_key: &str,
-        model: Option<&str>,
+        _model: Option<&str>,
         custom_system_prompt: Option<&str>,
     ) -> Result<(), String> {
         // Enable experimental chat feature
@@ -1633,11 +1629,7 @@ impl DMChatManager {
                 model: Some(model.clone()),
                 organization_id: organization_id.clone(),
             },
-            ProviderConfig::Claude { storage_backend: _, model, max_tokens } => ChatProviderConfig::Claude {
-                api_key: String::new(), // Claude uses OAuth, not API key
-                model: Some(model.clone()),
-                max_tokens: Some(*max_tokens),
-            },
+            // Note: ProviderConfig::Claude is OAuth-based - handled by ClaudeGate mapping below
             ProviderConfig::Mistral { api_key, model } => ChatProviderConfig::Mistral {
                 api_key: api_key.clone(),
                 model: Some(model.clone()),

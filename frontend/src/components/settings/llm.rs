@@ -144,6 +144,7 @@ impl LLMProvider {
 
     fn brand_color(&self) -> &'static str {
         match self {
+            // Both AnthropicAPI (API key) and Claude (OAuth) are Anthropic providers, sharing brand color
             LLMProvider::AnthropicAPI | LLMProvider::Claude => "text-orange-400", // Anthropic Sienna
             LLMProvider::Gemini => "text-blue-400", // Gemini Blue
             LLMProvider::OpenAI => "text-emerald-400", // OpenAI Green

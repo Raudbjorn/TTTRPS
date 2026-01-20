@@ -3901,7 +3901,7 @@ dependencies = [
 [[package]]
 name = "kreuzberg"
 version = "4.0.8"
-source = "git+https://github.com/kreuzberg-dev/kreuzberg?rev=5abdffd0#5abdffd090d6bf9be497fbcc7237c90c694b322c"
+source = "git+https://github.com/kreuzberg-dev/kreuzberg?rev=5abdffd090d6bf9be497fbcc7237c90c694b322c#5abdffd090d6bf9be497fbcc7237c90c694b322c"
 dependencies = [
  "ahash",
  "async-trait",
@@ -3990,7 +3990,7 @@ dependencies = [
 [[package]]
 name = "kreuzberg-tesseract"
 version = "4.0.8"
-source = "git+https://github.com/kreuzberg-dev/kreuzberg?rev=5abdffd0#5abdffd090d6bf9be497fbcc7237c90c694b322c"
+source = "git+https://github.com/kreuzberg-dev/kreuzberg?rev=5abdffd090d6bf9be497fbcc7237c90c694b322c#5abdffd090d6bf9be497fbcc7237c90c694b322c"
 dependencies = [
  "cc",
  "cmake",
