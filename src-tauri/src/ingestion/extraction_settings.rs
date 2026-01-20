@@ -2,6 +2,7 @@
 //!
 //! Configurable settings for document extraction using kreuzberg or Claude.
 //! These settings control OCR, chunking, quality processing, and language detection.
+//! Also includes settings for markdown page detection and layout JSON import.
 
 use serde::{Deserialize, Serialize};
 
@@ -110,6 +111,56 @@ impl OcrBackend {
     }
 }
 
+// ============================================================================
+// Markdown Page Detection Settings
+// ============================================================================
+
+/// Settings for markdown page boundary detection
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MarkdownSettings {
+    /// Enable detection of *Page N* markers in markdown files
+    pub detect_page_markers: bool,
+    /// Fallback page size in characters when no markers are found
+    pub fallback_page_size: usize,
+}
+
+impl Default for MarkdownSettings {
+    fn default() -> Self {
+        Self {
+            detect_page_markers: true,
+            fallback_page_size: 3000,
+        }
+    }
+}
+
+// ============================================================================
+// Claude Parallel Extraction Settings
+// ============================================================================
+
+/// Settings for Claude API parallel page extraction
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClaudeParallelSettings {
+    /// Number of pages to process in parallel (default: 2)
+    pub pages_parallel: usize,
+    /// Image DPI for page rendering (lower than OCR for faster uploads)
+    pub image_dpi: u32,
+    /// Model to use for extraction
+    pub model: String,
+    /// Maximum tokens per page response
+    pub max_tokens_per_page: u32,
+}
+
+impl Default for ClaudeParallelSettings {
+    fn default() -> Self {
+        Self {
+            pages_parallel: 2,
+            image_dpi: 150,
+            model: "claude-sonnet-4-20250514".to_string(),
+            max_tokens_per_page: 8192,
+        }
+    }
+}
+
 /// Document extraction settings
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExtractionSettings {
@@ -165,6 +216,16 @@ pub struct ExtractionSettings {
     pub large_pdf_page_threshold: usize,
     /// Number of pages to extract per chunk for large PDFs
     pub large_pdf_chunk_size: usize,
+
+    // ========== Markdown Settings ==========
+    /// Settings for markdown page boundary detection
+    #[serde(default)]
+    pub markdown: MarkdownSettings,
+
+    // ========== Claude Parallel Settings ==========
+    /// Settings for Claude API parallel page extraction
+    #[serde(default)]
+    pub claude_parallel: ClaudeParallelSettings,
 }
 
 impl Default for ExtractionSettings {
@@ -203,6 +264,10 @@ impl Default for ExtractionSettings {
             // Large PDF handling
             large_pdf_page_threshold: 500,
             large_pdf_chunk_size: 100,
+
+            // Markdown and Claude parallel settings
+            markdown: MarkdownSettings::default(),
+            claude_parallel: ClaudeParallelSettings::default(),
         }
     }
 }
@@ -229,6 +294,8 @@ impl ExtractionSettings {
             max_concurrent_extractions: 4,
             large_pdf_page_threshold: 500,
             large_pdf_chunk_size: 100,
+            markdown: MarkdownSettings::default(),
+            claude_parallel: ClaudeParallelSettings::default(),
         }
     }
 
@@ -253,6 +320,8 @@ impl ExtractionSettings {
             max_concurrent_extractions: 2, // OCR is CPU intensive
             large_pdf_page_threshold: 500,
             large_pdf_chunk_size: 100,
+            markdown: MarkdownSettings::default(),
+            claude_parallel: ClaudeParallelSettings::default(),
         }
     }
 
@@ -277,6 +346,8 @@ impl ExtractionSettings {
             max_concurrent_extractions: 8,
             large_pdf_page_threshold: 500,
             large_pdf_chunk_size: 100,
+            markdown: MarkdownSettings::default(),
+            claude_parallel: ClaudeParallelSettings::default(),
         }
     }
 
@@ -301,6 +372,8 @@ impl ExtractionSettings {
             max_concurrent_extractions: 2, // Respect API rate limits
             large_pdf_page_threshold: 500,
             large_pdf_chunk_size: 100,
+            markdown: MarkdownSettings::default(),
+            claude_parallel: ClaudeParallelSettings::default(),
         }
     }
 

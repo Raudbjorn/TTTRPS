@@ -10,6 +10,7 @@ use thiserror::Error;
 use tokio::process::Command;
 
 use super::extraction_settings::{ExtractionSettings, OcrBackend};
+use super::markdown_parser::MarkdownPageParser;
 
 // ============================================================================
 // Error Types
@@ -390,6 +391,47 @@ impl DocumentExtractor {
 
         // Extract detected language from metadata if available
         let detected_language = result.metadata.language.clone();
+
+        // Handle markdown files with page marker detection
+        let is_markdown = path.extension()
+            .and_then(|ext| ext.to_str())
+            .map(|ext| matches!(ext.to_lowercase().as_str(), "md" | "markdown"))
+            .unwrap_or(false);
+
+        if is_markdown && self.settings.markdown.detect_page_markers {
+            // Use markdown parser to split by page markers or size
+            let parsed_pages = MarkdownPageParser::parse(
+                &result.content,
+                Some(self.settings.markdown.fallback_page_size),
+            );
+
+            if parsed_pages.len() > 1 || MarkdownPageParser::has_page_markers(&result.content) {
+                log::info!(
+                    "Markdown page detection: found {} pages in {:?}",
+                    parsed_pages.len(),
+                    path.file_name().unwrap_or_default()
+                );
+
+                let pages: Vec<Page> = parsed_pages
+                    .into_iter()
+                    .map(|(page_number, content)| Page { page_number, content })
+                    .collect();
+
+                let page_count = pages.len();
+
+                return Ok(ExtractedContent {
+                    source_path: path_str,
+                    content: result.content,
+                    page_count,
+                    title,
+                    author,
+                    mime_type,
+                    char_count,
+                    pages: Some(pages),
+                    detected_language,
+                });
+            }
+        }
 
         Ok(ExtractedContent {
             source_path: path_str,

@@ -355,6 +355,248 @@ impl<S: TokenStorage + 'static> ClaudeDocumentExtractor<S> {
         })
     }
 
+    /// Extract PDF pages in parallel using Claude's vision capabilities.
+    ///
+    /// This method:
+    /// 1. Renders PDF pages to PNG images using pdftoppm
+    /// 2. Processes pages concurrently (configurable, default 2)
+    /// 3. Sends each page image to Claude for text extraction
+    /// 4. Returns ordered results
+    ///
+    /// # Arguments
+    /// * `path` - Path to the PDF file
+    /// * `concurrency` - Number of pages to process in parallel (default 2)
+    /// * `image_dpi` - DPI for page rendering (default 150)
+    /// * `on_progress` - Optional progress callback (current_page, total_pages, message)
+    pub async fn extract_pages_parallel<F>(
+        &self,
+        path: &Path,
+        concurrency: usize,
+        image_dpi: u32,
+        on_progress: Option<F>,
+    ) -> Result<ExtractedContent>
+    where
+        F: Fn(usize, usize, &str) + Send + Sync + Clone + 'static,
+    {
+        use futures::stream::{self, StreamExt};
+        use tokio::process::Command;
+
+        let path_str = path.to_string_lossy().to_string();
+        let concurrency = concurrency.max(1).min(8);
+        let image_dpi = image_dpi.max(72).min(300);
+
+        // Verify PDF exists
+        if !path.exists() {
+            return Err(ClaudeExtractionError::IoError(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                format!("File not found: {}", path_str),
+            )));
+        }
+
+        let extension = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.to_lowercase())
+            .unwrap_or_default();
+
+        if extension != "pdf" {
+            return Err(ClaudeExtractionError::UnsupportedFormat(
+                "Parallel page extraction only supports PDF files".to_string(),
+            ));
+        }
+
+        // Get page count using pdfinfo
+        let pdfinfo_output = Command::new("pdfinfo")
+            .arg(path)
+            .output()
+            .await
+            .map_err(|e| ClaudeExtractionError::PdfError(format!("pdfinfo failed: {}", e)))?;
+
+        if !pdfinfo_output.status.success() {
+            return Err(ClaudeExtractionError::PdfError(
+                "pdfinfo failed to get page count".to_string(),
+            ));
+        }
+
+        let pdfinfo_str = String::from_utf8_lossy(&pdfinfo_output.stdout);
+        let total_pages = pdfinfo_str
+            .lines()
+            .find(|line| line.starts_with("Pages:"))
+            .and_then(|line| line.split_whitespace().nth(1))
+            .and_then(|s| s.parse::<usize>().ok())
+            .ok_or_else(|| ClaudeExtractionError::PdfError(
+                "Could not parse page count from pdfinfo".to_string(),
+            ))?;
+
+        log::info!(
+            "Claude parallel extraction: {} pages, concurrency={}, dpi={}",
+            total_pages, concurrency, image_dpi
+        );
+
+        if let Some(ref cb) = on_progress {
+            cb(0, total_pages, &format!("Starting extraction of {} pages...", total_pages));
+        }
+
+        // Create temp directory for page images
+        let temp_dir = tempfile::Builder::new()
+            .prefix("claude_pages_")
+            .tempdir()
+            .map_err(ClaudeExtractionError::IoError)?;
+
+        // Render all pages to images first (more efficient than per-page rendering)
+        let prefix = temp_dir.path().join("page");
+        let status = Command::new("pdftoppm")
+            .arg("-png")
+            .arg("-r")
+            .arg(image_dpi.to_string())
+            .arg(path)
+            .arg(&prefix)
+            .status()
+            .await
+            .map_err(|e| ClaudeExtractionError::PdfError(format!("pdftoppm failed: {}", e)))?;
+
+        if !status.success() {
+            return Err(ClaudeExtractionError::PdfError(
+                "pdftoppm failed to render pages".to_string(),
+            ));
+        }
+
+        // Collect page image files
+        let mut page_files: Vec<(usize, std::path::PathBuf)> = Vec::new();
+        let mut read_dir = tokio::fs::read_dir(temp_dir.path()).await?;
+
+        while let Some(entry) = read_dir.next_entry().await? {
+            let img_path = entry.path();
+            if img_path.extension().and_then(|e| e.to_str()) == Some("png") {
+                if let Some(stem) = img_path.file_stem().and_then(|s| s.to_str()) {
+                    if let Some(idx) = stem.rfind('-') {
+                        if let Ok(num) = stem[idx + 1..].parse::<usize>() {
+                            page_files.push((num, img_path));
+                        }
+                    }
+                }
+            }
+        }
+
+        page_files.sort_by_key(|(num, _)| *num);
+
+        if page_files.is_empty() {
+            return Err(ClaudeExtractionError::PdfError(
+                "No page images generated".to_string(),
+            ));
+        }
+
+        log::info!("Rendered {} page images, starting parallel Claude extraction", page_files.len());
+
+        // Process pages sequentially with concurrency using semaphore
+        // (ClaudeClient doesn't implement Clone, so we process in batches)
+        let model = self.config.model.clone();
+        let max_tokens = self.config.max_tokens;
+        let temperature = self.config.temperature;
+        let total = page_files.len();
+
+        let mut pages: Vec<Page> = Vec::new();
+        let mut errors: Vec<String> = Vec::new();
+        let mut processed = 0;
+
+        // Process in batches of `concurrency` pages
+        for chunk in page_files.chunks(concurrency) {
+            // Prepare all pages in this batch
+            let mut batch_futures = Vec::new();
+
+            for (page_num, img_path) in chunk {
+                // Read image
+                let img_bytes = tokio::fs::read(&img_path).await
+                    .map_err(ClaudeExtractionError::IoError)?;
+
+                let base64_data = STANDARD.encode(&img_bytes);
+                let prompt = PAGE_EXTRACTION_PROMPT
+                    .replace("{page_num}", &page_num.to_string())
+                    .replace("{total_pages}", &total.to_string());
+
+                batch_futures.push((*page_num, base64_data, prompt));
+            }
+
+            // Process batch concurrently by sending all requests
+            let mut handles = Vec::new();
+            for (page_num, base64_data, prompt) in batch_futures {
+                let model = model.clone();
+
+                // Send to Claude
+                let response_future = self.client
+                    .messages()
+                    .model(&model)
+                    .max_tokens(max_tokens)
+                    .temperature(temperature)
+                    .system(EXTRACTION_SYSTEM_PROMPT)
+                    .image_message(&base64_data, "image/png", &prompt)
+                    .send();
+
+                handles.push((page_num, response_future));
+            }
+
+            // Await all responses in this batch
+            for (page_num, response_future) in handles {
+                match response_future.await {
+                    Ok(response) => {
+                        let text = response.text();
+                        log::debug!("Extracted page {} ({} chars)", page_num, text.len());
+                        pages.push(Page { page_number: page_num, content: text });
+                    }
+                    Err(e) => {
+                        log::warn!("Failed to extract page {}: {}", page_num, e);
+                        errors.push(format!("Page {}: {}", page_num, e));
+                    }
+                }
+                processed += 1;
+
+                if let Some(ref cb) = on_progress {
+                    cb(processed, total, &format!("Extracted page {}/{}", processed, total));
+                }
+            }
+        }
+
+        if pages.is_empty() && !errors.is_empty() {
+            return Err(ClaudeExtractionError::ApiError(
+                format!("All page extractions failed: {}", errors.join("; ")),
+            ));
+        }
+
+        // Sort by page number
+        pages.sort_by_key(|p| p.page_number);
+
+        // Combine content
+        let content: String = pages
+            .iter()
+            .map(|p| p.content.as_str())
+            .collect::<Vec<_>>()
+            .join("\n\n");
+
+        let char_count = content.len();
+        let page_count = pages.len();
+
+        log::info!(
+            "Claude parallel extraction complete: {} pages, {} chars, {} errors",
+            page_count, char_count, errors.len()
+        );
+
+        if let Some(ref cb) = on_progress {
+            cb(page_count, page_count, &format!("Extraction complete: {} pages", page_count));
+        }
+
+        Ok(ExtractedContent {
+            source_path: path_str,
+            content,
+            page_count,
+            title: None,
+            author: None,
+            mime_type: "application/pdf".to_string(),
+            char_count,
+            pages: Some(pages),
+            detected_language: None,
+        })
+    }
+
     /// Check if a file format is supported for Claude extraction.
     pub fn is_supported_format(extension: &str) -> bool {
         matches!(

@@ -427,6 +427,7 @@ fn main() {
             // Document Ingestion & Search (Meilisearch)
             commands::ingest_document,
             commands::ingest_document_two_phase,
+            commands::import_layout_json,
             commands::list_library_documents,
             commands::delete_library_document,
             commands::update_library_document,
