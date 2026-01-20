@@ -145,7 +145,7 @@ impl LLMProvider {
     fn brand_color(&self) -> &'static str {
         match self {
             // Both AnthropicAPI (API key) and Claude (OAuth) are Anthropic providers, sharing brand color
-            LLMProvider::AnthropicAPI | LLMProvider::Claude => "text-orange-400", // Anthropic Sienna
+            LLMProvider::AnthropicAPI | LLMProvider::Claude => "text-orange-400", // Anthropic Sienna — both AnthropicAPI (API key) and Claude (OAuth) are Anthropic-branded providers, so they share this color even though they are separate enum variants
             LLMProvider::Gemini => "text-blue-400", // Gemini Blue
             LLMProvider::OpenAI => "text-emerald-400", // OpenAI Green
             LLMProvider::Ollama => "text-white", // Ollama White
