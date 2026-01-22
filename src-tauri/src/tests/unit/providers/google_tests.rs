@@ -1,14 +1,16 @@
-//! Google Gemini Provider Unit Tests
+//! Google Provider Unit Tests (API Key-based)
 //!
-//! Tests for the Gemini provider implementation including:
+//! Tests for the Google provider implementation (API key-based) including:
 //! - API request formatting
 //! - Response parsing
 //! - Error handling
 //! - Streaming response handling
 //! - Model switching
+//!
+//! Note: For OAuth-based Gemini provider tests, see gemini_tests.rs
 
 use crate::core::llm::cost::TokenUsage;
-use crate::core::llm::providers::GeminiProvider;
+use crate::core::llm::providers::GoogleProvider;
 use crate::core::llm::router::{ChatMessage, ChatRequest, LLMError, LLMProvider, MessageRole};
 
 // =============================================================================
@@ -17,25 +19,25 @@ use crate::core::llm::router::{ChatMessage, ChatRequest, LLMError, LLMProvider, 
 
 #[test]
 fn test_provider_id() {
-    let provider = GeminiProvider::new(
+    let provider = GoogleProvider::new(
         "AIzaTestApiKey".to_string(),
         "gemini-2.0-flash-exp".to_string(),
     );
-    assert_eq!(provider.id(), "gemini");
+    assert_eq!(provider.id(), "google");
 }
 
 #[test]
 fn test_provider_name() {
-    let provider = GeminiProvider::new(
+    let provider = GoogleProvider::new(
         "AIzaTestApiKey".to_string(),
         "gemini-2.0-flash-exp".to_string(),
     );
-    assert_eq!(provider.name(), "Google Gemini");
+    assert_eq!(provider.name(), "Google");
 }
 
 #[test]
 fn test_provider_model() {
-    let provider = GeminiProvider::new(
+    let provider = GoogleProvider::new(
         "AIzaTestApiKey".to_string(),
         "gemini-2.0-flash-exp".to_string(),
     );
@@ -44,13 +46,13 @@ fn test_provider_model() {
 
 #[test]
 fn test_flash_convenience_constructor() {
-    let provider = GeminiProvider::flash("AIzaTestApiKey".to_string());
+    let provider = GoogleProvider::flash("AIzaTestApiKey".to_string());
     assert_eq!(provider.model(), "gemini-2.0-flash-exp");
 }
 
 #[test]
 fn test_pro_convenience_constructor() {
-    let provider = GeminiProvider::pro("AIzaTestApiKey".to_string());
+    let provider = GoogleProvider::pro("AIzaTestApiKey".to_string());
     assert_eq!(provider.model(), "gemini-1.5-pro");
 }
 
@@ -60,7 +62,7 @@ fn test_pro_convenience_constructor() {
 
 #[tokio::test]
 async fn test_health_check_valid_key() {
-    let provider = GeminiProvider::new(
+    let provider = GoogleProvider::new(
         "AIzaValidApiKey12345".to_string(),
         "gemini-2.0-flash-exp".to_string(),
     );
@@ -70,7 +72,7 @@ async fn test_health_check_valid_key() {
 
 #[tokio::test]
 async fn test_health_check_invalid_key() {
-    let provider = GeminiProvider::new(
+    let provider = GoogleProvider::new(
         "invalid-key".to_string(),
         "gemini-2.0-flash-exp".to_string(),
     );
@@ -84,11 +86,11 @@ async fn test_health_check_invalid_key() {
 
 #[test]
 fn test_pricing_flash_model() {
-    let provider = GeminiProvider::flash("AIzaTestApiKey".to_string());
+    let provider = GoogleProvider::flash("AIzaTestApiKey".to_string());
     let pricing = provider.pricing();
     assert!(pricing.is_some());
     let pricing = pricing.unwrap();
-    assert_eq!(pricing.provider_id, "gemini");
+    assert_eq!(pricing.provider_id, "google");
     assert!(!pricing.is_free);
     // Flash pricing: $0.10/1M input, $0.40/1M output
     assert_eq!(pricing.input_cost_per_million, 0.10);
@@ -97,7 +99,7 @@ fn test_pricing_flash_model() {
 
 #[test]
 fn test_pricing_pro_model() {
-    let provider = GeminiProvider::pro("AIzaTestApiKey".to_string());
+    let provider = GoogleProvider::pro("AIzaTestApiKey".to_string());
     let pricing = provider.pricing();
     assert!(pricing.is_some());
     let pricing = pricing.unwrap();
@@ -108,7 +110,7 @@ fn test_pricing_pro_model() {
 
 #[test]
 fn test_pricing_cost_calculation() {
-    let provider = GeminiProvider::flash("AIzaTestApiKey".to_string());
+    let provider = GoogleProvider::flash("AIzaTestApiKey".to_string());
     let pricing = provider.pricing().unwrap();
 
     let usage = TokenUsage::new(10000, 5000);
@@ -429,7 +431,7 @@ fn test_stream_url_format() {
 
 #[test]
 fn test_model_switching_flash() {
-    let provider = GeminiProvider::new(
+    let provider = GoogleProvider::new(
         "AIzaTestKey".to_string(),
         "gemini-2.0-flash-exp".to_string(),
     );
@@ -438,7 +440,7 @@ fn test_model_switching_flash() {
 
 #[test]
 fn test_model_switching_pro() {
-    let provider = GeminiProvider::new(
+    let provider = GoogleProvider::new(
         "AIzaTestKey".to_string(),
         "gemini-1.5-pro".to_string(),
     );
@@ -447,7 +449,7 @@ fn test_model_switching_pro() {
 
 #[test]
 fn test_model_switching_1_5_flash() {
-    let provider = GeminiProvider::new(
+    let provider = GoogleProvider::new(
         "AIzaTestKey".to_string(),
         "gemini-1.5-flash".to_string(),
     );
@@ -456,7 +458,7 @@ fn test_model_switching_1_5_flash() {
 
 #[test]
 fn test_model_switching_1_0_pro() {
-    let provider = GeminiProvider::new(
+    let provider = GoogleProvider::new(
         "AIzaTestKey".to_string(),
         "gemini-1.0-pro".to_string(),
     );
@@ -538,13 +540,13 @@ fn test_generation_config_combined() {
 
 #[test]
 fn test_supports_streaming() {
-    let provider = GeminiProvider::flash("AIzaTestKey".to_string());
+    let provider = GoogleProvider::flash("AIzaTestKey".to_string());
     assert!(provider.supports_streaming());
 }
 
 #[test]
 fn test_supports_embeddings() {
-    let provider = GeminiProvider::flash("AIzaTestKey".to_string());
+    let provider = GoogleProvider::flash("AIzaTestKey".to_string());
     // Gemini supports embeddings
     assert!(provider.supports_embeddings());
 }

@@ -40,7 +40,7 @@ fn main() {
             }
 
             // Initialize managers (Meilisearch-based)
-            let (cm, sm, ns, creds, vm, sidecar_manager, search_client, personality_store, personality_manager, pipeline, _llm_router, version_manager, world_state_manager, relationship_manager, location_manager, llm_manager, claude_gate, setting_pack_loader,
+            let (cm, sm, ns, creds, vm, sidecar_manager, search_client, personality_store, personality_manager, pipeline, _llm_router, version_manager, world_state_manager, relationship_manager, location_manager, llm_manager, claude_gate, gemini_gate, setting_pack_loader,
                 // Phase 4: Personality Extensions
                 template_store, blend_rule_store, personality_blender, contextual_personality_manager) =
                 commands::AppState::init_defaults();
@@ -116,6 +116,7 @@ fn main() {
                 llm_manager: llm_manager.clone(), // Clone for auto-configure block
                 extraction_settings: tokio::sync::RwLock::new(ingestion::ExtractionSettings::default()),
                 claude_gate,
+                gemini_gate,
                 // Archetype Registry fields - initialized lazily after Meilisearch starts
                 archetype_registry: tokio::sync::RwLock::new(None), // Initialized after Meilisearch is ready
                 vocabulary_manager: tokio::sync::RwLock::new(None), // Initialized after Meilisearch is ready
@@ -599,6 +600,13 @@ fn main() {
             commands::claude_gate_logout,
             commands::claude_gate_set_storage_backend,
             commands::claude_gate_list_models,
+
+            // Gemini Gate OAuth Commands
+            commands::gemini_gate_get_status,
+            commands::gemini_gate_start_oauth,
+            commands::gemini_gate_complete_oauth,
+            commands::gemini_gate_logout,
+            commands::gemini_gate_set_storage_backend,
 
             // Phase 4: Personality Extension Commands (TASK-PERS-014, TASK-PERS-015, TASK-PERS-016, TASK-PERS-017)
             // Template Commands

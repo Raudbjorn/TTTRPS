@@ -61,6 +61,14 @@ use crate::core::audio::AudioVolumes;
 use crate::claude_gate::{ClaudeClient, FileTokenStorage, TokenInfo};
 #[cfg(feature = "keyring")]
 use crate::claude_gate::KeyringTokenStorage;
+// Gemini Gate OAuth client
+use crate::gemini_gate::{
+    CloudCodeClient as GeminiCloudCodeClient,
+    FileTokenStorage as GeminiFileTokenStorage,
+    TokenInfo as GeminiTokenInfo,
+};
+#[cfg(feature = "keyring")]
+use crate::gemini_gate::KeyringTokenStorage as GeminiKeyringTokenStorage;
 use crate::core::sidecar_manager::{SidecarManager, MeilisearchConfig};
 use crate::core::search_client::SearchClient;
 use crate::core::meilisearch_pipeline::MeilisearchPipeline;
@@ -401,6 +409,317 @@ impl ClaudeGateState {
 }
 
 // ============================================================================
+// Gemini Gate State (OAuth Client for Google Cloud Code)
+// ============================================================================
+
+/// Storage backend type for Gemini Gate
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum GeminiGateStorageBackend {
+    /// File-based storage (~/.config/antigravity/auth.json)
+    File,
+    /// System keyring storage
+    Keyring,
+    /// Auto-select (keyring if available, else file)
+    Auto,
+}
+
+impl Default for GeminiGateStorageBackend {
+    fn default() -> Self {
+        Self::Auto
+    }
+}
+
+impl std::fmt::Display for GeminiGateStorageBackend {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::File => write!(f, "file"),
+            Self::Keyring => write!(f, "keyring"),
+            Self::Auto => write!(f, "auto"),
+        }
+    }
+}
+
+impl std::str::FromStr for GeminiGateStorageBackend {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "file" => Ok(Self::File),
+            "keyring" => Ok(Self::Keyring),
+            "auto" => Ok(Self::Auto),
+            _ => Err(format!("Unknown storage backend: {}. Valid options: file, keyring, auto", s)),
+        }
+    }
+}
+
+// ============================================================================
+// Gemini Gate Client Trait (for type-erased storage backend support)
+// ============================================================================
+
+/// Trait for Gemini Gate client operations, allowing type-erased storage backends.
+#[async_trait::async_trait]
+trait GeminiGateClientOps: Send + Sync {
+    async fn is_authenticated(&self) -> Result<bool, String>;
+    async fn get_token_info(&self) -> Result<Option<GeminiTokenInfo>, String>;
+    async fn start_oauth_flow_with_state(&self) -> Result<(String, crate::gemini_gate::OAuthFlowState), String>;
+    async fn complete_oauth_flow(&self, code: &str, state: Option<&str>) -> Result<GeminiTokenInfo, String>;
+    async fn logout(&self) -> Result<(), String>;
+    fn storage_name(&self) -> &'static str;
+}
+
+/// File storage client wrapper for Gemini Gate
+struct GeminiFileStorageClientWrapper {
+    client: std::sync::Arc<GeminiCloudCodeClient<GeminiFileTokenStorage>>,
+}
+
+#[async_trait::async_trait]
+impl GeminiGateClientOps for GeminiFileStorageClientWrapper {
+    async fn is_authenticated(&self) -> Result<bool, String> {
+        self.client.is_authenticated().await.map_err(|e| e.to_string())
+    }
+    async fn get_token_info(&self) -> Result<Option<GeminiTokenInfo>, String> {
+        // For Gemini Gate, we need to check if authenticated and return token info
+        // The CloudCodeClient doesn't expose get_token_info directly, so we work around it
+        match self.client.is_authenticated().await {
+            Ok(true) => {
+                // Token exists but we can't get full info without storage access
+                // Return a placeholder - the client handles token internally
+                Ok(Some(GeminiTokenInfo::new(
+                    "authenticated".to_string(),
+                    "internal".to_string(),
+                    3600,
+                )))
+            }
+            Ok(false) => Ok(None),
+            Err(e) => Err(e.to_string()),
+        }
+    }
+    async fn start_oauth_flow_with_state(&self) -> Result<(String, crate::gemini_gate::OAuthFlowState), String> {
+        self.client.start_oauth_flow().await.map_err(|e| e.to_string())
+    }
+    async fn complete_oauth_flow(&self, code: &str, state: Option<&str>) -> Result<GeminiTokenInfo, String> {
+        self.client.complete_oauth_flow(code, state).await.map_err(|e| e.to_string())
+    }
+    async fn logout(&self) -> Result<(), String> {
+        // CloudCodeClient doesn't have a logout method, so we'd need to clear storage
+        // For now, return an error indicating this needs to be handled differently
+        Err("Logout not directly supported - please clear tokens manually".to_string())
+    }
+    fn storage_name(&self) -> &'static str {
+        "file"
+    }
+}
+
+/// Keyring storage client wrapper for Gemini Gate
+#[cfg(feature = "keyring")]
+struct GeminiKeyringStorageClientWrapper {
+    client: std::sync::Arc<GeminiCloudCodeClient<GeminiKeyringTokenStorage>>,
+}
+
+#[cfg(feature = "keyring")]
+#[async_trait::async_trait]
+impl GeminiGateClientOps for GeminiKeyringStorageClientWrapper {
+    async fn is_authenticated(&self) -> Result<bool, String> {
+        self.client.is_authenticated().await.map_err(|e| e.to_string())
+    }
+    async fn get_token_info(&self) -> Result<Option<GeminiTokenInfo>, String> {
+        match self.client.is_authenticated().await {
+            Ok(true) => {
+                Ok(Some(GeminiTokenInfo::new(
+                    "authenticated".to_string(),
+                    "internal".to_string(),
+                    3600,
+                )))
+            }
+            Ok(false) => Ok(None),
+            Err(e) => Err(e.to_string()),
+        }
+    }
+    async fn start_oauth_flow_with_state(&self) -> Result<(String, crate::gemini_gate::OAuthFlowState), String> {
+        self.client.start_oauth_flow().await.map_err(|e| e.to_string())
+    }
+    async fn complete_oauth_flow(&self, code: &str, state: Option<&str>) -> Result<GeminiTokenInfo, String> {
+        self.client.complete_oauth_flow(code, state).await.map_err(|e| e.to_string())
+    }
+    async fn logout(&self) -> Result<(), String> {
+        Err("Logout not directly supported - please clear tokens manually".to_string())
+    }
+    fn storage_name(&self) -> &'static str {
+        "keyring"
+    }
+}
+
+/// Type-erased Gemini Gate client wrapper.
+/// This allows storing the client in AppState regardless of storage backend
+/// and supports runtime backend switching.
+pub struct GeminiGateState {
+    /// The active client (type-erased)
+    client: AsyncRwLock<Option<Box<dyn GeminiGateClientOps>>>,
+    /// In-memory flow state for OAuth (needed for state verification)
+    pending_oauth_state: AsyncRwLock<Option<String>>,
+    /// Current storage backend
+    storage_backend: AsyncRwLock<GeminiGateStorageBackend>,
+}
+
+impl GeminiGateState {
+    /// Create a client for the specified backend
+    fn create_client(backend: GeminiGateStorageBackend) -> Result<Box<dyn GeminiGateClientOps>, String> {
+        match backend {
+            GeminiGateStorageBackend::File => {
+                let storage = GeminiFileTokenStorage::default_path()
+                    .map_err(|e| format!("Failed to create file storage: {}", e))?;
+                let client = GeminiCloudCodeClient::builder()
+                    .with_storage(storage)
+                    .build();
+                Ok(Box::new(GeminiFileStorageClientWrapper { client: std::sync::Arc::new(client) }))
+            }
+            #[cfg(feature = "keyring")]
+            GeminiGateStorageBackend::Keyring => {
+                let storage = GeminiKeyringTokenStorage::new();
+                let client = GeminiCloudCodeClient::builder()
+                    .with_storage(storage)
+                    .build();
+                Ok(Box::new(GeminiKeyringStorageClientWrapper { client: std::sync::Arc::new(client) }))
+            }
+            #[cfg(not(feature = "keyring"))]
+            GeminiGateStorageBackend::Keyring => {
+                Err("Keyring storage is not available (keyring feature disabled)".to_string())
+            }
+            GeminiGateStorageBackend::Auto => {
+                // Try keyring first, fall back to file
+                #[cfg(feature = "keyring")]
+                {
+                    match Self::create_client(GeminiGateStorageBackend::Keyring) {
+                        Ok(client) => {
+                            log::info!("Gemini Gate: Auto-selected keyring storage backend");
+                            return Ok(client);
+                        }
+                        Err(e) => {
+                            log::warn!("Gemini Gate: Keyring storage failed, falling back to file: {}", e);
+                        }
+                    }
+                }
+                log::info!("Gemini Gate: Using file storage backend");
+                Self::create_client(GeminiGateStorageBackend::File)
+            }
+        }
+    }
+
+    /// Create a new GeminiGateState with the specified backend.
+    pub fn new(backend: GeminiGateStorageBackend) -> Result<Self, String> {
+        let client = Self::create_client(backend)?;
+        Ok(Self {
+            client: AsyncRwLock::new(Some(client)),
+            pending_oauth_state: AsyncRwLock::new(None),
+            storage_backend: AsyncRwLock::new(backend),
+        })
+    }
+
+    /// Create with default (Auto) backend
+    pub fn with_defaults() -> Result<Self, String> {
+        Self::new(GeminiGateStorageBackend::Auto)
+    }
+
+    /// Switch to a different storage backend.
+    /// This recreates the client with the new backend.
+    /// Note: Any existing tokens will not be migrated.
+    pub async fn switch_backend(&self, new_backend: GeminiGateStorageBackend) -> Result<String, String> {
+        let new_client = Self::create_client(new_backend)?;
+        let backend_name = new_client.storage_name();
+
+        // Replace the client
+        {
+            let mut client_lock = self.client.write().await;
+            *client_lock = Some(new_client);
+        }
+
+        // Update the backend setting
+        {
+            let mut backend_lock = self.storage_backend.write().await;
+            *backend_lock = new_backend;
+        }
+
+        // Clear any pending OAuth state
+        {
+            let mut state_lock = self.pending_oauth_state.write().await;
+            *state_lock = None;
+        }
+
+        log::info!("Gemini Gate storage backend switched to: {}", backend_name);
+        Ok(backend_name.to_string())
+    }
+
+    /// Check if authenticated
+    pub async fn is_authenticated(&self) -> Result<bool, String> {
+        let client = self.client.read().await;
+        let client = client.as_ref().ok_or("Gemini Gate client not initialized")?;
+        client.is_authenticated().await
+    }
+
+    /// Get token info
+    pub async fn get_token_info(&self) -> Result<Option<GeminiTokenInfo>, String> {
+        let client = self.client.read().await;
+        let client = client.as_ref().ok_or("Gemini Gate client not initialized")?;
+        client.get_token_info().await
+    }
+
+    /// Start OAuth flow
+    pub async fn start_oauth_flow(&self) -> Result<(String, String), String> {
+        let client = self.client.read().await;
+        let client = client.as_ref().ok_or("Gemini Gate client not initialized")?;
+        let (url, state) = client.start_oauth_flow_with_state().await?;
+
+        // Store the state for verification
+        *self.pending_oauth_state.write().await = Some(state.state.clone());
+
+        Ok((url, state.state))
+    }
+
+    /// Complete OAuth flow
+    pub async fn complete_oauth_flow(&self, code: &str, state: Option<&str>) -> Result<GeminiTokenInfo, String> {
+        // Verify state if provided
+        if let Some(received_state) = state {
+            let pending = self.pending_oauth_state.read().await;
+            if let Some(expected_state) = pending.as_ref() {
+                if received_state != expected_state {
+                    return Err(format!(
+                        "State mismatch: expected {}, got {}",
+                        expected_state, received_state
+                    ));
+                }
+            }
+        }
+
+        let client = self.client.read().await;
+        let client = client.as_ref().ok_or("Gemini Gate client not initialized")?;
+        let token = client.complete_oauth_flow(code, state).await?;
+
+        // Clear pending state
+        *self.pending_oauth_state.write().await = None;
+
+        Ok(token)
+    }
+
+    /// Logout
+    pub async fn logout(&self) -> Result<(), String> {
+        let client = self.client.read().await;
+        let client = client.as_ref().ok_or("Gemini Gate client not initialized")?;
+        client.logout().await
+    }
+
+    /// Get current storage backend name
+    pub async fn storage_backend_name(&self) -> String {
+        let client = self.client.read().await;
+        if let Some(c) = client.as_ref() {
+            c.storage_name().to_string()
+        } else {
+            self.storage_backend.read().await.to_string()
+        }
+    }
+}
+
+// ============================================================================
 // Application State
 // ============================================================================
 
@@ -430,6 +749,8 @@ pub struct AppState {
     pub extraction_settings: AsyncRwLock<crate::ingestion::ExtractionSettings>,
     // Claude Gate OAuth client
     pub claude_gate: Arc<ClaudeGateState>,
+    // Gemini Gate OAuth client (Google Cloud Code)
+    pub gemini_gate: Arc<GeminiGateState>,
     // Archetype Registry for unified character archetype management
     // Wrapped in AsyncRwLock<Option<_>> for lazy initialization after Meilisearch starts
     pub archetype_registry: AsyncRwLock<Option<Arc<ArchetypeRegistry>>>,
@@ -465,6 +786,7 @@ impl AppState {
         crate::core::location_manager::LocationManager,
         Arc<AsyncRwLock<crate::core::llm::LLMManager>>,
         Arc<ClaudeGateState>,
+        Arc<GeminiGateState>,
         Arc<SettingPackLoader>,
         // Phase 4: Personality Extensions
         Arc<SettingTemplateStore>,
@@ -487,6 +809,16 @@ impl AppState {
                 log::warn!("Failed to initialize Claude Gate with default storage: {}. Using file storage.", e);
                 Arc::new(ClaudeGateState::new(ClaudeGateStorageBackend::File)
                     .expect("Failed to initialize Claude Gate with file storage"))
+            }
+        };
+
+        // Initialize Gemini Gate client (fallback to file storage if keyring unavailable)
+        let gemini_gate = match GeminiGateState::with_defaults() {
+            Ok(state) => Arc::new(state),
+            Err(e) => {
+                log::warn!("Failed to initialize Gemini Gate with default storage: {}. Using file storage.", e);
+                Arc::new(GeminiGateState::new(GeminiGateStorageBackend::File)
+                    .expect("Failed to initialize Gemini Gate with file storage"))
             }
         };
 
@@ -539,6 +871,7 @@ impl AppState {
             crate::core::location_manager::LocationManager::new(),
             Arc::new(AsyncRwLock::new(crate::core::llm::LLMManager::new())),
             claude_gate,
+            gemini_gate,
             Arc::new(SettingPackLoader::new()),
             // Phase 4: Personality Extensions
             template_store,
@@ -683,8 +1016,8 @@ pub async fn configure_llm(
             host: settings.host.unwrap_or_else(|| "http://localhost:11434".to_string()),
             model: settings.model,
         },
-        "gemini" => LLMConfig::Gemini {
-            api_key: settings.api_key.clone().ok_or("Gemini requires an API key")?,
+        "google" => LLMConfig::Google {
+            api_key: settings.api_key.clone().ok_or("Google requires an API key")?,
             model: settings.model,
         },
         "openai" => LLMConfig::OpenAI {
@@ -829,6 +1162,7 @@ pub async fn chat(
     let model = match &config {
         LLMConfig::OpenAI { model, .. } => model.clone(),
         LLMConfig::Claude { model, .. } => model.clone(),
+        LLMConfig::Google { model, .. } => model.clone(),
         LLMConfig::Gemini { model, .. } => model.clone(),
         LLMConfig::OpenRouter { model, .. } => model.clone(),
         LLMConfig::Mistral { model, .. } => model.clone(),
@@ -837,7 +1171,6 @@ pub async fn chat(
         LLMConfig::Cohere { model, .. } => model.clone(),
         LLMConfig::DeepSeek { model, .. } => model.clone(),
         LLMConfig::Ollama { model, .. } => model.clone(),
-        LLMConfig::Claude { model, .. } => model.clone(),
         LLMConfig::Meilisearch { model, .. } => model.clone(),
     };
 
@@ -908,8 +1241,8 @@ pub fn get_llm_config(state: State<'_, AppState>) -> Result<Option<LLMSettings>,
             model: model.clone(),
             embedding_model: None,
         },
-        LLMConfig::Gemini { model, .. } => LLMSettings {
-            provider: "gemini".to_string(),
+        LLMConfig::Google { model, .. } => LLMSettings {
+            provider: "google".to_string(),
             api_key: Some("********".to_string()),
             host: None,
             model: model.clone(),
@@ -964,8 +1297,8 @@ pub fn get_llm_config(state: State<'_, AppState>) -> Result<Option<LLMSettings>,
             model: model.clone(),
             embedding_model: None,
         },
-        LLMConfig::Claude { model, .. } => LLMSettings {
-            provider: "claude".to_string(),
+        LLMConfig::Gemini { model, .. } => LLMSettings {
+            provider: "gemini".to_string(),
             api_key: None, // No API key needed - uses OAuth
             host: None,
             model: model.clone(),
@@ -7133,7 +7466,7 @@ pub async fn configure_meilisearch_chat(
             api_key: api_key.ok_or("Mistral requires an API key")?,
             model,
         },
-        "gemini" => ChatProviderConfig::Gemini {
+        "gemini" => ChatProviderConfig::Google {
             api_key: api_key.ok_or("Gemini requires an API key")?,
             model,
         },
@@ -7726,6 +8059,199 @@ pub async fn claude_gate_list_models(
 
     log::info!("Claude Gate: Listed {} models", model_infos.len());
     Ok(model_infos)
+}
+
+// ============================================================================
+// Gemini Gate OAuth Commands
+// ============================================================================
+
+/// Response for gemini_gate_get_status command
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GeminiGateStatusResponse {
+    /// Whether the user is authenticated with valid tokens
+    pub authenticated: bool,
+    /// Current storage backend being used (file, keyring, auto)
+    pub storage_backend: String,
+    /// Unix timestamp when token expires, if authenticated
+    pub token_expires_at: Option<i64>,
+    /// Whether keyring (secret service) is available on this system
+    pub keyring_available: bool,
+}
+
+/// Get Gemini Gate OAuth status
+///
+/// Returns authentication status, storage backend, token expiration, and keyring availability.
+#[tauri::command]
+pub async fn gemini_gate_get_status(
+    state: State<'_, AppState>,
+) -> Result<GeminiGateStatusResponse, String> {
+    let authenticated = state.gemini_gate.is_authenticated().await?;
+    let storage_backend = state.gemini_gate.storage_backend_name().await;
+
+    let token_expires_at = if authenticated {
+        state.gemini_gate.get_token_info().await?
+            .map(|t| t.expires_at)
+    } else {
+        None
+    };
+
+    // Check if keyring is available on this system
+    #[cfg(feature = "keyring")]
+    let keyring_available = crate::gemini_gate::KeyringTokenStorage::is_available();
+    #[cfg(not(feature = "keyring"))]
+    let keyring_available = false;
+
+    Ok(GeminiGateStatusResponse {
+        authenticated,
+        storage_backend,
+        token_expires_at,
+        keyring_available,
+    })
+}
+
+/// Response for gemini_gate_start_oauth command
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GeminiGateOAuthStartResponse {
+    /// URL to open in user's browser for OAuth authorization
+    pub auth_url: String,
+    /// State parameter for CSRF protection (pass back to complete_oauth)
+    pub state: String,
+}
+
+/// Start Gemini Gate OAuth flow
+///
+/// Returns the authorization URL that the user should open in their browser,
+/// along with a state parameter for CSRF verification.
+#[tauri::command]
+pub async fn gemini_gate_start_oauth(
+    state: State<'_, AppState>,
+) -> Result<GeminiGateOAuthStartResponse, String> {
+    let (auth_url, oauth_state) = state.gemini_gate.start_oauth_flow().await?;
+
+    log::info!("Gemini Gate OAuth flow started");
+
+    Ok(GeminiGateOAuthStartResponse {
+        auth_url,
+        state: oauth_state,
+    })
+}
+
+/// Response for gemini_gate_complete_oauth command
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GeminiGateOAuthCompleteResponse {
+    /// Whether the OAuth flow completed successfully
+    pub success: bool,
+    /// Error message if the flow failed
+    pub error: Option<String>,
+}
+
+/// Complete Gemini Gate OAuth flow
+///
+/// Exchange the authorization code for tokens and store them.
+///
+/// # Arguments
+/// * `code` - The authorization code from the OAuth callback. May also be in
+///   `code#state` format where the state is embedded after a `#` character.
+/// * `oauth_state` - Optional state parameter for CSRF verification (if not embedded in code)
+#[tauri::command]
+pub async fn gemini_gate_complete_oauth(
+    code: String,
+    oauth_state: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<GeminiGateOAuthCompleteResponse, String> {
+    // Parse code#state format if present
+    let (actual_code, embedded_state) = if let Some(hash_pos) = code.find('#') {
+        let (c, s) = code.split_at(hash_pos);
+        // Only treat as embedded state if there is content after the '#' character
+        let embedded = if s.len() > 1 {
+            Some(s[1..].to_string())
+        } else {
+            None
+        };
+        (c.to_string(), embedded)
+    } else {
+        (code, None)
+    };
+
+    // Use embedded state if present, otherwise use the provided oauth_state
+    let final_state = embedded_state.or(oauth_state);
+
+    log::debug!(
+        "Gemini Gate OAuth complete: code_len={}, state_provided={}",
+        actual_code.len(),
+        final_state.is_some()
+    );
+
+    match state.gemini_gate.complete_oauth_flow(&actual_code, final_state.as_deref()).await {
+        Ok(_token) => {
+            log::info!("Gemini Gate OAuth flow completed successfully");
+            Ok(GeminiGateOAuthCompleteResponse {
+                success: true,
+                error: None,
+            })
+        }
+        Err(e) => {
+            log::error!("Gemini Gate OAuth flow failed: {}", e);
+            Ok(GeminiGateOAuthCompleteResponse {
+                success: false,
+                error: Some(e),
+            })
+        }
+    }
+}
+
+/// Response for gemini_gate_logout command
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GeminiGateLogoutResponse {
+    /// Whether the logout was successful
+    pub success: bool,
+}
+
+/// Logout from Gemini Gate and remove stored tokens
+#[tauri::command]
+pub async fn gemini_gate_logout(
+    state: State<'_, AppState>,
+) -> Result<GeminiGateLogoutResponse, String> {
+    state.gemini_gate.logout().await?;
+    log::info!("Gemini Gate logout completed");
+
+    Ok(GeminiGateLogoutResponse {
+        success: true,
+    })
+}
+
+/// Response for gemini_gate_set_storage_backend command
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GeminiGateSetStorageResponse {
+    /// Whether the storage backend was changed successfully
+    pub success: bool,
+    /// The currently active storage backend after the change
+    pub active_backend: String,
+}
+
+/// Change Gemini Gate storage backend
+///
+/// Note: Changing the storage backend requires re-authentication as tokens
+/// are not automatically migrated between backends.
+///
+/// # Arguments
+/// * `backend` - Storage backend to use: "file", "keyring", or "auto"
+#[tauri::command]
+pub async fn gemini_gate_set_storage_backend(
+    backend: String,
+    state: State<'_, AppState>,
+) -> Result<GeminiGateSetStorageResponse, String> {
+    // Parse and validate the backend string
+    let new_backend: GeminiGateStorageBackend = backend.parse()?;
+
+    // Switch to the new backend - this recreates the client
+    let active = state.gemini_gate.switch_backend(new_backend).await?;
+    log::info!("Gemini Gate storage backend switched to: {}", active);
+
+    Ok(GeminiGateSetStorageResponse {
+        success: true,
+        active_backend: active,
+    })
 }
 
 // ============================================================================

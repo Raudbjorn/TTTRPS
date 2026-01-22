@@ -12,5 +12,6 @@
 
 mod claude_tests;
 mod openai_tests;
-mod gemini_tests;
+mod google_tests;   // API key-based Google provider
+// mod gemini_tests; // OAuth-based Gemini provider (has its own tests in gemini.rs)
 mod ollama_tests;

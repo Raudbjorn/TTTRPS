@@ -882,6 +882,7 @@ impl LLMRouter {
         match config {
             LLMConfig::Ollama { model, .. } => model.clone(),
             LLMConfig::Claude { model, .. } => model.clone(),
+            LLMConfig::Google { model, .. } => model.clone(),
             LLMConfig::Gemini { model, .. } => model.clone(),
             LLMConfig::OpenAI { model, .. } => model.clone(),
             LLMConfig::OpenRouter { model, .. } => model.clone(),
@@ -890,6 +891,7 @@ impl LLMRouter {
             LLMConfig::Together { model, .. } => model.clone(),
             LLMConfig::Cohere { model, .. } => model.clone(),
             LLMConfig::DeepSeek { model, .. } => model.clone(),
+            LLMConfig::Meilisearch { model, .. } => model.clone(),
         }
     }
 
@@ -1089,11 +1091,19 @@ impl LLMRouter {
                     &request, stream_id, provider_name, &tx, chunk_timeout
                 ).await
             }
-            LLMConfig::Claude { api_key, model, max_tokens } => {
-                self.stream_claude(api_key, model, *max_tokens, &request, stream_id, provider_name, &tx, chunk_timeout).await
-            }
-            LLMConfig::Gemini { api_key, model } => {
+            LLMConfig::Google { api_key, model } => {
+                // Google (API key-based) - uses Gemini stream format
                 self.stream_gemini(api_key, model, &request, stream_id, provider_name, &tx, chunk_timeout).await
+            }
+            LLMConfig::Gemini { .. } => {
+                // Gemini (OAuth-based) - uses provider's stream_chat method
+                // The OAuth-based provider handles streaming internally via gemini_gate
+                Err(LLMError::InvalidResponse("OAuth-based Gemini should use provider's stream_chat method directly".to_string()))
+            }
+            LLMConfig::Claude { .. } => {
+                // Claude (OAuth-based) - uses provider's stream_chat method
+                // The OAuth-based provider handles streaming internally via claude_gate
+                Err(LLMError::InvalidResponse("OAuth-based Claude should use provider's stream_chat method directly".to_string()))
             }
             LLMConfig::Ollama { host, model, .. } => {
                 self.stream_ollama(host, model, &request, stream_id, provider_name, &tx, chunk_timeout).await
@@ -1132,6 +1142,10 @@ impl LLMRouter {
             LLMConfig::Cohere { .. } => {
                 // Cohere streaming not implemented - fall back to non-streaming
                 Err(LLMError::InvalidResponse("Streaming not supported for Cohere".to_string()))
+            }
+            LLMConfig::Meilisearch { .. } => {
+                // Meilisearch has its own streaming implementation
+                Err(LLMError::InvalidResponse("Meilisearch streaming should be handled separately".to_string()))
             }
         };
 
