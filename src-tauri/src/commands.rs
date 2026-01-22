@@ -479,21 +479,7 @@ impl GeminiGateClientOps for GeminiFileStorageClientWrapper {
         self.client.is_authenticated().await.map_err(|e| e.to_string())
     }
     async fn get_token_info(&self) -> Result<Option<GeminiTokenInfo>, String> {
-        // For Gemini Gate, we need to check if authenticated and return token info
-        // The CloudCodeClient doesn't expose get_token_info directly, so we work around it
-        match self.client.is_authenticated().await {
-            Ok(true) => {
-                // Token exists but we can't get full info without storage access
-                // Return a placeholder - the client handles token internally
-                Ok(Some(GeminiTokenInfo::new(
-                    "authenticated".to_string(),
-                    "internal".to_string(),
-                    3600,
-                )))
-            }
-            Ok(false) => Ok(None),
-            Err(e) => Err(e.to_string()),
-        }
+        self.client.get_token_info().await.map_err(|e| e.to_string())
     }
     async fn start_oauth_flow_with_state(&self) -> Result<(String, crate::gemini_gate::OAuthFlowState), String> {
         self.client.start_oauth_flow().await.map_err(|e| e.to_string())
@@ -502,9 +488,7 @@ impl GeminiGateClientOps for GeminiFileStorageClientWrapper {
         self.client.complete_oauth_flow(code, state).await.map_err(|e| e.to_string())
     }
     async fn logout(&self) -> Result<(), String> {
-        // CloudCodeClient doesn't have a logout method, so we'd need to clear storage
-        // For now, return an error indicating this needs to be handled differently
-        Err("Logout not directly supported - please clear tokens manually".to_string())
+        self.client.logout().await.map_err(|e| e.to_string())
     }
     fn storage_name(&self) -> &'static str {
         "file"
@@ -524,17 +508,7 @@ impl GeminiGateClientOps for GeminiKeyringStorageClientWrapper {
         self.client.is_authenticated().await.map_err(|e| e.to_string())
     }
     async fn get_token_info(&self) -> Result<Option<GeminiTokenInfo>, String> {
-        match self.client.is_authenticated().await {
-            Ok(true) => {
-                Ok(Some(GeminiTokenInfo::new(
-                    "authenticated".to_string(),
-                    "internal".to_string(),
-                    3600,
-                )))
-            }
-            Ok(false) => Ok(None),
-            Err(e) => Err(e.to_string()),
-        }
+        self.client.get_token_info().await.map_err(|e| e.to_string())
     }
     async fn start_oauth_flow_with_state(&self) -> Result<(String, crate::gemini_gate::OAuthFlowState), String> {
         self.client.start_oauth_flow().await.map_err(|e| e.to_string())
@@ -543,7 +517,7 @@ impl GeminiGateClientOps for GeminiKeyringStorageClientWrapper {
         self.client.complete_oauth_flow(code, state).await.map_err(|e| e.to_string())
     }
     async fn logout(&self) -> Result<(), String> {
-        Err("Logout not directly supported - please clear tokens manually".to_string())
+        self.client.logout().await.map_err(|e| e.to_string())
     }
     fn storage_name(&self) -> &'static str {
         "keyring"
