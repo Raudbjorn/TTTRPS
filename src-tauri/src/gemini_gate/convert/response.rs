@@ -131,15 +131,21 @@ fn extract_usage(response: &GoogleResponse) -> Usage {
     }
 }
 
-/// Generate a unique message ID in the format `msg_{uuid}`.
+/// Generate a unique message ID in the format `msg_{hex}`.
+///
+/// Uses timestamp + atomic counter for collision resistance under concurrency.
 fn generate_message_id() -> String {
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+
     let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
-        .as_nanos();
+        .as_nanos() as u64;
+    let counter = COUNTER.fetch_add(1, Ordering::Relaxed);
 
-    // Use timestamp + random-ish data for uniqueness
-    format!("msg_{:032x}", timestamp)
+    format!("msg_{:016x}{:08x}", timestamp, counter)
 }
 
 #[cfg(test)]

@@ -309,10 +309,10 @@ impl<S: TokenStorage> OAuthFlow<S> {
         let verifier = match &pending_state {
             Some(flow_state) => flow_state.code_verifier.clone(),
             None => {
-                // If no pending state, try to use code directly
-                // This allows callers to provide verifier externally
-                warn!("No pending flow state, using empty verifier");
-                String::new()
+                // No pending state means the flow was not properly started
+                // or the state was cleared. Return an error.
+                warn!("No pending flow state - use exchange_code_with_verifier for external verifiers");
+                return Err(Error::Auth(AuthError::NotAuthenticated));
             }
         };
 

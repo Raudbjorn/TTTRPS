@@ -587,7 +587,7 @@ impl ChatProviderConfig {
             }
             ChatProviderConfig::Ollama { model, .. } => model.as_str(),
             ChatProviderConfig::Google { model, .. } => {
-                model.as_deref().unwrap_or("gemini-pro")
+                model.as_deref().unwrap_or("gemini-2.0-flash")
             }
             ChatProviderConfig::OpenRouter { model, .. } => model.as_str(),
             ChatProviderConfig::AzureOpenAI { .. } => "azure-deployment",
@@ -737,7 +737,7 @@ impl ChatProviderConfig {
             },
             ChatProviderConfig::Google { api_key, model } => ProviderConfig::Google {
                 api_key: api_key.clone(),
-                model: model.as_deref().unwrap_or("gemini-pro").to_string(),
+                model: model.as_deref().unwrap_or("gemini-2.0-flash").to_string(),
             },
             ChatProviderConfig::OpenRouter { api_key, model } => ProviderConfig::OpenRouter {
                 api_key: api_key.clone(),

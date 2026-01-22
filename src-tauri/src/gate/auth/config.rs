@@ -98,9 +98,20 @@ impl OAuthConfig {
     /// Create OAuth configuration for Gemini (Google Cloud Code).
     ///
     /// Uses Google's OAuth defaults for Cloud Code API access.
-    /// Requires both client ID and client secret.
+    ///
+    /// # Security Note
+    ///
+    /// The client secret included here follows Google's "installed application"
+    /// OAuth pattern. Per Google's documentation, installed app secrets are not
+    /// truly confidential as they ship with the application. Google recommends
+    /// PKCE for additional security, which this flow uses (S256 challenge).
+    ///
+    /// See: <https://developers.google.com/identity/protocols/oauth2/native-app>
     #[must_use]
     pub fn gemini() -> Self {
+        // Note: This secret is for an "installed application" (native desktop app).
+        // Google treats these secrets as non-confidential. PKCE provides additional
+        // security for the authorization code exchange.
         Self {
             client_id: "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com"
                 .to_string(),

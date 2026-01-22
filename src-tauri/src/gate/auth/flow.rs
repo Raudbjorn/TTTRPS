@@ -207,9 +207,10 @@ impl<S: TokenStorage> OAuthFlow<S> {
         if let Ok(mut pending) = self.pending_state.try_write() {
             *pending = Some(pending_clone);
         } else {
-            // Lock is held, spawn a task to set it asynchronously
+            // Lock is held, block until we can set the state
+            // This ensures pending state is set before returning
             let pending_state = Arc::clone(&self.pending_state);
-            tokio::runtime::Handle::current().spawn(async move {
+            tokio::runtime::Handle::current().block_on(async move {
                 let mut pending = pending_state.write().await;
                 *pending = Some(pending_clone);
             });
@@ -458,9 +459,7 @@ impl<S: TokenStorage> OAuthFlow<S> {
 
         // refresh_token is required for initial exchange
         let refresh_token = token_response.refresh_token.ok_or_else(|| {
-            Error::Auth(AuthError::ProjectDiscovery(
-                "No refresh token in response".to_string(),
-            ))
+            Error::Auth(AuthError::InvalidGrant)
         })?;
 
         debug!("Token exchange successful");

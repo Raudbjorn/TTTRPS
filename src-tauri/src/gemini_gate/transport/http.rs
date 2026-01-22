@@ -355,10 +355,16 @@ pub fn generate_request_id() -> String {
 /// assert!(masked.contains("***"));
 /// ```
 pub fn mask_token(token: &str) -> String {
-    if token.len() <= 12 {
+    let char_count = token.chars().count();
+    if char_count <= 12 {
         return "***".to_string();
     }
-    format!("{}***{}", &token[..4], &token[token.len() - 4..])
+
+    // Use char boundaries to avoid UTF-8 slicing panics
+    let prefix: String = token.chars().take(4).collect();
+    let suffix: String = token.chars().rev().take(4).collect::<Vec<_>>().into_iter().rev().collect();
+
+    format!("{}***{}", prefix, suffix)
 }
 
 /// Build the API path for generate content requests.

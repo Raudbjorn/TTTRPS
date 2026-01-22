@@ -316,13 +316,21 @@ pub(crate) fn convert_parts_to_content(parts: &[Part], model: &str) -> Vec<Conte
 }
 
 /// Generate a unique tool_use_id in the format `toolu_{hex}`.
+///
+/// Uses timestamp + atomic counter for collision resistance under concurrency.
 fn generate_tool_use_id() -> String {
+    use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+
     let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
-        .as_nanos();
-    format!("toolu_{:024x}", timestamp)
+        .as_nanos() as u64;
+    let counter = COUNTER.fetch_add(1, Ordering::Relaxed);
+
+    format!("toolu_{:016x}{:08x}", timestamp, counter)
 }
 
 /// Convert a simple text string to Parts.

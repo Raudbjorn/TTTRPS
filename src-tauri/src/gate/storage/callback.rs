@@ -138,9 +138,20 @@ impl FileSource {
     /// The path can include `~` which will be expanded to the home directory.
     #[must_use]
     pub fn new(path: impl AsRef<Path>) -> Self {
-        Self {
-            path: path.as_ref().to_path_buf(),
-        }
+        let path_str = path.as_ref().to_string_lossy();
+        let expanded = if path_str.starts_with("~/") {
+            if let Some(home) = dirs::home_dir() {
+                home.join(&path_str[2..])
+            } else {
+                path.as_ref().to_path_buf()
+            }
+        } else if path_str == "~" {
+            dirs::home_dir().unwrap_or_else(|| path.as_ref().to_path_buf())
+        } else {
+            path.as_ref().to_path_buf()
+        };
+
+        Self { path: expanded }
     }
 
     /// Get the file path.
