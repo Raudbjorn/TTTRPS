@@ -223,18 +223,20 @@ impl FileSource {
     }
 
     /// Load token from file.
+    ///
+    /// Reads the file directly without exists() check to avoid TOCTOU race.
     pub async fn load(&self) -> Result<Option<TokenInfo>> {
-        if !self.path.exists() {
-            return Ok(None);
-        }
-
-        let content = tokio::fs::read_to_string(&self.path).await.map_err(|e| {
-            Error::storage(format!(
-                "Failed to read file '{}': {}",
-                self.path.display(),
-                e
-            ))
-        })?;
+        let content = match tokio::fs::read_to_string(&self.path).await {
+            Ok(content) => content,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(e) => {
+                return Err(Error::storage(format!(
+                    "Failed to read file '{}': {}",
+                    self.path.display(),
+                    e
+                )))
+            }
+        };
 
         if content.trim().is_empty() {
             return Ok(None);
@@ -295,17 +297,18 @@ impl FileSource {
     }
 
     /// Remove the token file.
+    ///
+    /// Removes the file atomically without TOCTOU race. Treats NotFound as success.
     pub async fn remove(&self) -> Result<()> {
-        if self.path.exists() {
-            tokio::fs::remove_file(&self.path).await.map_err(|e| {
-                Error::storage(format!(
-                    "Failed to remove file '{}': {}",
-                    self.path.display(),
-                    e
-                ))
-            })?;
+        match tokio::fs::remove_file(&self.path).await {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(Error::storage(format!(
+                "Failed to remove file '{}': {}",
+                self.path.display(),
+                e
+            ))),
         }
-        Ok(())
     }
 
     /// Get the path to the token file.

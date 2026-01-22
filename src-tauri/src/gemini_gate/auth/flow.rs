@@ -185,17 +185,21 @@ impl<S: TokenStorage> OAuthFlow<S> {
         debug!(state = %flow_state.state, "Started OAuth authorization flow");
 
         // Store the pending state
-        // Note: We use blocking lock here since this is a sync method
-        // In practice, this should be fine as it's only called once at flow start
+        // Note: We use try_write to avoid blocking. If lock is held, spawn a task.
         let pending_clone = flow_state.clone();
 
-        // Use try_write to avoid blocking, or spawn a task
-        tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current().block_on(async {
-                let mut pending = self.pending_state.write().await;
+        // Try non-blocking write first
+        if let Ok(mut pending) = self.pending_state.try_write() {
+            *pending = Some(pending_clone);
+        } else {
+            // Lock is held, spawn a task to set it asynchronously
+            // This is safe because the state is only needed before exchange_code is called
+            let pending_state = Arc::clone(&self.pending_state);
+            tokio::runtime::Handle::current().spawn(async move {
+                let mut pending = pending_state.write().await;
                 *pending = Some(pending_clone);
             });
-        });
+        }
 
         Ok((url, flow_state))
     }

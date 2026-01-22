@@ -11,7 +11,7 @@
 //! ## Example
 //!
 //! ```rust,ignore
-//! use antigravity_gate::transport::{HttpClient, SseStream};
+//! use crate::gemini_gate::transport::{HttpClient, SseStream};
 //!
 //! // Create HTTP client
 //! let client = HttpClient::new();

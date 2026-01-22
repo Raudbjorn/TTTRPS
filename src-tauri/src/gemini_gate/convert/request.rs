@@ -272,9 +272,9 @@ fn sanitize_tool_name(name: &str, fallback_idx: usize) -> String {
         })
         .collect();
 
-    // Limit length to 64 characters
+    // Limit length to 64 characters (safe truncation at char boundary)
     if sanitized.len() > 64 {
-        sanitized[..64].to_string()
+        sanitized.chars().take(64).collect()
     } else {
         sanitized
     }

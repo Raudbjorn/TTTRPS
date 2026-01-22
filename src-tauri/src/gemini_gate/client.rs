@@ -526,6 +526,39 @@ impl<S: TokenStorage + 'static> CloudCodeClient<S> {
         let mut managed = self.managed_project_id.write().await;
         *managed = None;
     }
+
+    /// Log out by removing stored tokens.
+    ///
+    /// Clears stored tokens and any cached project information.
+    /// Does not revoke the token with Google.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// client.logout().await?;
+    /// assert!(!client.is_authenticated().await?);
+    /// ```
+    pub async fn logout(&self) -> Result<()> {
+        // Clear project cache
+        self.clear_project_cache().await;
+        // Remove token from storage
+        self.oauth.logout().await
+    }
+
+    /// Get the current token info.
+    ///
+    /// Returns the complete token info including refresh token and expiry.
+    /// Automatically refreshes the token if it's expired.
+    ///
+    /// # Returns
+    ///
+    /// `Ok(Some(TokenInfo))` if authenticated, `Ok(None)` if not authenticated.
+    pub async fn get_token_info(&self) -> Result<Option<super::auth::TokenInfo>> {
+        if !self.is_authenticated().await? {
+            return Ok(None);
+        }
+        self.oauth.get_token().await.map(Some)
+    }
 }
 
 /// Derive a stable session ID from the request.

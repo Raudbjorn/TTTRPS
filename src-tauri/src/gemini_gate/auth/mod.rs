@@ -21,10 +21,10 @@
 //! # Example
 //!
 //! ```rust,ignore
-//! use antigravity_gate::auth::OAuthFlow;
-//! use antigravity_gate::storage::MemoryTokenStorage;
+//! use crate::gemini_gate::auth::OAuthFlow;
+//! use crate::gemini_gate::storage::MemoryTokenStorage;
 //!
-//! # async fn example() -> antigravity_gate::Result<()> {
+//! # async fn example() -> crate::gemini_gate::Result<()> {
 //! let storage = MemoryTokenStorage::new();
 //! let flow = OAuthFlow::new(storage);
 //!
@@ -46,9 +46,9 @@
 //! After authentication, discover the Cloud Code project:
 //!
 //! ```rust,ignore
-//! use antigravity_gate::auth::project::{discover_project, ProjectInfo};
+//! use crate::gemini_gate::auth::project::{discover_project, ProjectInfo};
 //!
-//! # async fn example() -> antigravity_gate::Result<()> {
+//! # async fn example() -> crate::gemini_gate::Result<()> {
 //! let access_token = "ya29.xxx";
 //! let project = discover_project(access_token, None).await?;
 //! println!("Project: {}", project.project_id);

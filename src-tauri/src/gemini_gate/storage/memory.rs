@@ -94,17 +94,20 @@ impl MemoryTokenStorage {
         }
     }
 
-    /// Get a snapshot of the current token without async.
+    /// Get a snapshot of the current token synchronously.
     ///
-    /// This is a blocking operation and should only be used in
-    /// synchronous contexts. For async code, use [`Self::load`].
+    /// # Warning
     ///
-    /// # Panics
+    /// This method blocks the current thread using `futures::executor::block_on`.
+    /// It **must not** be called from within an async context (e.g., from code
+    /// running on a Tokio runtime thread), as this will cause a panic or deadlock.
     ///
-    /// Panics if the lock is poisoned.
+    /// For async code, use [`Self::load`] instead.
+    ///
+    /// Note: Unlike `std::sync::RwLock`, `tokio::sync::RwLock` does not poison,
+    /// so this method will not panic due to lock poisoning.
     pub fn get_sync(&self) -> Option<TokenInfo> {
-        // Try to acquire read lock without blocking in async context
-        // This is safe because we're using tokio's RwLock which doesn't poison
+        // Warning: This blocks the thread. Do not call from async context.
         futures::executor::block_on(async { self.inner.read().await.clone() })
     }
 }

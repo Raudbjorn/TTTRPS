@@ -252,8 +252,9 @@ impl Usage {
     /// Get the effective input tokens (excluding cache reads).
     ///
     /// This represents tokens that were actually processed, not read from cache.
+    /// Uses saturating subtraction to avoid underflow if cache_read > input.
     pub fn effective_input_tokens(&self) -> u32 {
-        self.input_tokens - self.cache_read_input_tokens.unwrap_or(0)
+        self.input_tokens.saturating_sub(self.cache_read_input_tokens.unwrap_or(0))
     }
 }
 

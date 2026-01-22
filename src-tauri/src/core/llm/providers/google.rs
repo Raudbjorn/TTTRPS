@@ -88,8 +88,8 @@ impl LLMProvider for GoogleProvider {
 
     async fn chat(&self, request: ChatRequest) -> Result<ChatResponse> {
         let url = format!(
-            "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent?key={}",
-            self.model, self.api_key
+            "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent",
+            self.model
         );
 
         let contents = self.build_contents(&request);
@@ -118,6 +118,7 @@ impl LLMProvider for GoogleProvider {
             .client
             .post(&url)
             .header("content-type", "application/json")
+            .header("x-goog-api-key", &self.api_key)
             .json(&body)
             .send()
             .await?;
@@ -174,8 +175,8 @@ impl LLMProvider for GoogleProvider {
         request: ChatRequest,
     ) -> Result<mpsc::Receiver<Result<ChatChunk>>> {
         let url = format!(
-            "https://generativelanguage.googleapis.com/v1beta/models/{}:streamGenerateContent?key={}&alt=sse",
-            self.model, self.api_key
+            "https://generativelanguage.googleapis.com/v1beta/models/{}:streamGenerateContent?alt=sse",
+            self.model
         );
 
         let contents = self.build_contents(&request);
@@ -205,6 +206,7 @@ impl LLMProvider for GoogleProvider {
             .client
             .post(&url)
             .header("content-type", "application/json")
+            .header("x-goog-api-key", &self.api_key)
             .json(&body)
             .send()
             .await?;
@@ -221,13 +223,20 @@ impl LLMProvider for GoogleProvider {
             let mut stream = response.bytes_stream();
             let mut chunk_index = 0u32;
             let mut final_usage: Option<TokenUsage> = None;
+            // SSE buffer to handle TCP chunk boundaries
+            let mut sse_buffer = String::new();
 
             while let Some(item) = stream.next().await {
                 match item {
                     Ok(bytes) => {
-                        let text = String::from_utf8_lossy(&bytes);
+                        // Append incoming bytes to buffer
+                        sse_buffer.push_str(&String::from_utf8_lossy(&bytes));
 
-                        for line in text.lines() {
+                        // Process complete lines from buffer
+                        while let Some(newline_pos) = sse_buffer.find('\n') {
+                            let line = sse_buffer[..newline_pos].trim_end_matches('\r').to_string();
+                            sse_buffer = sse_buffer[newline_pos + 1..].to_string();
+
                             if line.starts_with("data: ") {
                                 let data = &line[6..];
                                 if let Ok(json) = serde_json::from_str::<serde_json::Value>(data) {

@@ -213,22 +213,11 @@ impl GeminiClientTrait for FileStorageClient {
     }
 
     async fn logout(&self) -> crate::gemini_gate::Result<()> {
-        // Clear project cache and remove token
-        self.client.clear_project_cache().await;
-        // Note: gemini_gate doesn't have a direct logout method, we'll need to clear the storage
-        // For now, this clears the cache
-        Ok(())
+        self.client.logout().await
     }
 
     async fn get_token_info(&self) -> crate::gemini_gate::Result<Option<TokenInfo>> {
-        // Check if authenticated and return None if not
-        if self.client.is_authenticated().await? {
-            // Token info would be in storage - for now return a placeholder
-            // In practice, the token is managed internally
-            Ok(None)
-        } else {
-            Ok(None)
-        }
+        self.client.get_token_info().await
     }
 
     async fn send_message(
@@ -331,16 +320,11 @@ impl GeminiClientTrait for KeyringStorageClient {
     }
 
     async fn logout(&self) -> crate::gemini_gate::Result<()> {
-        self.client.clear_project_cache().await;
-        Ok(())
+        self.client.logout().await
     }
 
     async fn get_token_info(&self) -> crate::gemini_gate::Result<Option<TokenInfo>> {
-        if self.client.is_authenticated().await? {
-            Ok(None)
-        } else {
-            Ok(None)
-        }
+        self.client.get_token_info().await
     }
 
     async fn send_message(
@@ -441,16 +425,11 @@ impl GeminiClientTrait for MemoryStorageClient {
     }
 
     async fn logout(&self) -> crate::gemini_gate::Result<()> {
-        self.client.clear_project_cache().await;
-        Ok(())
+        self.client.logout().await
     }
 
     async fn get_token_info(&self) -> crate::gemini_gate::Result<Option<TokenInfo>> {
-        if self.client.is_authenticated().await? {
-            Ok(None)
-        } else {
-            Ok(None)
-        }
+        self.client.get_token_info().await
     }
 
     async fn send_message(

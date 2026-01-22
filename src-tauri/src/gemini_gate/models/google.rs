@@ -636,8 +636,9 @@ pub(crate) struct UsageMetadata {
 
 impl UsageMetadata {
     /// Calculate effective input tokens (excluding cache).
+    /// Uses saturating subtraction to avoid underflow if cached > prompt.
     pub fn effective_input_tokens(&self) -> u32 {
-        self.prompt_token_count - self.cached_content_token_count.unwrap_or(0)
+        self.prompt_token_count.saturating_sub(self.cached_content_token_count.unwrap_or(0))
     }
 }
 

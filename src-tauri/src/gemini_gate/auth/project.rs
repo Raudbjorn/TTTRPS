@@ -352,7 +352,10 @@ async fn try_load_code_assist(
 /// # }
 /// ```
 #[instrument(skip(token))]
-pub async fn onboard_user(token: &str, tier: &str) -> Result<String> {
+pub async fn onboard_user(token: &str, _tier: &str) -> Result<String> {
+    // Note: tier parameter is currently unused but preserved for API compatibility
+    // and potential future use in tier-specific onboarding requests.
+
     // Try each endpoint
     for endpoint in LOAD_CODE_ASSIST_ENDPOINTS {
         match try_onboard_user(token, endpoint).await {
