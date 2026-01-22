@@ -1,5 +1,34 @@
 //! # Gemini Gate
 //!
+//! **DEPRECATED**: This module is deprecated and will be removed in a future release.
+//! Please migrate to the unified [`crate::gate`] module which provides:
+//! - Unified `OAuthProvider` trait for Claude and Gemini
+//! - `GeminiProvider` implementation in [`crate::gate::providers::GeminiProvider`]
+//! - Shared `TokenStorage` trait with multiple backends
+//! - `OAuthFlow` orchestrator for complete OAuth lifecycle
+//!
+//! ## Migration Guide
+//!
+//! Old:
+//! ```rust,ignore
+//! use crate::gemini_gate::{CloudCodeClient, FileTokenStorage};
+//! let storage = FileTokenStorage::default_path()?;
+//! let client = CloudCodeClient::builder().with_storage(storage).build()?;
+//! ```
+//!
+//! New:
+//! ```rust,ignore
+//! use crate::gate::providers::GeminiProvider;
+//! use crate::gate::storage::FileTokenStorage;
+//! use crate::gate::auth::OAuthFlow;
+//!
+//! let provider = GeminiProvider::new();
+//! let storage = FileTokenStorage::new("~/.config/gemini/auth.json")?;
+//! let flow = OAuthFlow::new(provider, storage);
+//! ```
+//!
+//! ---
+//!
 //! OAuth-based Cloud Code API client for Claude and Gemini models.
 //!
 //! This module provides programmatic access to Google's Cloud Code API,
@@ -53,6 +82,10 @@
 //! - `keyring`: Enable system keyring storage (macOS Keychain, Linux Secret Service)
 
 #![allow(clippy::module_name_repetitions)]
+#![deprecated(
+    since = "0.1.0",
+    note = "Use the unified `crate::gate` module instead. See module docs for migration guide."
+)]
 
 // Implemented modules
 pub mod auth;

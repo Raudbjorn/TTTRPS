@@ -57,17 +57,24 @@ use crate::core::personality::{
 };
 use crate::core::credentials::CredentialManager;
 use crate::core::audio::AudioVolumes;
-// Claude Gate OAuth client
-use crate::claude_gate::{ClaudeClient, FileTokenStorage, TokenInfo};
+// Unified Gate OAuth types for token storage and auth flow
+use crate::gate::{
+    OAuthFlowState as GateOAuthFlowState,
+    TokenInfo as GateTokenInfo,
+};
+
+// Claude Gate OAuth client - for API operations
+use crate::claude_gate::{ClaudeClient, FileTokenStorage};
 #[cfg(feature = "keyring")]
 use crate::claude_gate::KeyringTokenStorage;
-// Gemini Gate OAuth client
+// Gemini Gate OAuth client - for API operations
+#[allow(deprecated)]
 use crate::gemini_gate::{
     CloudCodeClient as GeminiCloudCodeClient,
     FileTokenStorage as GeminiFileTokenStorage,
-    TokenInfo as GeminiTokenInfo,
 };
 #[cfg(feature = "keyring")]
+#[allow(deprecated)]
 use crate::gemini_gate::KeyringTokenStorage as GeminiKeyringTokenStorage;
 use crate::core::sidecar_manager::{SidecarManager, MeilisearchConfig};
 use crate::core::search_client::SearchClient;
@@ -157,12 +164,15 @@ impl std::str::FromStr for ClaudeGateStorageBackend {
 // ============================================================================
 
 /// Trait for Claude Gate client operations, allowing type-erased storage backends.
+///
+/// This trait uses unified gate types for OAuth flow state while internally
+/// using claude_gate types for API operations.
 #[async_trait::async_trait]
 trait ClaudeGateClientOps: Send + Sync {
     async fn is_authenticated(&self) -> Result<bool, String>;
-    async fn get_token_info(&self) -> Result<Option<TokenInfo>, String>;
-    async fn start_oauth_flow_with_state(&self) -> Result<(String, crate::claude_gate::OAuthFlowState), String>;
-    async fn complete_oauth_flow(&self, code: &str, state: Option<&str>) -> Result<TokenInfo, String>;
+    async fn get_token_info(&self) -> Result<Option<GateTokenInfo>, String>;
+    async fn start_oauth_flow_with_state(&self) -> Result<(String, GateOAuthFlowState), String>;
+    async fn complete_oauth_flow(&self, code: &str, state: Option<&str>) -> Result<GateTokenInfo, String>;
     async fn logout(&self) -> Result<(), String>;
     async fn list_models(&self) -> Result<Vec<crate::claude_gate::ApiModel>, String>;
     fn storage_name(&self) -> &'static str;
@@ -178,14 +188,20 @@ impl ClaudeGateClientOps for FileStorageClientWrapper {
     async fn is_authenticated(&self) -> Result<bool, String> {
         self.client.is_authenticated().await.map_err(|e| e.to_string())
     }
-    async fn get_token_info(&self) -> Result<Option<TokenInfo>, String> {
-        self.client.get_token_info().await.map_err(|e| e.to_string())
+    async fn get_token_info(&self) -> Result<Option<GateTokenInfo>, String> {
+        self.client.get_token_info().await
+            .map(|opt| opt.map(GateTokenInfo::from))
+            .map_err(|e| e.to_string())
     }
-    async fn start_oauth_flow_with_state(&self) -> Result<(String, crate::claude_gate::OAuthFlowState), String> {
-        self.client.start_oauth_flow_with_state().await.map_err(|e| e.to_string())
+    async fn start_oauth_flow_with_state(&self) -> Result<(String, GateOAuthFlowState), String> {
+        self.client.start_oauth_flow_with_state().await
+            .map(|(url, state)| (url, GateOAuthFlowState::from(state)))
+            .map_err(|e| e.to_string())
     }
-    async fn complete_oauth_flow(&self, code: &str, state: Option<&str>) -> Result<TokenInfo, String> {
-        self.client.complete_oauth_flow(code, state).await.map_err(|e| e.to_string())
+    async fn complete_oauth_flow(&self, code: &str, state: Option<&str>) -> Result<GateTokenInfo, String> {
+        self.client.complete_oauth_flow(code, state).await
+            .map(GateTokenInfo::from)
+            .map_err(|e| e.to_string())
     }
     async fn logout(&self) -> Result<(), String> {
         self.client.logout().await.map_err(|e| e.to_string())
@@ -210,14 +226,20 @@ impl ClaudeGateClientOps for KeyringStorageClientWrapper {
     async fn is_authenticated(&self) -> Result<bool, String> {
         self.client.is_authenticated().await.map_err(|e| e.to_string())
     }
-    async fn get_token_info(&self) -> Result<Option<TokenInfo>, String> {
-        self.client.get_token_info().await.map_err(|e| e.to_string())
+    async fn get_token_info(&self) -> Result<Option<GateTokenInfo>, String> {
+        self.client.get_token_info().await
+            .map(|opt| opt.map(GateTokenInfo::from))
+            .map_err(|e| e.to_string())
     }
-    async fn start_oauth_flow_with_state(&self) -> Result<(String, crate::claude_gate::OAuthFlowState), String> {
-        self.client.start_oauth_flow_with_state().await.map_err(|e| e.to_string())
+    async fn start_oauth_flow_with_state(&self) -> Result<(String, GateOAuthFlowState), String> {
+        self.client.start_oauth_flow_with_state().await
+            .map(|(url, state)| (url, GateOAuthFlowState::from(state)))
+            .map_err(|e| e.to_string())
     }
-    async fn complete_oauth_flow(&self, code: &str, state: Option<&str>) -> Result<TokenInfo, String> {
-        self.client.complete_oauth_flow(code, state).await.map_err(|e| e.to_string())
+    async fn complete_oauth_flow(&self, code: &str, state: Option<&str>) -> Result<GateTokenInfo, String> {
+        self.client.complete_oauth_flow(code, state).await
+            .map(GateTokenInfo::from)
+            .map_err(|e| e.to_string())
     }
     async fn logout(&self) -> Result<(), String> {
         self.client.logout().await.map_err(|e| e.to_string())
@@ -339,8 +361,8 @@ impl ClaudeGateState {
         client.is_authenticated().await
     }
 
-    /// Get token info
-    pub async fn get_token_info(&self) -> Result<Option<TokenInfo>, String> {
+    /// Get token info using unified gate types
+    pub async fn get_token_info(&self) -> Result<Option<GateTokenInfo>, String> {
         let client = self.client.read().await;
         let client = client.as_ref().ok_or("Claude Gate client not initialized")?;
         client.get_token_info().await
@@ -358,8 +380,8 @@ impl ClaudeGateState {
         Ok((url, state.state))
     }
 
-    /// Complete OAuth flow
-    pub async fn complete_oauth_flow(&self, code: &str, state: Option<&str>) -> Result<TokenInfo, String> {
+    /// Complete OAuth flow using unified gate types
+    pub async fn complete_oauth_flow(&self, code: &str, state: Option<&str>) -> Result<GateTokenInfo, String> {
         // Verify state if provided
         if let Some(received_state) = state {
             let pending = self.pending_oauth_state.read().await;
@@ -458,34 +480,46 @@ impl std::str::FromStr for GeminiGateStorageBackend {
 // ============================================================================
 
 /// Trait for Gemini Gate client operations, allowing type-erased storage backends.
+///
+/// This trait uses unified gate types for OAuth flow state while internally
+/// using gemini_gate types for API operations.
 #[async_trait::async_trait]
+#[allow(deprecated)]
 trait GeminiGateClientOps: Send + Sync {
     async fn is_authenticated(&self) -> Result<bool, String>;
-    async fn get_token_info(&self) -> Result<Option<GeminiTokenInfo>, String>;
-    async fn start_oauth_flow_with_state(&self) -> Result<(String, crate::gemini_gate::OAuthFlowState), String>;
-    async fn complete_oauth_flow(&self, code: &str, state: Option<&str>) -> Result<GeminiTokenInfo, String>;
+    async fn get_token_info(&self) -> Result<Option<GateTokenInfo>, String>;
+    async fn start_oauth_flow_with_state(&self) -> Result<(String, GateOAuthFlowState), String>;
+    async fn complete_oauth_flow(&self, code: &str, state: Option<&str>) -> Result<GateTokenInfo, String>;
     async fn logout(&self) -> Result<(), String>;
     fn storage_name(&self) -> &'static str;
 }
 
 /// File storage client wrapper for Gemini Gate
+#[allow(deprecated)]
 struct GeminiFileStorageClientWrapper {
     client: std::sync::Arc<GeminiCloudCodeClient<GeminiFileTokenStorage>>,
 }
 
+#[allow(deprecated)]
 #[async_trait::async_trait]
 impl GeminiGateClientOps for GeminiFileStorageClientWrapper {
     async fn is_authenticated(&self) -> Result<bool, String> {
         self.client.is_authenticated().await.map_err(|e| e.to_string())
     }
-    async fn get_token_info(&self) -> Result<Option<GeminiTokenInfo>, String> {
-        self.client.get_token_info().await.map_err(|e| e.to_string())
+    async fn get_token_info(&self) -> Result<Option<GateTokenInfo>, String> {
+        self.client.get_token_info().await
+            .map(|opt| opt.map(GateTokenInfo::from))
+            .map_err(|e| e.to_string())
     }
-    async fn start_oauth_flow_with_state(&self) -> Result<(String, crate::gemini_gate::OAuthFlowState), String> {
-        self.client.start_oauth_flow().await.map_err(|e| e.to_string())
+    async fn start_oauth_flow_with_state(&self) -> Result<(String, GateOAuthFlowState), String> {
+        self.client.start_oauth_flow().await
+            .map(|(url, state)| (url, GateOAuthFlowState::from(state)))
+            .map_err(|e| e.to_string())
     }
-    async fn complete_oauth_flow(&self, code: &str, state: Option<&str>) -> Result<GeminiTokenInfo, String> {
-        self.client.complete_oauth_flow(code, state).await.map_err(|e| e.to_string())
+    async fn complete_oauth_flow(&self, code: &str, state: Option<&str>) -> Result<GateTokenInfo, String> {
+        self.client.complete_oauth_flow(code, state).await
+            .map(GateTokenInfo::from)
+            .map_err(|e| e.to_string())
     }
     async fn logout(&self) -> Result<(), String> {
         self.client.logout().await.map_err(|e| e.to_string())
@@ -497,24 +531,32 @@ impl GeminiGateClientOps for GeminiFileStorageClientWrapper {
 
 /// Keyring storage client wrapper for Gemini Gate
 #[cfg(feature = "keyring")]
+#[allow(deprecated)]
 struct GeminiKeyringStorageClientWrapper {
     client: std::sync::Arc<GeminiCloudCodeClient<GeminiKeyringTokenStorage>>,
 }
 
 #[cfg(feature = "keyring")]
+#[allow(deprecated)]
 #[async_trait::async_trait]
 impl GeminiGateClientOps for GeminiKeyringStorageClientWrapper {
     async fn is_authenticated(&self) -> Result<bool, String> {
         self.client.is_authenticated().await.map_err(|e| e.to_string())
     }
-    async fn get_token_info(&self) -> Result<Option<GeminiTokenInfo>, String> {
-        self.client.get_token_info().await.map_err(|e| e.to_string())
+    async fn get_token_info(&self) -> Result<Option<GateTokenInfo>, String> {
+        self.client.get_token_info().await
+            .map(|opt| opt.map(GateTokenInfo::from))
+            .map_err(|e| e.to_string())
     }
-    async fn start_oauth_flow_with_state(&self) -> Result<(String, crate::gemini_gate::OAuthFlowState), String> {
-        self.client.start_oauth_flow().await.map_err(|e| e.to_string())
+    async fn start_oauth_flow_with_state(&self) -> Result<(String, GateOAuthFlowState), String> {
+        self.client.start_oauth_flow().await
+            .map(|(url, state)| (url, GateOAuthFlowState::from(state)))
+            .map_err(|e| e.to_string())
     }
-    async fn complete_oauth_flow(&self, code: &str, state: Option<&str>) -> Result<GeminiTokenInfo, String> {
-        self.client.complete_oauth_flow(code, state).await.map_err(|e| e.to_string())
+    async fn complete_oauth_flow(&self, code: &str, state: Option<&str>) -> Result<GateTokenInfo, String> {
+        self.client.complete_oauth_flow(code, state).await
+            .map(GateTokenInfo::from)
+            .map_err(|e| e.to_string())
     }
     async fn logout(&self) -> Result<(), String> {
         self.client.logout().await.map_err(|e| e.to_string())
@@ -527,6 +569,7 @@ impl GeminiGateClientOps for GeminiKeyringStorageClientWrapper {
 /// Type-erased Gemini Gate client wrapper.
 /// This allows storing the client in AppState regardless of storage backend
 /// and supports runtime backend switching.
+#[allow(deprecated)]
 pub struct GeminiGateState {
     /// The active client (type-erased)
     client: AsyncRwLock<Option<Box<dyn GeminiGateClientOps>>>,
@@ -536,6 +579,7 @@ pub struct GeminiGateState {
     storage_backend: AsyncRwLock<GeminiGateStorageBackend>,
 }
 
+#[allow(deprecated)]
 impl GeminiGateState {
     /// Create a client for the specified backend
     fn create_client(backend: GeminiGateStorageBackend) -> Result<Box<dyn GeminiGateClientOps>, String> {
@@ -631,8 +675,8 @@ impl GeminiGateState {
         client.is_authenticated().await
     }
 
-    /// Get token info
-    pub async fn get_token_info(&self) -> Result<Option<GeminiTokenInfo>, String> {
+    /// Get token info using unified gate types
+    pub async fn get_token_info(&self) -> Result<Option<GateTokenInfo>, String> {
         let client = self.client.read().await;
         let client = client.as_ref().ok_or("Gemini Gate client not initialized")?;
         client.get_token_info().await
@@ -650,8 +694,8 @@ impl GeminiGateState {
         Ok((url, state.state))
     }
 
-    /// Complete OAuth flow
-    pub async fn complete_oauth_flow(&self, code: &str, state: Option<&str>) -> Result<GeminiTokenInfo, String> {
+    /// Complete OAuth flow using unified gate types
+    pub async fn complete_oauth_flow(&self, code: &str, state: Option<&str>) -> Result<GateTokenInfo, String> {
         // Verify state if provided
         if let Some(received_state) = state {
             let pending = self.pending_oauth_state.read().await;

@@ -1,5 +1,34 @@
 //! # Claude Gate
 //!
+//! **DEPRECATED**: This module is deprecated and will be removed in a future release.
+//! Please migrate to the unified [`crate::gate`] module which provides:
+//! - Unified `OAuthProvider` trait for Claude and Gemini
+//! - `ClaudeProvider` implementation in [`crate::gate::providers::ClaudeProvider`]
+//! - Shared `TokenStorage` trait with multiple backends
+//! - `OAuthFlow` orchestrator for complete OAuth lifecycle
+//!
+//! ## Migration Guide
+//!
+//! Old:
+//! ```rust,ignore
+//! use crate::claude_gate::{ClaudeClient, FileTokenStorage};
+//! let storage = FileTokenStorage::default_path()?;
+//! let client = ClaudeClient::builder().with_storage(storage).build()?;
+//! ```
+//!
+//! New:
+//! ```rust,ignore
+//! use crate::gate::providers::ClaudeProvider;
+//! use crate::gate::storage::FileTokenStorage;
+//! use crate::gate::auth::OAuthFlow;
+//!
+//! let provider = ClaudeProvider::new();
+//! let storage = FileTokenStorage::new("~/.config/cld/auth.json")?;
+//! let flow = OAuthFlow::new(provider, storage);
+//! ```
+//!
+//! ---
+//!
 //! OAuth-based Anthropic API client for Rust with flexible token storage.
 //!
 //! This module provides:
@@ -38,6 +67,10 @@
 //! ```
 
 #![allow(clippy::module_name_repetitions)]
+#![deprecated(
+    since = "0.1.0",
+    note = "Use the unified `crate::gate` module instead. See module docs for migration guide."
+)]
 
 pub mod auth;
 pub mod client;
