@@ -1,6 +1,6 @@
-//! # Claude Gate
+//! Claude API client module.
 //!
-//! OAuth-based Anthropic API client for Rust with flexible token storage.
+//! OAuth-based Anthropic API client with flexible token storage.
 //!
 //! This module provides:
 //! - OAuth 2.0 PKCE flow for Anthropic's Claude API
@@ -12,10 +12,10 @@
 //! ## Quick Start
 //!
 //! ```rust,no_run
-//! use crate::claude_gate::{ClaudeClient, FileTokenStorage};
+//! use crate::gate::claude::{ClaudeClient, FileTokenStorage};
 //!
 //! #[tokio::main]
-//! async fn main() -> crate::claude_gate::Result<()> {
+//! async fn main() -> crate::gate::claude::Result<()> {
 //!     // Use default storage (~/.config/cld/auth.json)
 //!     let storage = FileTokenStorage::default_path()?;
 //!     let client = ClaudeClient::builder()
@@ -43,8 +43,9 @@ pub mod auth;
 pub mod client;
 pub mod error;
 pub mod models;
-pub mod storage;
 pub mod transform;
+
+use crate::gate::storage;
 
 pub use auth::{OAuthConfig, OAuthFlow, OAuthFlowState, Pkce};
 pub use client::{ClaudeClient, ClaudeClientBuilder, MessagesRequest, MessagesRequestBuilder};
@@ -53,7 +54,7 @@ pub use models::{
     ApiModel, ContentBlock, DocumentSource, ImageSource, Message, MessagesResponse, ModelsResponse,
     Role, StopReason, StreamEvent, Tool, ToolChoice, TokenInfo, Usage,
 };
-pub use storage::{callbacks, CallbackStorage, FileTokenStorage, MemoryTokenStorage, TokenStorage};
+pub use storage::{CallbackStorage, FileTokenStorage, MemoryTokenStorage, TokenStorage};
 
 #[cfg(feature = "keyring")]
 pub use storage::KeyringTokenStorage;

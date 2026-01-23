@@ -1271,7 +1271,7 @@ impl MeilisearchPipeline {
         source_type: &str,
     ) -> Result<ExtractionResult, SearchError> {
         // Check if Claude extraction supports this format
-        if !ClaudeDocumentExtractor::<crate::claude_gate::FileTokenStorage>::is_supported(path) {
+        if !ClaudeDocumentExtractor::<crate::gate::claude::FileTokenStorage>::is_supported(path) {
             log::warn!(
                 "Claude extraction does not support '{}', falling back to kreuzberg",
                 source_type

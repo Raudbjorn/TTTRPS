@@ -124,3 +124,34 @@ impl Error {
         )
     }
 }
+
+impl From<crate::gate::error::Error> for Error {
+    fn from(err: crate::gate::error::Error) -> Self {
+        match err {
+            crate::gate::error::Error::Auth(auth_err) => match auth_err {
+                crate::gate::error::AuthError::NotAuthenticated => Error::NotAuthenticated,
+                crate::gate::error::AuthError::TokenExpired => Error::TokenExpired("Token expired".into()),
+                crate::gate::error::AuthError::InvalidGrant => Error::OAuth("Invalid grant".into()),
+                crate::gate::error::AuthError::StateMismatch => Error::InvalidState {
+                    expected: "unknown".into(),
+                    actual: "mismatch".into(),
+                },
+                crate::gate::error::AuthError::PkceVerificationFailed => Error::PkceVerificationFailed,
+                crate::gate::error::AuthError::Cancelled => Error::OAuth("Cancelled".into()),
+                crate::gate::error::AuthError::ProjectDiscovery(msg) => Error::OAuth(format!("Project discovery failed: {}", msg)),
+                crate::gate::error::AuthError::RefreshFailed(msg) => Error::RefreshFailed(msg),
+            },
+            crate::gate::error::Error::Api { status, message, .. } => Error::Api {
+                status,
+                message,
+                error_type: None,
+            },
+            crate::gate::error::Error::Network(e) => Error::Http(e),
+            crate::gate::error::Error::Json(e) => Error::Json(e),
+            crate::gate::error::Error::Config(msg) => Error::Config(msg),
+            crate::gate::error::Error::Storage(msg) => Error::Storage(msg),
+            crate::gate::error::Error::Io(e) => Error::Io(e),
+            crate::gate::error::Error::Url(e) => Error::Url(e),
+        }
+    }
+}

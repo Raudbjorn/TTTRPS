@@ -297,7 +297,7 @@ pub enum ChatLLMSource {
     OpenAi,
     AzureOpenAi,
     Mistral,
-    Gemini,
+    Google,
     VLlm,
 }
 
@@ -479,8 +479,8 @@ pub enum ChatProviderConfig {
         host: String,
         model: String,
     },
-    /// Google Gemini (via proxy)
-    Gemini {
+    /// Google (API key-based)
+    Google {
         api_key: String,
         #[serde(default)]
         model: Option<String>,
@@ -529,6 +529,12 @@ pub enum ChatProviderConfig {
         #[serde(default)]
         max_tokens: Option<u32>,
     },
+    /// Gemini OAuth (via proxy, no API key needed - uses OAuth tokens via gemini_gate)
+    GeminiGate {
+        model: String,
+        #[serde(default)]
+        max_tokens: Option<u32>,
+    },
 }
 
 impl ChatProviderConfig {
@@ -539,7 +545,7 @@ impl ChatProviderConfig {
             ChatProviderConfig::Claude { .. } => "claude",
             ChatProviderConfig::Mistral { .. } => "mistral",
             ChatProviderConfig::Ollama { .. } => "ollama",
-            ChatProviderConfig::Gemini { .. } => "gemini",
+            ChatProviderConfig::Google { .. } => "google",
             ChatProviderConfig::OpenRouter { .. } => "openrouter",
             ChatProviderConfig::AzureOpenAI { .. } => "azure",
             ChatProviderConfig::Groq { .. } => "groq",
@@ -548,6 +554,7 @@ impl ChatProviderConfig {
             ChatProviderConfig::DeepSeek { .. } => "deepseek",
             ChatProviderConfig::Grok { .. } => "grok",
             ChatProviderConfig::ClaudeGate { .. } => "claude",
+            ChatProviderConfig::GeminiGate { .. } => "gemini",
         }
     }
 
@@ -579,8 +586,8 @@ impl ChatProviderConfig {
                 model.as_deref().unwrap_or("mistral-large-latest")
             }
             ChatProviderConfig::Ollama { model, .. } => model.as_str(),
-            ChatProviderConfig::Gemini { model, .. } => {
-                model.as_deref().unwrap_or("gemini-pro")
+            ChatProviderConfig::Google { model, .. } => {
+                model.as_deref().unwrap_or("gemini-2.0-flash")
             }
             ChatProviderConfig::OpenRouter { model, .. } => model.as_str(),
             ChatProviderConfig::AzureOpenAI { .. } => "azure-deployment",
@@ -593,6 +600,9 @@ impl ChatProviderConfig {
             }
             ChatProviderConfig::ClaudeGate { model, .. } => {
                 return format!("claude:{}", model);
+            }
+            ChatProviderConfig::GeminiGate { model, .. } => {
+                return format!("gemini:{}", model);
             }
         };
         format!("{}:{}", provider, model)
@@ -628,8 +638,8 @@ impl ChatProviderConfig {
                 }),
                 base_url: None,
             },
-            ChatProviderConfig::Gemini { api_key, .. } => ChatWorkspaceSettings {
-                source: ChatLLMSource::Gemini,
+            ChatProviderConfig::Google { api_key, .. } => ChatWorkspaceSettings {
+                source: ChatLLMSource::Google,
                 api_key: Some(api_key.clone()),
                 deployment_id: None,
                 api_version: None,
@@ -725,9 +735,9 @@ impl ChatProviderConfig {
                 host: host.clone(),
                 model: model.clone(),
             },
-            ChatProviderConfig::Gemini { api_key, model } => ProviderConfig::Gemini {
+            ChatProviderConfig::Google { api_key, model } => ProviderConfig::Google {
                 api_key: api_key.clone(),
-                model: model.as_deref().unwrap_or("gemini-pro").to_string(),
+                model: model.as_deref().unwrap_or("gemini-2.0-flash").to_string(),
             },
             ChatProviderConfig::OpenRouter { api_key, model } => ProviderConfig::OpenRouter {
                 api_key: api_key.clone(),
@@ -768,6 +778,13 @@ impl ChatProviderConfig {
             },
             ChatProviderConfig::ClaudeGate { model, max_tokens } => {
                 ProviderConfig::Claude {
+                    storage_backend: "auto".to_string(),
+                    model: model.clone(),
+                    max_tokens: max_tokens.unwrap_or(8192),
+                }
+            }
+            ChatProviderConfig::GeminiGate { model, max_tokens } => {
+                ProviderConfig::Gemini {
                     storage_backend: "auto".to_string(),
                     model: model.clone(),
                     max_tokens: max_tokens.unwrap_or(8192),
@@ -1428,7 +1445,7 @@ impl MeilisearchChatClient {
                 host: host.clone(),
                 model: model.clone(),
             },
-            ProviderConfig::Gemini { api_key, model } => ChatProviderConfig::Gemini {
+            ProviderConfig::Google { api_key, model } => ChatProviderConfig::Google {
                 api_key: api_key.clone(),
                 model: Some(model.clone()),
             },
@@ -1453,6 +1470,10 @@ impl MeilisearchChatClient {
                 model: model.clone(),
             },
             ProviderConfig::Claude { model, max_tokens, .. } => ChatProviderConfig::ClaudeGate {
+                model: model.clone(),
+                max_tokens: Some(*max_tokens),
+            },
+            ProviderConfig::Gemini { model, max_tokens, .. } => ChatProviderConfig::GeminiGate {
                 model: model.clone(),
                 max_tokens: Some(*max_tokens),
             },
@@ -1638,7 +1659,7 @@ impl DMChatManager {
                 host: host.clone(),
                 model: model.clone(),
             },
-            ProviderConfig::Gemini { api_key, model } => ChatProviderConfig::Gemini {
+            ProviderConfig::Google { api_key, model } => ChatProviderConfig::Google {
                 api_key: api_key.clone(),
                 model: Some(model.clone()),
             },
@@ -1671,8 +1692,10 @@ impl DMChatManager {
                 model: model.clone(),
                 max_tokens: Some(*max_tokens),
             },
-            // Handle GeminiCLI as generic or unsupported for now if no direct map
-
+            ProviderConfig::Gemini { model, max_tokens, .. } => ChatProviderConfig::GeminiGate {
+                model: model.clone(),
+                max_tokens: Some(*max_tokens),
+            },
             // Meilisearch provider is for using Meilisearch as a provider, creating a loop if we configure it here
             ProviderConfig::Meilisearch { .. } => return Err("Recursive Meilisearch configuration".to_string()),
         };

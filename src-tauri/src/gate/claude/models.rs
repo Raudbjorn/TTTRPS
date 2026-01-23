@@ -553,7 +553,7 @@ impl Tool {
 /// # Examples
 ///
 /// ```rust
-/// use claude_gate::ToolChoice;
+/// use gate::claude::ToolChoice;
 ///
 /// // Let Claude decide whether to use tools (default)
 /// let choice = ToolChoice::Auto;
@@ -635,12 +635,8 @@ pub mod model_aliases {
         m.insert("claude-opus-4-0", "claude-opus-4-20250514");
 
         // Claude 4.1 family
-        m.insert("claude-opus-4-1", "claude-opus-4-1-20250414");
-        m.insert("claude-opus-4-1-latest", "claude-opus-4-1-20250414");
-
-        // Claude 3.7 family
-        m.insert("claude-3-7-sonnet", "claude-3-7-sonnet-20250219");
-        m.insert("claude-3-7-sonnet-latest", "claude-3-7-sonnet-20250219");
+        m.insert("claude-opus-4-1", "claude-opus-4-1-20250805");
+        m.insert("claude-opus-4-1-latest", "claude-opus-4-1-20250805");
 
         // Claude 3.5 family
         m.insert("claude-3-5-sonnet", "claude-3-5-sonnet-20241022");

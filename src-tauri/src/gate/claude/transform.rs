@@ -178,7 +178,7 @@ pub mod openai {
     use serde::{Deserialize, Serialize};
     use serde_json::Value;
 
-    use crate::claude_gate::models::{Message, MessagesResponse, StopReason};
+    use crate::gate::claude::models::{Message, MessagesResponse, StopReason};
 
     /// Get model-aware max_tokens default.
     ///

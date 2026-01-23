@@ -15,7 +15,7 @@ use tracing::{debug, instrument, warn};
 use super::auth::{OAuthConfig, OAuthFlow, OAuthFlowState};
 use super::error::{Error, Result};
 use super::models::{ContentBlock, Message, MessagesResponse, Role, StreamEvent, Tool, ToolChoice, TokenInfo};
-use super::storage::TokenStorage;
+use crate::gate::storage::TokenStorage;
 use super::transform::{create_headers, create_streaming_headers, transform_request};
 
 /// Default base URL for the Anthropic API.
@@ -29,9 +29,9 @@ pub const DEFAULT_TIMEOUT_SECS: u64 = 600;
 /// # Example
 ///
 /// ```rust,no_run
-/// use claude_gate::{ClaudeClient, FileTokenStorage};
+/// use gate::claude::{ClaudeClient, FileTokenStorage};
 ///
-/// # async fn example() -> claude_gate::Result<()> {
+/// # async fn example() -> gate::claude::Result<()> {
 /// let storage = FileTokenStorage::default_path()?;
 /// let client = ClaudeClient::builder()
 ///     .with_storage(storage)
@@ -117,7 +117,7 @@ impl<S: TokenStorage + 'static> ClaudeClient<S> {
         let token = oauth.exchange_code(code, state).await?;
         // Clear cached token to force refresh
         *self.cached_token.write().await = None;
-        Ok(token)
+        Ok(token.into())
     }
 
     /// Log out and remove stored credentials.
@@ -132,7 +132,8 @@ impl<S: TokenStorage + 'static> ClaudeClient<S> {
     /// Returns `None` if not authenticated. Use this to check token expiry,
     /// time remaining, etc.
     pub async fn get_token_info(&self) -> Result<Option<TokenInfo>> {
-        self.oauth.read().await.storage().load().await
+        let res = self.oauth.read().await.storage().load("anthropic").await?;
+        Ok(res.map(Into::into))
     }
 
     /// Get a valid access token, refreshing if necessary.
@@ -157,8 +158,8 @@ impl<S: TokenStorage + 'static> ClaudeClient<S> {
         let access_token = oauth.get_access_token().await?;
 
         // Load the full token info to cache for future refresh checks
-        if let Some(token_info) = oauth.storage().load().await? {
-            *self.cached_token.write().await = Some(token_info);
+        if let Some(token_info) = oauth.storage().load("anthropic").await? {
+            *self.cached_token.write().await = Some(token_info.into());
         }
 
         Ok(access_token)
@@ -419,8 +420,8 @@ impl<'a, S: TokenStorage + 'static> MessagesRequestBuilder<'a, S> {
     /// # Example
     ///
     /// ```rust,no_run
-    /// # use claude_gate::{ClaudeClient, FileTokenStorage};
-    /// # async fn example() -> claude_gate::Result<()> {
+    /// # use gate::claude::{ClaudeClient, FileTokenStorage};
+    /// # async fn example() -> gate::claude::Result<()> {
     /// # let storage = FileTokenStorage::default_path()?;
     /// # let client = ClaudeClient::builder().with_storage(storage).build()?;
     /// use base64::{Engine, engine::general_purpose::STANDARD};
@@ -473,8 +474,8 @@ impl<'a, S: TokenStorage + 'static> MessagesRequestBuilder<'a, S> {
     /// # Example
     ///
     /// ```rust,no_run
-    /// # use claude_gate::{ClaudeClient, FileTokenStorage};
-    /// # async fn example() -> claude_gate::Result<()> {
+    /// # use gate::claude::{ClaudeClient, FileTokenStorage};
+    /// # async fn example() -> gate::claude::Result<()> {
     /// # let storage = FileTokenStorage::default_path()?;
     /// # let client = ClaudeClient::builder().with_storage(storage).build()?;
     /// use base64::{Engine, engine::general_purpose::STANDARD};
@@ -562,8 +563,8 @@ impl<'a, S: TokenStorage + 'static> MessagesRequestBuilder<'a, S> {
     /// # Example
     ///
     /// ```rust,no_run
-    /// # use claude_gate::{ClaudeClient, FileTokenStorage, ToolChoice};
-    /// # async fn example() -> claude_gate::Result<()> {
+    /// # use gate::claude::{ClaudeClient, FileTokenStorage, ToolChoice};
+    /// # async fn example() -> gate::claude::Result<()> {
     /// # let storage = FileTokenStorage::default_path()?;
     /// # let client = ClaudeClient::builder().with_storage(storage).build()?;
     /// let response = client.messages()
@@ -723,14 +724,25 @@ impl SseStream {
     fn new(response: reqwest::Response) -> Self {
         let stream = async_stream::stream! {
             let mut buffer = String::new();
+            let mut byte_buffer = Vec::new();
             let mut byte_stream = response.bytes_stream();
 
             while let Some(chunk_result) = byte_stream.next().await {
                 match chunk_result {
                     Ok(chunk) => {
-                        if let Ok(text) = std::str::from_utf8(&chunk) {
-                            buffer.push_str(text);
-                        }
+                        byte_buffer.extend_from_slice(&chunk);
+
+                        let valid_len = match std::str::from_utf8(&byte_buffer) {
+                            Ok(_) => byte_buffer.len(),
+                            Err(e) => e.valid_up_to(),
+                        };
+
+                        // Safety: we just verified these bytes are valid UTF-8
+                        let text = unsafe { std::str::from_utf8_unchecked(&byte_buffer[..valid_len]) };
+                        buffer.push_str(text);
+
+                        // Remove processed bytes, keeping any incomplete suffix
+                        byte_buffer.drain(..valid_len);
 
                         // Parse events from buffer
                         while let Some((event_type, data)) = extract_sse_event(&mut buffer) {
@@ -743,7 +755,8 @@ impl SseStream {
                                 match serde_json::from_str::<StreamEvent>(&data) {
                                     Ok(event) => yield Ok(event),
                                     Err(e) => {
-                                        debug!(error = %e, "Failed to parse SSE event");
+                                        warn!(error = %e, "Failed to parse SSE event");
+                                        yield Err(Error::Api { status: 0, message: format!("SSE parse error: {}", e), error_type: None });
                                     }
                                 }
                             }
@@ -771,7 +784,7 @@ impl SseStream {
         while let Some(event) = self.next().await {
             match event? {
                 StreamEvent::ContentBlockDelta { delta, .. } => {
-                    if let crate::claude_gate::models::ContentDelta::TextDelta { text: t } = delta {
+                    if let crate::gate::claude::models::ContentDelta::TextDelta { text: t } = delta {
                         text.push_str(&t);
                     }
                 }
@@ -818,7 +831,7 @@ fn extract_sse_event(buffer: &mut String) -> Option<(String, Option<String>)> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::claude_gate::storage::MemoryTokenStorage;
+    use crate::gate::storage::MemoryTokenStorage;
 
     #[test]
     fn test_client_builder() {

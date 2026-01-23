@@ -12,8 +12,8 @@ use tracing::{debug, info, instrument, warn};
 use url::Url;
 
 use super::error::{Error, Result};
-use super::models::TokenInfo;
-use super::storage::TokenStorage;
+use crate::gate::storage::TokenStorage;
+use crate::gate::token::TokenInfo;
 
 /// Default OAuth client ID (public by design, security via PKCE).
 pub const DEFAULT_CLIENT_ID: &str = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
@@ -178,7 +178,7 @@ impl<S: TokenStorage> OAuthFlow<S> {
     /// Check if a valid token exists.
     #[instrument(skip(self))]
     pub async fn is_authenticated(&self) -> Result<bool> {
-        match self.storage.load().await? {
+        match self.storage.load("anthropic").await? {
             Some(token) => {
                 if token.is_expired() {
                     debug!("Token exists but is expired");
@@ -244,14 +244,17 @@ impl<S: TokenStorage> OAuthFlow<S> {
             .take()
             .ok_or_else(|| Error::oauth("No active OAuth flow - call start_authorization first"))?;
 
-        // Verify state if provided
-        if let Some(received_state) = state {
-            if received_state != flow_state.state {
-                return Err(Error::InvalidState {
-                    expected: flow_state.state,
-                    actual: received_state.to_string(),
-                });
-            }
+        // Verify state
+        let received_state = state.ok_or_else(|| Error::InvalidState {
+            expected: flow_state.state.clone(),
+            actual: "missing".to_string(),
+        })?;
+
+        if received_state != flow_state.state {
+            return Err(Error::InvalidState {
+                expected: flow_state.state,
+                actual: received_state.to_string(),
+            });
         }
 
         // Token exchange uses JSON body (NOT form-encoded)
@@ -288,7 +291,7 @@ impl<S: TokenStorage> OAuthFlow<S> {
         );
 
         // Save the token
-        self.storage.save(&token).await?;
+        self.storage.save("anthropic", &token).await?;
         info!("Token exchange successful, token saved");
 
         Ok(token)
@@ -299,7 +302,7 @@ impl<S: TokenStorage> OAuthFlow<S> {
     pub async fn refresh_token(&self) -> Result<TokenInfo> {
         let current_token = self
             .storage
-            .load()
+            .load("anthropic")
             .await?
             .ok_or(Error::NotAuthenticated)?;
 
@@ -334,7 +337,7 @@ impl<S: TokenStorage> OAuthFlow<S> {
         );
 
         // Save the new token
-        self.storage.save(&token).await?;
+        self.storage.save("anthropic", &token).await?;
         info!("Token refresh successful");
 
         Ok(token)
@@ -345,7 +348,7 @@ impl<S: TokenStorage> OAuthFlow<S> {
     pub async fn get_access_token(&self) -> Result<String> {
         let token = self
             .storage
-            .load()
+            .load("anthropic")
             .await?
             .ok_or(Error::NotAuthenticated)?;
 
@@ -361,7 +364,7 @@ impl<S: TokenStorage> OAuthFlow<S> {
     /// Log out by removing the stored token.
     #[instrument(skip(self))]
     pub async fn logout(&self) -> Result<()> {
-        self.storage.remove().await?;
+        self.storage.remove("anthropic").await?;
         info!("Logged out, token removed");
         Ok(())
     }
@@ -432,7 +435,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_start_authorization() {
-        use crate::claude_gate::storage::MemoryTokenStorage;
+        use crate::gate::storage::MemoryTokenStorage;
 
         let storage = MemoryTokenStorage::new();
         let mut flow = OAuthFlow::new(storage);
@@ -449,7 +452,7 @@ mod tests {
 
     #[test]
     fn test_state_is_pkce_verifier() {
-        use crate::claude_gate::storage::MemoryTokenStorage;
+        use crate::gate::storage::MemoryTokenStorage;
 
         let storage = MemoryTokenStorage::new();
         let mut flow = OAuthFlow::new(storage);

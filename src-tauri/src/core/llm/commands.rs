@@ -53,7 +53,7 @@ pub enum AddProviderRequest {
     Ollama { host: String, model: String },
     Claude { api_key: String, model: String, max_tokens: Option<u32> },
     OpenAI { api_key: String, model: String, max_tokens: Option<u32>, organization_id: Option<String>, base_url: Option<String> },
-    Gemini { api_key: String, model: String },
+    Google { api_key: String, model: String },
     OpenRouter { api_key: String, model: String },
     Mistral { api_key: String, model: String },
     Groq { api_key: String, model: String },
@@ -84,8 +84,8 @@ impl AddProviderRequest {
                     base_url: base_url.clone(),
                 }
             }
-            AddProviderRequest::Gemini { api_key, model } => {
-                ProviderConfig::Gemini { api_key: api_key.clone(), model: model.clone() }
+            AddProviderRequest::Google { api_key, model } => {
+                ProviderConfig::Google { api_key: api_key.clone(), model: model.clone() }
             }
             AddProviderRequest::OpenRouter { api_key, model } => {
                 ProviderConfig::OpenRouter { api_key: api_key.clone(), model: model.clone() }
@@ -392,7 +392,7 @@ pub async fn get_active_streams(router: &RwLock<LLMRouter>) -> Result<Vec<String
 }
 
 // ============================================================================
-// Gemini CLI Status Commands
+// Google/Gemini CLI Status Commands
 // ============================================================================
 
 
