@@ -119,8 +119,18 @@ impl KeyringTokenStorage {
             let _ = KEYRING_AVAILABLE.set(available);
             available
         } else {
-            // Another thread is checking, wait for result or assume unavailable
-            KEYRING_AVAILABLE.get().copied().unwrap_or(false)
+            // Another thread is checking, wait for result
+            let start = std::time::Instant::now();
+            loop {
+                if let Some(&available) = KEYRING_AVAILABLE.get() {
+                    return available;
+                }
+                if start.elapsed() > std::time::Duration::from_secs(5) {
+                    // Timeout, assume unavailable
+                    return false;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
         }
     }
 

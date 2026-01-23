@@ -64,18 +64,18 @@ use crate::gate::{
 };
 
 // Claude Gate OAuth client - for API operations
-use crate::claude_gate::{ClaudeClient, FileTokenStorage};
+use crate::gate::claude::{ClaudeClient, FileTokenStorage};
 #[cfg(feature = "keyring")]
-use crate::claude_gate::KeyringTokenStorage;
+use crate::gate::claude::KeyringTokenStorage;
 // Gemini Gate OAuth client - for API operations
 #[allow(deprecated)]
-use crate::gemini_gate::{
+use crate::gate::gemini::{
     CloudCodeClient as GeminiCloudCodeClient,
     FileTokenStorage as GeminiFileTokenStorage,
 };
 #[cfg(feature = "keyring")]
 #[allow(deprecated)]
-use crate::gemini_gate::KeyringTokenStorage as GeminiKeyringTokenStorage;
+use crate::gate::gemini::KeyringTokenStorage as GeminiKeyringTokenStorage;
 use crate::core::sidecar_manager::{SidecarManager, MeilisearchConfig};
 use crate::core::search_client::SearchClient;
 use crate::core::meilisearch_pipeline::MeilisearchPipeline;
@@ -174,7 +174,7 @@ trait ClaudeGateClientOps: Send + Sync {
     async fn start_oauth_flow_with_state(&self) -> Result<(String, GateOAuthFlowState), String>;
     async fn complete_oauth_flow(&self, code: &str, state: Option<&str>) -> Result<GateTokenInfo, String>;
     async fn logout(&self) -> Result<(), String>;
-    async fn list_models(&self) -> Result<Vec<crate::claude_gate::ApiModel>, String>;
+    async fn list_models(&self) -> Result<Vec<crate::gate::claude::ApiModel>, String>;
     fn storage_name(&self) -> &'static str;
 }
 
@@ -206,7 +206,7 @@ impl ClaudeGateClientOps for FileStorageClientWrapper {
     async fn logout(&self) -> Result<(), String> {
         self.client.logout().await.map_err(|e| e.to_string())
     }
-    async fn list_models(&self) -> Result<Vec<crate::claude_gate::ApiModel>, String> {
+    async fn list_models(&self) -> Result<Vec<crate::gate::claude::ApiModel>, String> {
         self.client.list_models().await.map_err(|e| e.to_string())
     }
     fn storage_name(&self) -> &'static str {
@@ -244,7 +244,7 @@ impl ClaudeGateClientOps for KeyringStorageClientWrapper {
     async fn logout(&self) -> Result<(), String> {
         self.client.logout().await.map_err(|e| e.to_string())
     }
-    async fn list_models(&self) -> Result<Vec<crate::claude_gate::ApiModel>, String> {
+    async fn list_models(&self) -> Result<Vec<crate::gate::claude::ApiModel>, String> {
         self.client.list_models().await.map_err(|e| e.to_string())
     }
     fn storage_name(&self) -> &'static str {
@@ -423,7 +423,7 @@ impl ClaudeGateState {
     }
 
     /// List available models from Claude API
-    pub async fn list_models(&self) -> Result<Vec<crate::claude_gate::ApiModel>, String> {
+    pub async fn list_models(&self) -> Result<Vec<crate::gate::claude::ApiModel>, String> {
         let client = self.client.read().await;
         let client = client.as_ref().ok_or("Claude Gate client not initialized")?;
         client.list_models().await
@@ -7879,9 +7879,9 @@ pub async fn claude_gate_get_status(
         None
     };
 
-    // Check if keyring is available on this system
+    // Check if keyring is available on this system (using unified gate)
     #[cfg(feature = "keyring")]
-    let keyring_available = crate::claude_gate::KeyringTokenStorage::is_available();
+    let keyring_available = crate::gate::KeyringTokenStorage::is_available();
     #[cfg(not(feature = "keyring"))]
     let keyring_available = false;
 
@@ -8113,9 +8113,9 @@ pub async fn gemini_gate_get_status(
         None
     };
 
-    // Check if keyring is available on this system
+    // Check if keyring is available on this system (using unified gate)
     #[cfg(feature = "keyring")]
-    let keyring_available = crate::gemini_gate::KeyringTokenStorage::is_available();
+    let keyring_available = crate::gate::KeyringTokenStorage::is_available();
     #[cfg(not(feature = "keyring"))]
     let keyring_available = false;
 

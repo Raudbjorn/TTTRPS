@@ -129,16 +129,16 @@ impl MemoryTokenStorage {
 
     /// Get a snapshot of the current token for a provider synchronously.
     ///
-    /// # Warning
+    /// This method attempts a non-blocking read lock. If the lock cannot be
+    /// acquired immediately (e.g., because a write is in progress), it returns `None`.
+    /// This is safe to call from both sync and async contexts.
     ///
-    /// This method blocks the current thread using `futures::executor::block_on`.
-    /// It **must not** be called from within an async context (e.g., from code
-    /// running on a Tokio runtime thread), as this will cause a panic or deadlock.
-    ///
-    /// For async code, use [`Self::load`] instead.
+    /// For reliable access in async code, use [`Self::load`] instead.
     pub fn get_sync(&self, provider: &str) -> Option<TokenInfo> {
-        // Warning: This blocks the thread. Do not call from async context.
-        futures::executor::block_on(async { self.inner.read().await.get(provider).cloned() })
+        self.inner
+            .try_read()
+            .ok()
+            .and_then(|guard| guard.get(provider).cloned())
     }
 
     /// Get the number of stored tokens.

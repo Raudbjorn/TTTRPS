@@ -83,13 +83,19 @@
 //! ```
 
 pub mod auth;
+pub mod claude;
+pub mod client;
 pub mod error;
+pub mod gemini;
 pub mod providers;
 pub mod storage;
 pub mod token;
 
 // Re-export core error types
 pub use error::{AuthError, Error, Result};
+
+// Re-export client
+pub use client::GateClient;
 
 // Re-export storage types
 pub use storage::{
@@ -121,12 +127,13 @@ pub use storage::KeyringTokenStorage;
 /// # Example
 ///
 /// ```rust,ignore
-/// use ttrpg_assistant::gate::{ClaudeFileGate, FileTokenStorage};
+/// use ttrpg_assistant::gate::{ClaudeFileGate, FileTokenStorage, ClaudeProvider};
 ///
 /// let storage = FileTokenStorage::default_path()?;
-/// let gate = ClaudeFileGate::new(storage);
+/// let provider = ClaudeProvider::new();
+/// let gate = ClaudeFileGate::new(storage, provider);
 /// ```
-pub type ClaudeFileGate = OAuthFlow<FileTokenStorage>;
+pub type ClaudeFileGate = OAuthFlow<FileTokenStorage, ClaudeProvider>;
 
 /// Claude Gate client using memory-based token storage.
 ///
@@ -135,12 +142,13 @@ pub type ClaudeFileGate = OAuthFlow<FileTokenStorage>;
 /// # Example
 ///
 /// ```rust,ignore
-/// use ttrpg_assistant::gate::{ClaudeMemoryGate, MemoryTokenStorage};
+/// use ttrpg_assistant::gate::{ClaudeMemoryGate, MemoryTokenStorage, ClaudeProvider};
 ///
 /// let storage = MemoryTokenStorage::new();
-/// let gate = ClaudeMemoryGate::new(storage);
+/// let provider = ClaudeProvider::new();
+/// let gate = ClaudeMemoryGate::new(storage, provider);
 /// ```
-pub type ClaudeMemoryGate = OAuthFlow<MemoryTokenStorage>;
+pub type ClaudeMemoryGate = OAuthFlow<MemoryTokenStorage, ClaudeProvider>;
 
 /// Gemini Gate client using file-based token storage.
 ///
@@ -150,12 +158,13 @@ pub type ClaudeMemoryGate = OAuthFlow<MemoryTokenStorage>;
 /// # Example
 ///
 /// ```rust,ignore
-/// use ttrpg_assistant::gate::{GeminiFileGate, FileTokenStorage};
+/// use ttrpg_assistant::gate::{GeminiFileGate, FileTokenStorage, GeminiProvider};
 ///
 /// let storage = FileTokenStorage::default_path()?;
-/// let gate = GeminiFileGate::new(storage);
+/// let provider = GeminiProvider::new();
+/// let gate = GeminiFileGate::new(storage, provider);
 /// ```
-pub type GeminiFileGate = OAuthFlow<FileTokenStorage>;
+pub type GeminiFileGate = OAuthFlow<FileTokenStorage, GeminiProvider>;
 
 /// Gemini Gate client using memory-based token storage.
 ///
@@ -164,34 +173,35 @@ pub type GeminiFileGate = OAuthFlow<FileTokenStorage>;
 /// # Example
 ///
 /// ```rust,ignore
-/// use ttrpg_assistant::gate::{GeminiMemoryGate, MemoryTokenStorage};
+/// use ttrpg_assistant::gate::{GeminiMemoryGate, MemoryTokenStorage, GeminiProvider};
 ///
 /// let storage = MemoryTokenStorage::new();
-/// let gate = GeminiMemoryGate::new(storage);
+/// let provider = GeminiProvider::new();
+/// let gate = GeminiMemoryGate::new(storage, provider);
 /// ```
-pub type GeminiMemoryGate = OAuthFlow<MemoryTokenStorage>;
+pub type GeminiMemoryGate = OAuthFlow<MemoryTokenStorage, GeminiProvider>;
 
 /// Keyring-backed Claude Gate client.
 ///
 /// Uses the system keyring for secure token storage.
 /// Only available when the `keyring` feature is enabled.
 #[cfg(feature = "keyring")]
-pub type ClaudeKeyringGate = OAuthFlow<KeyringTokenStorage>;
+pub type ClaudeKeyringGate = OAuthFlow<KeyringTokenStorage, ClaudeProvider>;
 
 /// Keyring-backed Gemini Gate client.
 ///
 /// Uses the system keyring for secure token storage.
 /// Only available when the `keyring` feature is enabled.
 #[cfg(feature = "keyring")]
-pub type GeminiKeyringGate = OAuthFlow<KeyringTokenStorage>;
+pub type GeminiKeyringGate = OAuthFlow<KeyringTokenStorage, GeminiProvider>;
 
 // ============================================================================
-// Backward Compatibility - Type Conversions
+// Type Conversions between gate::token::TokenInfo and provider-specific TokenInfo
 // ============================================================================
 
-/// Convert from claude_gate::TokenInfo to unified gate::TokenInfo.
-impl From<crate::claude_gate::TokenInfo> for TokenInfo {
-    fn from(token: crate::claude_gate::TokenInfo) -> Self {
+/// Convert from gate::claude::TokenInfo to unified gate::TokenInfo.
+impl From<claude::TokenInfo> for TokenInfo {
+    fn from(token: claude::TokenInfo) -> Self {
         Self {
             token_type: token.token_type,
             access_token: token.access_token,
@@ -202,8 +212,8 @@ impl From<crate::claude_gate::TokenInfo> for TokenInfo {
     }
 }
 
-/// Convert from unified gate::TokenInfo to claude_gate::TokenInfo.
-impl From<TokenInfo> for crate::claude_gate::TokenInfo {
+/// Convert from unified gate::TokenInfo to gate::claude::TokenInfo.
+impl From<TokenInfo> for claude::TokenInfo {
     fn from(token: TokenInfo) -> Self {
         Self {
             token_type: token.token_type,
@@ -214,10 +224,9 @@ impl From<TokenInfo> for crate::claude_gate::TokenInfo {
     }
 }
 
-/// Convert from gemini_gate::TokenInfo to unified gate::TokenInfo.
-#[allow(deprecated)]
-impl From<crate::gemini_gate::TokenInfo> for TokenInfo {
-    fn from(token: crate::gemini_gate::TokenInfo) -> Self {
+/// Convert from gate::gemini::TokenInfo to unified gate::TokenInfo.
+impl From<gemini::TokenInfo> for TokenInfo {
+    fn from(token: gemini::TokenInfo) -> Self {
         Self {
             token_type: token.token_type,
             access_token: token.access_token,
@@ -228,9 +237,8 @@ impl From<crate::gemini_gate::TokenInfo> for TokenInfo {
     }
 }
 
-/// Convert from unified gate::TokenInfo to gemini_gate::TokenInfo.
-#[allow(deprecated)]
-impl From<TokenInfo> for crate::gemini_gate::TokenInfo {
+/// Convert from unified gate::TokenInfo to gate::gemini::TokenInfo.
+impl From<TokenInfo> for gemini::TokenInfo {
     fn from(token: TokenInfo) -> Self {
         Self {
             token_type: token.token_type,
@@ -241,9 +249,9 @@ impl From<TokenInfo> for crate::gemini_gate::TokenInfo {
     }
 }
 
-/// Convert from claude_gate::OAuthFlowState to unified gate::OAuthFlowState.
-impl From<crate::claude_gate::OAuthFlowState> for OAuthFlowState {
-    fn from(state: crate::claude_gate::OAuthFlowState) -> Self {
+/// Convert from gate::claude::OAuthFlowState to unified gate::OAuthFlowState.
+impl From<claude::OAuthFlowState> for OAuthFlowState {
+    fn from(state: claude::OAuthFlowState) -> Self {
         Self {
             code_verifier: state.pkce.verifier,
             code_challenge: state.pkce.challenge,
@@ -252,11 +260,11 @@ impl From<crate::claude_gate::OAuthFlowState> for OAuthFlowState {
     }
 }
 
-/// Convert from unified gate::OAuthFlowState to claude_gate::OAuthFlowState.
-impl From<OAuthFlowState> for crate::claude_gate::OAuthFlowState {
+/// Convert from unified gate::OAuthFlowState to gate::claude::OAuthFlowState.
+impl From<OAuthFlowState> for claude::OAuthFlowState {
     fn from(state: OAuthFlowState) -> Self {
         Self {
-            pkce: crate::claude_gate::Pkce {
+            pkce: claude::Pkce {
                 verifier: state.code_verifier,
                 challenge: state.code_challenge,
                 method: "S256",
@@ -266,10 +274,9 @@ impl From<OAuthFlowState> for crate::claude_gate::OAuthFlowState {
     }
 }
 
-/// Convert from gemini_gate::OAuthFlowState to unified gate::OAuthFlowState.
-#[allow(deprecated)]
-impl From<crate::gemini_gate::OAuthFlowState> for OAuthFlowState {
-    fn from(state: crate::gemini_gate::OAuthFlowState) -> Self {
+/// Convert from gate::gemini::OAuthFlowState to unified gate::OAuthFlowState.
+impl From<gemini::OAuthFlowState> for OAuthFlowState {
+    fn from(state: gemini::OAuthFlowState) -> Self {
         Self {
             code_verifier: state.code_verifier,
             code_challenge: state.code_challenge,
@@ -278,9 +285,8 @@ impl From<crate::gemini_gate::OAuthFlowState> for OAuthFlowState {
     }
 }
 
-/// Convert from unified gate::OAuthFlowState to gemini_gate::OAuthFlowState.
-#[allow(deprecated)]
-impl From<OAuthFlowState> for crate::gemini_gate::OAuthFlowState {
+/// Convert from unified gate::OAuthFlowState to gate::gemini::OAuthFlowState.
+impl From<OAuthFlowState> for gemini::OAuthFlowState {
     fn from(state: OAuthFlowState) -> Self {
         Self {
             code_verifier: state.code_verifier,

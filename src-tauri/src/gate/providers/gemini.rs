@@ -89,6 +89,7 @@ pub const PROVIDER_NAME: &str = "Gemini (Google)";
 ///     .build()?;
 /// let provider = GeminiProvider::with_http_client(client);
 /// ```
+#[derive(Clone)]
 pub struct GeminiProvider {
     config: OAuthConfig,
     http_client: reqwest::Client,

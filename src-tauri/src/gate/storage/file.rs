@@ -177,17 +177,17 @@ impl FileTokenStorage {
 
     /// Read the token file if it exists.
     async fn read_file(&self) -> Result<Option<TokenFile>> {
-        if !self.path.exists() {
-            return Ok(None);
-        }
-
-        let content = tokio::fs::read_to_string(&self.path).await.map_err(|e| {
-            Error::storage(format!(
-                "Failed to read token file '{}': {}",
-                self.path.display(),
-                e
-            ))
-        })?;
+        let content = match tokio::fs::read_to_string(&self.path).await {
+            Ok(c) => c,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(e) => {
+                return Err(Error::storage(format!(
+                    "Failed to read token file '{}': {}",
+                    self.path.display(),
+                    e
+                )))
+            }
+        };
 
         if content.trim().is_empty() {
             return Ok(None);
@@ -266,16 +266,16 @@ impl FileTokenStorage {
         }
 
         // Atomic rename
-        tokio::fs::rename(&temp_path, &self.path)
-            .await
-            .map_err(|e| {
-                Error::storage(format!(
-                    "Failed to rename '{}' to '{}': {}",
-                    temp_path.display(),
-                    self.path.display(),
-                    e
-                ))
-            })?;
+        if let Err(e) = tokio::fs::rename(&temp_path, &self.path).await {
+            // Attempt to clean up temp file
+            let _ = tokio::fs::remove_file(&temp_path).await;
+            return Err(Error::storage(format!(
+                "Failed to rename '{}' to '{}': {}",
+                temp_path.display(),
+                self.path.display(),
+                e
+            )));
+        }
 
         Ok(())
     }

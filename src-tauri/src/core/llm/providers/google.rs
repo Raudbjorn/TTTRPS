@@ -304,6 +304,32 @@ impl LLMProvider for GoogleProvider {
                 }
             }
 
+            // Process any remaining buffer content
+            if !sse_buffer.trim().is_empty() {
+                let line = sse_buffer.trim();
+                if line.starts_with("data: ") {
+                    let data = &line[6..];
+                    if let Ok(json) = serde_json::from_str::<serde_json::Value>(data) {
+                        if let Some(text) = json["candidates"][0]["content"]["parts"][0]["text"].as_str() {
+                            if !text.is_empty() {
+                                chunk_index += 1;
+                                let chunk = ChatChunk {
+                                    stream_id: stream_id.clone(),
+                                    content: text.to_string(),
+                                    provider: "google".to_string(),
+                                    model: model.clone(),
+                                    is_final: false,
+                                    finish_reason: None,
+                                    usage: None,
+                                    index: chunk_index,
+                                };
+                                let _ = tx.send(Ok(chunk)).await;
+                            }
+                        }
+                    }
+                }
+            }
+
             // Send final chunk if stream ended without explicit STOP
             let final_chunk = ChatChunk {
                 stream_id: stream_id.clone(),

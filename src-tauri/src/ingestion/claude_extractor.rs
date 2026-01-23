@@ -9,7 +9,7 @@ use std::path::Path;
 use thiserror::Error;
 
 use super::kreuzberg_extractor::{ExtractedContent, Page};
-use crate::claude_gate::{ClaudeClient, FileTokenStorage, TokenStorage};
+use crate::gate::claude::{ClaudeClient, FileTokenStorage, TokenStorage};
 
 // ============================================================================
 // Error Types

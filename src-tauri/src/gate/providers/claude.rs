@@ -82,6 +82,7 @@ pub const PROVIDER_NAME: &str = "Claude (Anthropic)";
 ///     .build()?;
 /// let provider = ClaudeProvider::with_http_client(client);
 /// ```
+#[derive(Clone)]
 pub struct ClaudeProvider {
     config: OAuthConfig,
     http_client: reqwest::Client,
