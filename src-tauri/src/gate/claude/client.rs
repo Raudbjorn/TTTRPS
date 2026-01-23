@@ -117,7 +117,7 @@ impl<S: TokenStorage + 'static> ClaudeClient<S> {
         let token = oauth.exchange_code(code, state).await?;
         // Clear cached token to force refresh
         *self.cached_token.write().await = None;
-        Ok(token)
+        Ok(token.into())
     }
 
     /// Log out and remove stored credentials.
@@ -132,8 +132,8 @@ impl<S: TokenStorage + 'static> ClaudeClient<S> {
     /// Returns `None` if not authenticated. Use this to check token expiry,
     /// time remaining, etc.
     pub async fn get_token_info(&self) -> Result<Option<TokenInfo>> {
-        self.oauth.read().await.storage().load("anthropic").await
-            .map(|opt| opt.map(Into::into))
+        let res = self.oauth.read().await.storage().load("anthropic").await?;
+        Ok(res.map(Into::into))
     }
 
     /// Get a valid access token, refreshing if necessary.

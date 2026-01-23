@@ -402,9 +402,9 @@ impl<S: TokenStorage> OAuthFlow<S> {
             .await?
             .ok_or(Error::Auth(AuthError::NotAuthenticated))?;
 
-        // Check if token is expired
-        if token.is_expired() {
-            debug!("Access token expired, refreshing");
+        // Check if token needs refresh (expired or within 5-minute window)
+        if token.needs_refresh() {
+            debug!("Access token expired or expiring soon, refreshing");
             let new_token = oauth::refresh_token(&self.config, &token.refresh_token).await?
                 .with_provider("gemini");
             self.storage.save("gemini", &new_token).await?;
@@ -426,9 +426,9 @@ impl<S: TokenStorage> OAuthFlow<S> {
             .await?
             .ok_or(Error::Auth(AuthError::NotAuthenticated))?;
 
-        // Check if token is expired
-        if token.is_expired() {
-            debug!("Access token expired, refreshing");
+        // Check if token needs refresh
+        if token.needs_refresh() {
+            debug!("Access token expired or expiring soon, refreshing");
             let new_token = oauth::refresh_token(&self.config, &token.refresh_token).await?
                 .with_provider("gemini");
             self.storage.save("gemini", &new_token).await?;

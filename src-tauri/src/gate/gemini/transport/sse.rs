@@ -169,17 +169,21 @@ where
 {
     try_stream! {
         let mut state = StreamState::new(model);
-        let mut buffer = String::new();
+        let mut buffer = Vec::new();
         let mut byte_stream = Box::pin(byte_stream);
 
         while let Some(chunk) = byte_stream.next().await {
             let chunk = chunk.map_err(Error::from)?;
-            buffer.push_str(&String::from_utf8_lossy(&chunk));
+            buffer.extend_from_slice(&chunk);
 
             // Process complete lines
-            while let Some(newline_pos) = buffer.find('\n') {
-                let line = buffer[..newline_pos].to_string();
-                buffer = buffer[newline_pos + 1..].to_string();
+            while let Some(newline_pos) = buffer.iter().position(|&b| b == b'\n') {
+                let line_bytes = buffer.drain(..=newline_pos).collect::<Vec<_>>();
+                // Remove the newline character for processing
+                let line_content = &line_bytes[..line_bytes.len() - 1];
+
+                // Convert to string (lossy is okay here as we are processing complete lines)
+                let line = String::from_utf8_lossy(line_content).to_string();
 
                 // Process the line
                 for event in process_sse_line(&line, &mut state)? {
@@ -190,7 +194,8 @@ where
 
         // Process any remaining buffer
         if !buffer.is_empty() {
-            for event in process_sse_line(&buffer, &mut state)? {
+            let line = String::from_utf8_lossy(&buffer).to_string();
+            for event in process_sse_line(&line, &mut state)? {
                 yield event;
             }
         }

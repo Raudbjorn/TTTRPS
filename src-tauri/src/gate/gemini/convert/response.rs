@@ -141,8 +141,8 @@ fn generate_message_id() -> String {
 
     let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos() as u64;
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(0);
     let counter = COUNTER.fetch_add(1, Ordering::Relaxed);
 
     format!("msg_{:016x}{:08x}", timestamp, counter)

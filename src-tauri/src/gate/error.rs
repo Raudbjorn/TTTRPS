@@ -245,7 +245,17 @@ impl Error {
         match self {
             Self::Network(_) => true,
             Self::Api { status, .. } => *status >= 500 || *status == 429,
-            Self::Io(_) => true,
+            Self::Io(err) => matches!(
+                err.kind(),
+                std::io::ErrorKind::Interrupted
+                    | std::io::ErrorKind::WouldBlock
+                    | std::io::ErrorKind::TimedOut
+                    | std::io::ErrorKind::BrokenPipe
+                    | std::io::ErrorKind::ConnectionReset
+                    | std::io::ErrorKind::ConnectionAborted
+                    | std::io::ErrorKind::NotConnected
+                    | std::io::ErrorKind::UnexpectedEof
+            ),
             _ => false,
         }
     }

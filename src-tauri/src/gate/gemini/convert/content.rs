@@ -318,6 +318,7 @@ pub(crate) fn convert_parts_to_content(parts: &[Part], model: &str) -> Vec<Conte
 /// Generate a unique tool_use_id in the format `toolu_{hex}`.
 ///
 /// Uses timestamp + atomic counter for collision resistance under concurrency.
+/// Gracefully handles system time errors (uses 0 if time is before epoch).
 fn generate_tool_use_id() -> String {
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -326,8 +327,7 @@ fn generate_tool_use_id() -> String {
 
     let timestamp = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos() as u64;
+        .map_or(0, |d| d.as_nanos() as u64);
     let counter = COUNTER.fetch_add(1, Ordering::Relaxed);
 
     format!("toolu_{:016x}{:08x}", timestamp, counter)

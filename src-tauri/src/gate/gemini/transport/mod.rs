@@ -19,8 +19,9 @@
 //! // Make a streaming request
 //! let response = client.post_stream(&url, &headers, &body).await?;
 //!
-//! // Parse SSE events
-//! let mut stream = SseStream::new(response);
+//! // Parse SSE events (requires model name for signature caching)
+//! let model = "claude-sonnet-4-20250514";
+//! let mut stream = SseStream::new(response, model);
 //! while let Some(event) = stream.next().await {
 //!     println!("Event: {:?}", event?);
 //! }

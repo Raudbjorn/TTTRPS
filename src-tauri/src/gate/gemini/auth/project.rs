@@ -187,6 +187,10 @@ struct OnboardUserResponse {
 /// Tries multiple endpoints in order, falling back if one fails.
 /// If no project exists, attempts to onboard the user.
 ///
+/// If all discovery attempts fail, this function returns a default fallback
+/// project configuration (`DEFAULT_PROJECT_ID`) to allow limited functionality
+/// rather than failing completely.
+///
 /// # Arguments
 ///
 /// * `token` - OAuth access token
@@ -195,9 +199,8 @@ struct OnboardUserResponse {
 /// # Errors
 ///
 /// Returns an error if:
-/// - All endpoints fail to respond
-/// - Authentication is rejected
-/// - Onboarding fails
+/// - Authentication is rejected (401 Unauthorized)
+/// - Onboarding fails explicitly
 ///
 /// # Example
 ///
@@ -249,13 +252,18 @@ pub async fn discover_project(token: &str, hint_project_id: Option<&str>) -> Res
             Err(e) => {
                 warn!(endpoint = %endpoint, error = %e, "Failed to load code assist");
 
+                // If unauthorized, fail immediately (token invalid)
+                if matches!(&e, Error::Api { status, .. } if *status == 401) {
+                    return Err(Error::Auth(AuthError::TokenExpired));
+                }
+
                 // If we get a 403/404, try the next endpoint
                 if matches!(&e, Error::Api { status, .. } if *status == 403 || *status == 404) {
                     last_error = Some(e);
                     continue;
                 }
 
-                // For other errors, try onboarding
+                // For other client errors (400-499, excluding 401/403/404), try onboarding
                 if matches!(&e, Error::Api { status, .. } if *status >= 400 && *status < 500) {
                     debug!("Attempting user onboarding");
                     match try_onboard_user(token, endpoint).await {
@@ -276,12 +284,17 @@ pub async fn discover_project(token: &str, hint_project_id: Option<&str>) -> Res
         }
     }
 
-    // All endpoints failed, return fallback with last error logged
+    // All endpoints failed
     if let Some(e) = last_error {
-        warn!(error = %e, "All endpoints failed, using fallback project ID");
+        warn!(error = %e, "All endpoints failed to discover project");
+        return Err(Error::Auth(AuthError::ProjectDiscovery(format!(
+            "All endpoints failed: {}",
+            e
+        ))));
     }
 
-    Ok(ProjectInfo::default_fallback())
+    // Should not be reachable unless endpoint list is empty
+    Err(Error::Config("No project discovery endpoints configured".to_string()))
 }
 
 /// Try to call loadCodeAssist API at a specific endpoint.

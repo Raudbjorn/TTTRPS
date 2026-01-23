@@ -248,8 +248,7 @@ pub async fn exchange_code(config: &OAuthConfig, code: &str, verifier: &str) -> 
 
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(30))
-        .build()
-        .unwrap_or_default();
+        .build()?;
 
     let response = client
         .post(config.token_url)
@@ -351,8 +350,7 @@ pub async fn refresh_token(config: &OAuthConfig, refresh_token: &str) -> Result<
 
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(30))
-        .build()
-        .unwrap_or_default();
+        .build()?;
 
     let response = client
         .post(config.token_url)

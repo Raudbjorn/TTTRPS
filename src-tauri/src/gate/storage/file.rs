@@ -280,18 +280,24 @@ impl FileTokenStorage {
         Ok(())
     }
 
-    /// Delete the token file if it exists and is empty.
+    /// Delete the token file if empty, handling race conditions gracefully.
+    ///
+    /// Attempts to remove the file unconditionally if empty, treating NotFound
+    /// as success to avoid TOCTOU race conditions.
     async fn cleanup_if_empty(&self, file: &TokenFile) -> Result<()> {
-        if file.is_empty() && self.path.exists() {
-            tokio::fs::remove_file(&self.path).await.map_err(|e| {
-                Error::storage(format!(
+        if file.is_empty() {
+            match tokio::fs::remove_file(&self.path).await {
+                Ok(()) => Ok(()),
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+                Err(e) => Err(Error::storage(format!(
                     "Failed to remove empty token file '{}': {}",
                     self.path.display(),
                     e
-                ))
-            })?;
+                ))),
+            }
+        } else {
+            Ok(())
         }
-        Ok(())
     }
 }
 
@@ -308,7 +314,10 @@ impl TokenStorage for FileTokenStorage {
 
     #[instrument(skip(self, token))]
     async fn save(&self, provider: &str, token: &TokenInfo) -> Result<()> {
-        // Load existing file to preserve other providers
+        // Load existing file to preserve other providers.
+        // Note: This read-modify-write is not atomic. In typical single-instance
+        // desktop app usage, concurrent writes are rare. For multi-instance or
+        // server scenarios, external coordination (e.g., file locking) may be needed.
         let mut file = self.read_file().await?.unwrap_or_default();
         file.set_token(provider, token)?;
         self.write_file(&file).await

@@ -224,31 +224,6 @@ impl From<TokenInfo> for claude::TokenInfo {
     }
 }
 
-/// Convert from gate::gemini::TokenInfo to unified gate::TokenInfo.
-impl From<gemini::TokenInfo> for TokenInfo {
-    fn from(token: gemini::TokenInfo) -> Self {
-        Self {
-            token_type: token.token_type,
-            access_token: token.access_token,
-            refresh_token: token.refresh_token,
-            expires_at: token.expires_at,
-            provider: Some("gemini".to_string()),
-        }
-    }
-}
-
-/// Convert from unified gate::TokenInfo to gate::gemini::TokenInfo.
-impl From<TokenInfo> for gemini::TokenInfo {
-    fn from(token: TokenInfo) -> Self {
-        Self {
-            token_type: token.token_type,
-            access_token: token.access_token,
-            refresh_token: token.refresh_token,
-            expires_at: token.expires_at,
-        }
-    }
-}
-
 /// Convert from gate::claude::OAuthFlowState to unified gate::OAuthFlowState.
 impl From<claude::OAuthFlowState> for OAuthFlowState {
     fn from(state: claude::OAuthFlowState) -> Self {
@@ -261,13 +236,17 @@ impl From<claude::OAuthFlowState> for OAuthFlowState {
 }
 
 /// Convert from unified gate::OAuthFlowState to gate::claude::OAuthFlowState.
+///
+/// Note: The PKCE method is always "S256" as it's the only method supported
+/// by OAuth 2.0 PKCE (RFC 7636) for Claude and Gemini providers. The "plain"
+/// method is deprecated and not accepted by either provider.
 impl From<OAuthFlowState> for claude::OAuthFlowState {
     fn from(state: OAuthFlowState) -> Self {
         Self {
             pkce: claude::Pkce {
                 verifier: state.code_verifier,
                 challenge: state.code_challenge,
-                method: "S256",
+                method: "S256", // Always S256 per RFC 7636; plain is not supported
             },
             state: state.state,
         }

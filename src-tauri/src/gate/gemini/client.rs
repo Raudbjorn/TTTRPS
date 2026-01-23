@@ -157,10 +157,11 @@ impl<S: TokenStorage + 'static> CloudCodeClient<S> {
 
     /// Get the project ID, discovering it if necessary.
     ///
-    /// The project ID is cached after the first discovery.
+    /// The project ID is cached after the first discovery. Uses double-check
+    /// pattern to avoid redundant discovery when multiple tasks race.
     #[instrument(skip(self))]
     pub async fn get_project_id(&self) -> Result<String> {
-        // Check cache first
+        // Check cache first (fast path)
         {
             let cached = self.project_id.read().await;
             if let Some(id) = cached.as_ref() {
@@ -168,19 +169,26 @@ impl<S: TokenStorage + 'static> CloudCodeClient<S> {
             }
         }
 
-        // Discover project
+        // Discover project (slow path, may be called by multiple racing tasks)
         let token = self.get_access_token().await?;
         let project_info = discover_project(&token, None).await?;
 
-        // Cache the results
+        // Double-check: another task may have populated cache while we were discovering
         {
             let mut project_id = self.project_id.write().await;
+            if let Some(id) = project_id.as_ref() {
+                // Another task won the race, use their result
+                return Ok(id.clone());
+            }
             *project_id = Some(project_info.project_id.clone());
         }
 
         if let Some(managed) = &project_info.managed_project_id {
             let mut managed_id = self.managed_project_id.write().await;
-            *managed_id = Some(managed.clone());
+            // Only write if not already set
+            if managed_id.is_none() {
+                *managed_id = Some(managed.clone());
+            }
         }
 
         info!(

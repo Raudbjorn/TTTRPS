@@ -79,7 +79,36 @@ impl LLMProvider for GoogleProvider {
     }
 
     async fn health_check(&self) -> bool {
-        self.api_key.starts_with("AIza")
+        if !self.api_key.starts_with("AIza") {
+            return false;
+        }
+
+        let url = format!(
+            "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent",
+            self.model
+        );
+
+        let body = serde_json::json!({
+            "contents": [{
+                "parts": [{ "text": "" }]
+            }],
+            "generationConfig": {
+                "maxOutputTokens": 1
+            }
+        });
+
+        match self
+            .client
+            .post(&url)
+            .header("content-type", "application/json")
+            .header("x-goog-api-key", &self.api_key)
+            .json(&body)
+            .send()
+            .await
+        {
+            Ok(resp) => resp.status().is_success(),
+            Err(_) => false,
+        }
     }
 
     fn pricing(&self) -> Option<ProviderPricing> {

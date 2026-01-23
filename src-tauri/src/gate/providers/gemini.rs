@@ -102,9 +102,14 @@ impl GeminiProvider {
     /// [`OAuthConfig::gemini()`].
     #[must_use]
     pub fn new() -> Self {
+        let http_client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .build()
+            .unwrap_or_default();
+
         Self {
             config: OAuthConfig::gemini(),
-            http_client: reqwest::Client::new(),
+            http_client,
         }
     }
 

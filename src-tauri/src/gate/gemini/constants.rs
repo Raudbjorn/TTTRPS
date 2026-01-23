@@ -228,11 +228,11 @@ pub const MIN_SIGNATURE_LENGTH: usize = 50;
 pub const USER_AGENT: &str = "antigravity-gate-rs/0.1.0";
 
 /// X-Goog-Api-Client header value.
-pub const GOOG_API_CLIENT: &str = "google-cloud-sdk vscode_cloudshelleditor/0.1";
+pub const GOOG_API_CLIENT: &str = "antigravity-gate-rs/0.1.0";
 
 /// Client-Metadata header value (JSON).
 pub const CLIENT_METADATA: &str =
-    r#"{"ideType":"IDE_UNSPECIFIED","platform":"PLATFORM_UNSPECIFIED","pluginType":"GEMINI"}"#;
+    r#"{"ideType":"IDE_UNSPECIFIED","platform":"PLATFORM_UNSPECIFIED","pluginType":"ANTIGRAVITY"}"#;
 
 // ============================================================================
 // Timeouts

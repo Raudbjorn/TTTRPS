@@ -230,7 +230,7 @@ impl<S: TokenStorage, P: OAuthProvider> OAuthFlow<S, P> {
                 }
                 None => {
                     warn!("OAuth state provided but no pending flow state found");
-                    return Err(Error::Auth(AuthError::StateMismatch));
+                    return Err(Error::Auth(AuthError::NotAuthenticated));
                 }
                 _ => {
                     debug!("OAuth state validated successfully");
@@ -263,6 +263,13 @@ impl<S: TokenStorage, P: OAuthProvider> OAuthFlow<S, P> {
     ///
     /// Use this when you've stored the verifier externally rather than
     /// relying on the pending flow state.
+    ///
+    /// # Arguments
+    ///
+    /// * `code` - Authorization code from callback
+    /// * `verifier` - PKCE code verifier
+    /// * `expected_state` - Optional state to validate against
+    /// * `received_state` - State received in callback
     #[instrument(skip(self, code, verifier))]
     pub async fn exchange_code_with_verifier(
         &self,
