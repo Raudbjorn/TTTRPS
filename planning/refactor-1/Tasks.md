@@ -2,7 +2,7 @@
 
 ## Implementation Overview
 
-This task list implements the refactoring plan from Design.md. The work is organized in six phases, progressing from foundational infrastructure through systematic module extraction. Each phase builds on the previous, with validation checkpoints after each major step.
+This task list implements the refactoring plan from Design.md. The work is organized in nine phases (Phase 0 through Phase 8), progressing from foundational infrastructure through systematic module extraction. Each phase builds on the previous, with validation checkpoints after each major step.
 
 **Total estimated line reduction:** ~8,000-10,000 lines
 **Total commands to migrate:** 404
