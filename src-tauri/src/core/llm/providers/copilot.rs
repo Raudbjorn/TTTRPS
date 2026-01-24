@@ -12,6 +12,7 @@
 //! - Full streaming support
 //! - Tool use support
 //! - Vision support (via GPT-4o models)
+//! - Embeddings support (via text-embedding-3-small model)
 //!
 //! ## Usage
 //!
@@ -38,7 +39,7 @@ use crate::gate::copilot::{
     ChatResponse as CopilotChatResponse, CopilotClient,
     DeviceFlowPending, Message as CopilotMessage, PollResult, Role as CopilotRole,
     StreamChunk, Content as CopilotContent, ContentPart as CopilotContentPart,
-    ImageUrl as CopilotImageUrl,
+    ImageUrl as CopilotImageUrl, EmbeddingResponse,
 };
 use crate::gate::copilot::storage::{GateStorageAdapter, MemoryTokenStorage};
 use crate::gate::storage::FileTokenStorage;
@@ -66,6 +67,9 @@ const DEFAULT_MODEL: &str = "gpt-4o";
 
 /// Default max tokens
 const DEFAULT_MAX_TOKENS: u32 = 8192;
+
+/// Default retry delay for rate limiting (seconds)
+const DEFAULT_RETRY_AFTER_SECS: u64 = 60;
 
 // ============================================================================
 // Storage Backend Enum
@@ -179,6 +183,7 @@ trait CopilotClientTrait: Send + Sync {
     ) -> crate::gate::copilot::Result<
         std::pin::Pin<Box<dyn futures_util::Stream<Item = crate::gate::copilot::Result<StreamChunk>> + Send>>,
     >;
+    async fn embeddings(&self, text: &str) -> crate::gate::copilot::Result<EmbeddingResponse>;
     fn storage_name(&self) -> &str;
 }
 
@@ -261,6 +266,10 @@ impl CopilotClientTrait for FileStorageClient {
         }
 
         builder.send_stream().await
+    }
+
+    async fn embeddings(&self, text: &str) -> crate::gate::copilot::Result<EmbeddingResponse> {
+        self.client.embeddings().input(text).send().await
     }
 
     fn storage_name(&self) -> &str {
@@ -351,6 +360,10 @@ impl CopilotClientTrait for KeyringStorageClient {
         builder.send_stream().await
     }
 
+    async fn embeddings(&self, text: &str) -> crate::gate::copilot::Result<EmbeddingResponse> {
+        self.client.embeddings().input(text).send().await
+    }
+
     fn storage_name(&self) -> &str {
         "keyring"
     }
@@ -435,6 +448,10 @@ impl CopilotClientTrait for MemoryStorageClient {
         }
 
         builder.send_stream().await
+    }
+
+    async fn embeddings(&self, text: &str) -> crate::gate::copilot::Result<EmbeddingResponse> {
+        self.client.embeddings().input(text).send().await
     }
 
     fn storage_name(&self) -> &str {
@@ -1003,16 +1020,59 @@ impl LLMProvider for CopilotLLMProvider {
     }
 
     fn supports_embeddings(&self) -> bool {
-        // TODO: Enable when embeddings are implemented
-        false
+        true
     }
 
-    async fn embeddings(&self, _text: String) -> Result<Vec<f32>> {
-        // TODO: Implement embeddings using the CopilotClient embeddings API
-        // The Copilot API supports embeddings but this integration hasn't been completed yet.
-        Err(LLMError::EmbeddingNotSupported(
-            "Copilot embeddings not yet implemented".to_string(),
-        ))
+    /// Generate embeddings using GitHub Copilot's text-embedding-3-small model.
+    ///
+    /// Returns a vector of 1536 f32 values representing the text embedding.
+    async fn embeddings(&self, text: String) -> Result<Vec<f32>> {
+        // Check authentication first
+        if !self.is_authenticated().await {
+            return Err(LLMError::AuthError(
+                "Not authenticated. Please complete Device Code flow first.".to_string(),
+            ));
+        }
+
+        debug!(
+            text_length = text.len(),
+            "Generating embeddings via Copilot"
+        );
+
+        let response = self
+            .client
+            .embeddings(&text)
+            .await
+            .map_err(|e| {
+                if e.needs_auth() {
+                    LLMError::AuthError(e.to_string())
+                } else {
+                    match &e {
+                        // Note: HTTP 429 is already converted to Error::RateLimited by the client
+                        crate::gate::copilot::Error::Api { status, message } => LLMError::ApiError {
+                            status: *status,
+                            message: message.clone(),
+                        },
+                        crate::gate::copilot::Error::RateLimited { retry_after } => {
+                            LLMError::RateLimited {
+                                retry_after_secs: retry_after.unwrap_or(DEFAULT_RETRY_AFTER_SECS),
+                            }
+                        }
+                        _ => LLMError::ApiError {
+                            status: 0,
+                            message: e.to_string(),
+                        },
+                    }
+                }
+            })?;
+
+        // Extract the first embedding from the response
+        response
+            .first_embedding()
+            .map(|embedding| embedding.to_vec())
+            .ok_or_else(|| LLMError::EmbeddingNotSupported(
+                "No embedding returned from Copilot API".to_string(),
+            ))
     }
 }
 
@@ -1152,6 +1212,21 @@ mod tests {
         };
 
         let result = provider.stream_chat(request).await;
+        assert!(matches!(result, Err(LLMError::AuthError(_))));
+    }
+
+    #[test]
+    fn test_supports_embeddings() {
+        let provider = CopilotLLMProvider::with_memory().unwrap();
+        // Copilot now supports embeddings via the text-embedding-3-small model
+        assert!(provider.supports_embeddings());
+    }
+
+    #[tokio::test]
+    async fn test_embeddings_requires_auth() {
+        let provider = CopilotLLMProvider::with_memory().unwrap();
+        let result = provider.embeddings("Hello, world!".to_string()).await;
+        // Should fail with AuthError since not authenticated
         assert!(matches!(result, Err(LLMError::AuthError(_))));
     }
 }

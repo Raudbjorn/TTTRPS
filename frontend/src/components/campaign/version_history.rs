@@ -7,8 +7,7 @@ use leptos::prelude::*;
 use leptos::task::spawn_local;
 use crate::bindings::{
     list_campaign_versions, create_campaign_version, compare_campaign_versions,
-    rollback_campaign, delete_campaign_version, mark_version_milestone,
-    VersionSummary, CampaignDiff, DiffStats,
+    VersionSummary, CampaignDiff,
 };
 
 /// Version list item component

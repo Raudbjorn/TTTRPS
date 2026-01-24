@@ -5,10 +5,9 @@
 use leptos::prelude::*;
 use leptos::ev;
 use wasm_bindgen_futures::spawn_local;
-use std::collections::HashMap;
 
 use crate::bindings::{
-    get_usage_stats, get_usage_by_period, get_cost_breakdown, get_budget_status,
+    get_usage_by_period, get_cost_breakdown, get_budget_status,
     set_budget_limit, UsageStats, CostBreakdown, BudgetStatus, BudgetLimit,
 };
 use crate::components::design_system::{Button, ButtonVariant, Card, CardBody, CardHeader, Input, Select};
