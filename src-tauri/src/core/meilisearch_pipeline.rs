@@ -1408,8 +1408,19 @@ impl MeilisearchPipeline {
             )))?;
 
         // Convert layout pages to raw documents
+        let metadata_page_count = layout_doc.page_count();
         let pages = layout_doc.to_pages();
         let page_count = pages.len();
+
+        if metadata_page_count != page_count {
+            log::warn!(
+                "Layout page count mismatch for document '{}': metadata page_count = {}, derived pages.len() = {}. Using derived pages.len() as canonical for indexing.",
+                slug,
+                metadata_page_count,
+                page_count
+            );
+        }
+
         let mut total_chars = 0;
         let mut raw_documents = Vec::new();
 

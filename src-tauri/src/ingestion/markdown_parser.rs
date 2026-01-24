@@ -15,8 +15,15 @@ static PAGE_MARKER: Lazy<Regex> = Lazy::new(|| {
 /// Default characters per synthetic page when no markers are found
 pub const DEFAULT_CHARS_PER_PAGE: usize = 3000;
 
-/// Minimum content length to be considered a valid page
-pub const MIN_PAGE_CONTENT_LENGTH: usize = 50;
+/// Default minimum content length to be considered a valid page.
+///
+/// Pages shorter than this threshold are silently dropped to filter out
+/// noise like page numbers or headers extracted in isolation. However,
+/// this may also drop legitimate short pages such as title pages,
+/// dedication pages, or section dividers. Increase this value to be
+/// more aggressive about filtering noise, or decrease it (even to 0)
+/// to preserve all pages including very short ones.
+pub const DEFAULT_MIN_PAGE_CONTENT_LENGTH: usize = 50;
 
 /// Markdown page parser for detecting and splitting page boundaries
 pub struct MarkdownPageParser;
@@ -31,7 +38,16 @@ impl MarkdownPageParser {
     ///
     /// Returns a vector of (page_number, content) tuples.
     /// Content before the first marker is treated as page 1.
-    pub fn split_by_page_markers(content: &str) -> Vec<(usize, String)> {
+    ///
+    /// # Arguments
+    /// * `content` - The markdown content to split
+    /// * `min_page_length` - Minimum content length for a page to be included.
+    ///   If `None`, uses [`DEFAULT_MIN_PAGE_CONTENT_LENGTH`].
+    pub fn split_by_page_markers(
+        content: &str,
+        min_page_length: Option<usize>,
+    ) -> Vec<(usize, String)> {
+        let min_len = min_page_length.unwrap_or(DEFAULT_MIN_PAGE_CONTENT_LENGTH);
         let mut pages = Vec::new();
         let mut current_page_num: usize = 1;
         let mut current_content = String::new();
@@ -41,7 +57,7 @@ impl MarkdownPageParser {
             if let Some(caps) = PAGE_MARKER.captures(line) {
                 // Save previous page content if non-empty
                 let trimmed = current_content.trim();
-                if !trimmed.is_empty() && trimmed.len() >= MIN_PAGE_CONTENT_LENGTH {
+                if !trimmed.is_empty() && trimmed.len() >= min_len {
                     pages.push((current_page_num, current_content.trim().to_string()));
                 }
 
@@ -62,7 +78,7 @@ impl MarkdownPageParser {
 
         // Don't forget the last page
         let trimmed = current_content.trim();
-        if !trimmed.is_empty() && trimmed.len() >= MIN_PAGE_CONTENT_LENGTH {
+        if !trimmed.is_empty() && trimmed.len() >= min_len {
             pages.push((current_page_num, current_content.trim().to_string()));
         }
 
@@ -83,12 +99,23 @@ impl MarkdownPageParser {
     ///
     /// Tries to split at paragraph boundaries near the target size.
     /// Returns a vector of (page_number, content) tuples starting from page 1.
-    pub fn split_by_size(content: &str, chars_per_page: usize) -> Vec<(usize, String)> {
+    ///
+    /// # Arguments
+    /// * `content` - The markdown content to split
+    /// * `chars_per_page` - Target characters per page (uses [`DEFAULT_CHARS_PER_PAGE`] if 0)
+    /// * `min_page_length` - Minimum content length for a page to be included.
+    ///   If `None`, uses [`DEFAULT_MIN_PAGE_CONTENT_LENGTH`].
+    pub fn split_by_size(
+        content: &str,
+        chars_per_page: usize,
+        min_page_length: Option<usize>,
+    ) -> Vec<(usize, String)> {
         let chars_per_page = if chars_per_page == 0 {
             DEFAULT_CHARS_PER_PAGE
         } else {
             chars_per_page
         };
+        let min_len = min_page_length.unwrap_or(DEFAULT_MIN_PAGE_CONTENT_LENGTH);
 
         let mut pages = Vec::new();
         let mut current_content = String::new();
@@ -104,7 +131,7 @@ impl MarkdownPageParser {
             if !current_content.is_empty()
                 && current_content.len() + para.len() + 2 > chars_per_page
             {
-                if current_content.len() >= MIN_PAGE_CONTENT_LENGTH {
+                if current_content.len() >= min_len {
                     pages.push((page_num, current_content.trim().to_string()));
                     page_num += 1;
                 }
@@ -119,7 +146,7 @@ impl MarkdownPageParser {
         }
 
         // Don't forget the last page
-        if !current_content.is_empty() && current_content.len() >= MIN_PAGE_CONTENT_LENGTH {
+        if !current_content.is_empty() && current_content.len() >= min_len {
             pages.push((page_num, current_content.trim().to_string()));
         }
 
@@ -135,13 +162,24 @@ impl MarkdownPageParser {
     ///
     /// First attempts to detect `*Page N*` markers. If none are found,
     /// falls back to size-based splitting.
-    pub fn parse(content: &str, fallback_chars_per_page: Option<usize>) -> Vec<(usize, String)> {
+    ///
+    /// # Arguments
+    /// * `content` - The markdown content to parse
+    /// * `fallback_chars_per_page` - Target characters per page when no markers found
+    /// * `min_page_length` - Minimum content length for a page to be included.
+    ///   If `None`, uses [`DEFAULT_MIN_PAGE_CONTENT_LENGTH`].
+    pub fn parse(
+        content: &str,
+        fallback_chars_per_page: Option<usize>,
+        min_page_length: Option<usize>,
+    ) -> Vec<(usize, String)> {
         if Self::has_page_markers(content) {
-            Self::split_by_page_markers(content)
+            Self::split_by_page_markers(content, min_page_length)
         } else {
             Self::split_by_size(
                 content,
                 fallback_chars_per_page.unwrap_or(DEFAULT_CHARS_PER_PAGE),
+                min_page_length,
             )
         }
     }
@@ -177,7 +215,7 @@ This is page 2 content with enough text to be considered valid content for testi
 This is page 3 content also with sufficient length to pass the minimum content threshold.
 "#;
 
-        let pages = MarkdownPageParser::split_by_page_markers(content);
+        let pages = MarkdownPageParser::split_by_page_markers(content, None);
 
         assert_eq!(pages.len(), 3);
         assert_eq!(pages[0].0, 1); // First content before markers is page 1
@@ -201,7 +239,7 @@ Paragraph four continues the document.
 Paragraph five has additional text."#;
 
         // Very small page size to force multiple pages
-        let pages = MarkdownPageParser::split_by_size(content, 100);
+        let pages = MarkdownPageParser::split_by_size(content, 100, None);
 
         assert!(pages.len() >= 2);
         assert_eq!(pages[0].0, 1);
@@ -211,7 +249,7 @@ Paragraph five has additional text."#;
     #[test]
     fn test_parse_with_markers() {
         let content = "*Page 1*\n\nFirst page with enough content to meet minimum length requirements.\n\n*Page 2*\n\nSecond page also with sufficient content for testing.";
-        let pages = MarkdownPageParser::parse(content, None);
+        let pages = MarkdownPageParser::parse(content, None, None);
 
         assert_eq!(pages.len(), 2);
         assert_eq!(pages[0].0, 1);
@@ -221,7 +259,7 @@ Paragraph five has additional text."#;
     #[test]
     fn test_parse_without_markers() {
         let content = "Just some content without any page markers but with enough text to be meaningful.";
-        let pages = MarkdownPageParser::parse(content, Some(50));
+        let pages = MarkdownPageParser::parse(content, Some(50), None);
 
         assert!(!pages.is_empty());
         assert_eq!(pages[0].0, 1);
@@ -229,13 +267,13 @@ Paragraph five has additional text."#;
 
     #[test]
     fn test_empty_content() {
-        let pages = MarkdownPageParser::parse("", None);
+        let pages = MarkdownPageParser::parse("", None, None);
         assert!(pages.is_empty());
 
-        let pages = MarkdownPageParser::split_by_page_markers("");
+        let pages = MarkdownPageParser::split_by_page_markers("", None);
         assert!(pages.is_empty());
 
-        let pages = MarkdownPageParser::split_by_size("", 1000);
+        let pages = MarkdownPageParser::split_by_size("", 1000, None);
         assert!(pages.is_empty());
     }
 }

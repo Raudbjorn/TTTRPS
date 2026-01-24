@@ -479,6 +479,15 @@ impl<S: TokenStorage + 'static> ClaudeDocumentExtractor<S> {
 
         page_files.sort_by_key(|(num, _)| *num);
 
+        // Validate page count matches pdfinfo report
+        if total_pages != page_files.len() {
+            log::warn!(
+                "Page count mismatch: pdfinfo reports {} pages but pdftoppm rendered {} pages",
+                total_pages,
+                page_files.len()
+            );
+        }
+
         if page_files.is_empty() {
             return Err(ClaudeExtractionError::PdfError(
                 "No page images generated".to_string(),

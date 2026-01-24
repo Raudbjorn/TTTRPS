@@ -26,6 +26,7 @@ pub enum SessionPlanStatus {
     /// Session completed
     Completed,
     /// Plan was canceled/abandoned
+    #[serde(alias = "Cancelled")]
     Canceled,
 }
 

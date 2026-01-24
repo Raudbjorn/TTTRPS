@@ -82,8 +82,12 @@ check_git_status() {
 }
 
 # Check branch divergence from main/master
+# Note: Uses eval-based array manipulation to allow multiple functions to append
+# warnings to a shared array. While bash 4.3+ supports nameref (local -n), this
+# approach maintains compatibility with bash 4.0+ and macOS default bash.
+# The array name is always a controlled internal variable ("warnings"), not user input.
 check_branch_divergence() {
-    # shellcheck disable=SC2178  # Intentionally used as nameref for array manipulation via eval
+    # shellcheck disable=SC2178  # Intentionally used for array manipulation via eval
     local warnings_array_name=$1
     local current_branch=$2
 
@@ -114,8 +118,9 @@ check_branch_divergence() {
 }
 
 # GitHub CLI integration for PR checks
+# See check_branch_divergence() for rationale on eval-based array manipulation
 check_github_status() {
-    # shellcheck disable=SC2178  # Intentionally used as nameref for array manipulation via eval
+    # shellcheck disable=SC2178  # Intentionally used for array manipulation via eval
     local warnings_array_name=$1
 
     # Check if we're in a GitHub repo

@@ -1,7 +1,8 @@
 //! Property-based tests for Token Counting
 //!
 //! Tests invariants:
-//! - Count is non-negative
+//! - Token count never exceeds character count
+//! - Non-empty text has at least 1 token
 //! - Empty string yields zero tokens
 //! - Count increases with string length
 //!
@@ -131,16 +132,32 @@ fn arb_sized_text(min_len: usize, max_len: usize) -> impl Strategy<Value = Strin
 // ============================================================================
 
 proptest! {
-    /// Property: Token count is always non-negative
+    /// Property: Token count satisfies basic invariants
+    ///
+    /// For any text:
+    /// - Token count should never exceed character count (each char is at most 1 token)
+    /// - Non-empty text should have at least 1 token
     #[test]
-    fn prop_count_is_non_negative(
+    fn prop_count_satisfies_invariants(
         text in ".*"
     ) {
         let counter = TokenCounter::new();
         let count = counter.count(&text);
+        let char_count = text.chars().count();
 
-        // Token count should always succeed
-        prop_assert!(count == count, "Token count should be valid");
+        // Token count should never exceed character count
+        prop_assert!(
+            count <= char_count || text.is_empty(),
+            "Token count {} should not exceed character count {} for text '{}'",
+            count, char_count, text.chars().take(50).collect::<String>()
+        );
+
+        // Non-empty text should have at least 1 token
+        prop_assert!(
+            count > 0 || text.is_empty(),
+            "Non-empty text should have at least 1 token, got {} for text '{}'",
+            count, text.chars().take(50).collect::<String>()
+        );
     }
 
     /// Property: Empty string yields zero tokens

@@ -403,6 +403,7 @@ impl DocumentExtractor {
             let parsed_pages = MarkdownPageParser::parse(
                 &result.content,
                 Some(self.settings.markdown.fallback_page_size),
+                self.settings.markdown.min_page_content_length,
             );
 
             if parsed_pages.len() > 1 || MarkdownPageParser::has_page_markers(&result.content) {

@@ -133,13 +133,11 @@ impl LLMProvider for MeilisearchProvider {
 
         tokio::spawn(async move {
             let mut chunk_index = 0;
-            let received_done = false;
 
             while let Some(result) = rx.recv().await {
                 match result {
                     Ok(content) => {
                         if content == "[DONE]" {
-                            // Note: received_done not set here since we return immediately
                             let final_chunk = ChatChunk {
                                 stream_id: stream_id.clone(),
                                 content: String::new(),
@@ -177,19 +175,17 @@ impl LLMProvider for MeilisearchProvider {
             }
 
             // Stream ended without [DONE] - send a final chunk to prevent consumers from waiting forever
-            if !received_done {
-                let final_chunk = ChatChunk {
-                    stream_id: stream_id.clone(),
-                    content: String::new(),
-                    provider: "meilisearch".to_string(),
-                    model: model.clone(),
-                    is_final: true,
-                    finish_reason: Some("stream_terminated".to_string()),
-                    usage: None,
-                    index: chunk_index + 1,
-                };
-                let _ = tx.send(Ok(final_chunk)).await;
-            }
+            let final_chunk = ChatChunk {
+                stream_id: stream_id.clone(),
+                content: String::new(),
+                provider: "meilisearch".to_string(),
+                model: model.clone(),
+                is_final: true,
+                finish_reason: Some("stream_terminated".to_string()),
+                usage: None,
+                index: chunk_index + 1,
+            };
+            let _ = tx.send(Ok(final_chunk)).await;
         });
 
         Ok(proxy_rx)

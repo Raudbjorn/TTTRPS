@@ -76,6 +76,7 @@ pub enum JobStatus {
     /// Job failed with error
     Failed(String),
     /// Job was canceled
+    #[serde(alias = "Cancelled")]
     Canceled,
 }
 

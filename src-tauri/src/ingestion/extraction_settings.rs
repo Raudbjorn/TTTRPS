@@ -122,6 +122,15 @@ pub struct MarkdownSettings {
     pub detect_page_markers: bool,
     /// Fallback page size in characters when no markers are found
     pub fallback_page_size: usize,
+    /// Minimum content length for a page to be included.
+    ///
+    /// Pages shorter than this threshold are silently dropped to filter out
+    /// noise like page numbers or headers extracted in isolation. However,
+    /// this may also drop legitimate short pages such as title pages,
+    /// dedication pages, or section dividers. Set to `None` to use the
+    /// default (50 chars), or set to `Some(0)` to preserve all pages.
+    #[serde(default)]
+    pub min_page_content_length: Option<usize>,
 }
 
 impl Default for MarkdownSettings {
@@ -129,6 +138,7 @@ impl Default for MarkdownSettings {
         Self {
             detect_page_markers: true,
             fallback_page_size: 3000,
+            min_page_content_length: None, // Uses DEFAULT_MIN_PAGE_CONTENT_LENGTH (50)
         }
     }
 }
