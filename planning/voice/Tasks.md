@@ -386,6 +386,22 @@ let (item, _) = {
 // Lock released here, proceed with synthesis if item.is_some()
 ```
 
+- [ ] **7.5 Fix issues from IDE inspection results**
+  - **Frontend field shorthand** (`frontend/src/components/settings/voice.rs:284-287`):
+    - Change `length_scale: length_scale` → `length_scale`
+    - Change `noise_scale: noise_scale` → `noise_scale`
+    - Change `noise_w: noise_w` → `noise_w`
+    - Change `sentence_silence: sentence_silence` → `sentence_silence`
+  - **Grammar in doc comments** (`core/voice/cache.rs`):
+    - Line 75: Change "an access" → "access" (uncountable noun)
+    - Line 242: Change "a" → "an" before vowel sound
+    - Line 245: Change "a" → "an" before vowel sound
+  - **Grammar in doc comments** (`core/voice/install.rs`):
+    - Line 649: Use past participle form
+  - Files: `frontend/src/components/settings/voice.rs`, `src-tauri/src/core/voice/cache.rs`, `src-tauri/src/core/voice/install.rs`
+  - _Requirements: REQ-9 (code quality)_
+  - _Source: IntelliJ inspection results (RsFieldInitShorthand, GrazieInspection)_
+
 ---
 
 ### Phase 8: Update Command Registration
@@ -545,11 +561,11 @@ let (item, _) = {
 | 4. Cache | 2 | 6 | 100 |
 | 5. Synthesis Queue | 6 | 22 | 400 |
 | 6. Verify Existing | 4 | 0 (verify) | 0 |
-| 7. Fix Issues | 4 | 0 | 80 |
+| 7. Fix Issues | 5 | 0 | 90 |
 | 8. Registration | 2 | 0 | 100 |
 | 9. Cleanup | 4 | 0 | -1,400 |
 | 10. Documentation | 3 | 0 | 50 |
-| **Total** | **31** | **~37 new** | **-~500** |
+| **Total** | **32** | **~37 new** | **-~500** |
 
 **Note**: Some commands are already partially extracted. The net effect is removal of ~1,400 lines from `commands_legacy.rs` and proper organization of ~56 commands across 8 focused submodules.
 

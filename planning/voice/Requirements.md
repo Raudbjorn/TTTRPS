@@ -328,6 +328,26 @@ The voice system comprises six major functional areas:
    - No longer contain any voice-related Tauri commands
    - Retain only non-voice functionality
 
+### NFR-6: Code Quality (from Inspection Results)
+1. WHEN building the application THEN system SHALL:
+   - Pass all Rust code quality checks (clippy, field shorthand)
+   - Use idiomatic Rust patterns (field init shorthand syntax)
+
+2. WHEN documentation contains grammar THEN system SHALL:
+   - Use correct article usage ("an" before vowel sounds)
+   - Use uncountable nouns correctly (no article for "access")
+   - Use correct verb tenses
+
+3. **Specific Issues to Address** (source: IntelliJ inspection):
+   - `frontend/src/components/settings/voice.rs:284-287`: Use field init shorthand
+     - `length_scale: length_scale` → `length_scale`
+     - `noise_scale: noise_scale` → `noise_scale`
+     - `noise_w: noise_w` → `noise_w`
+     - `sentence_silence: sentence_silence` → `sentence_silence`
+   - `src-tauri/src/core/voice/cache.rs:75`: Change "an access" → "access"
+   - `src-tauri/src/core/voice/cache.rs:242,245`: Change "a" → "an" before vowel
+   - `src-tauri/src/core/voice/install.rs:649`: Use past participle form
+
 ---
 
 ## Constraints and Assumptions
@@ -360,4 +380,5 @@ The voice system comprises six major functional areas:
 | REQ-8: Synthesis Queue | synthesis_queue.rs | 22 |
 | REQ-9: Module Org | mod.rs, main.rs | - |
 | REQ-10: Security | config.rs, types.rs | - |
-| **Total** | **8 files** | **~55-56** |
+| NFR-6: Code Quality | voice.rs (FE), cache.rs, install.rs | - |
+| **Total** | **8+ files** | **~55-56** |
