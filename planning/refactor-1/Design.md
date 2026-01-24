@@ -1,5 +1,7 @@
 # Design: Codebase Refactoring Overhaul
 
+*Note: For specific execution steps and phase numbering, `Tasks.md` is the canonical source. This document outlines the architectural strategy.*
+
 ## Overview
 
 This document describes the technical design for refactoring the TTRPG Assistant codebase to reduce line count, eliminate dead code, and improve maintainability. The design addresses all requirements from Requirements.md.
@@ -459,14 +461,31 @@ mod tests {
 2. Extract document commands
 3. Extract session commands
 
-### Phase 5: Remaining Modules
+### Phase 5: Entity Management Extraction
 1. Extract campaign, NPC, location
-2. Extract utilities, audio, theme
-3. Final cleanup
+2. Extract credentials, audio, theme, utility, meilisearch, character
+3. Delete original `commands.rs`
 
-### Phase 6: Frontend Updates
+### Phase 6: Remaining Modules and Cleanup
+1. Extract credentials commands
+2. Extract audio commands
+3. Extract theme commands
+4. Extract utility commands
+5. Extract meilisearch commands
+6. Extract character commands
+7. Delete original `commands.rs`
+
+### Phase 7: Frontend Cleanup
 1. Migrate `MaybeSignal` → `Signal`
-2. Verify bindings still auto-generate correctly
+2. Fix deprecated `Shell::open` usage
+3. Consolidate duplicated CSS
+4. Verify bindings and fix inspections
+
+### Phase 8: Final Validation
+1. Run full test suite
+2. Verify metrics
+3. Update documentation
+4. Create PR
 
 ---
 

@@ -336,7 +336,7 @@ This task list implements the refactoring plan from Design.md. The work is organ
   - _Requirements: 2.5, 6.1_
 
 - [ ] **7.2 Fix deprecated Shell::open usage**
-  - Update `commands.rs` (now in `utility/commands.rs`) line 9467
+  - Update `src-tauri/src/commands/utility/commands.rs` (previously in commands.rs ~9467)
   - Replace `tauri_plugin_shell::Shell::open` with `tauri-plugin-opener`
   - Test URL opening works
   - _Requirements: 2.5_
