@@ -70,28 +70,42 @@ This task list implements the refactoring plan from Design.md. The work is organ
   - Prefix `rng` with `_` in `core/location_gen.rs:549,571`
   - Prefix `words` with `_` in `core/query_expansion.rs:195`
   - Prefix `n` with `_` in `core/session/conditions.rs:353`
-  - Prefix unused imports in `core/personality/contextual.rs:31`
+  - Remove unused import `BlendedProfile` in `core/personality/contextual.rs:31`
   - Prefix unused imports in `commands.rs:52`
   - Prefix unused imports in `gate/client.rs:11,14`
   - Prefix `received_done` with `_` in `core/llm/providers/meilisearch.rs:142`
   - Run `cargo build` and verify zero `unused_*` warnings
-  - _Requirements: 2.2_
+  - _Requirements: 2.2, 7.1_
 
 - [ ] **1.4 Remove dead struct fields**
   - Add `#[allow(dead_code)]` or remove `stream_id`, `provider`, `model`, `chunks_received` in `core/llm/router.rs:421` if truly unused
   - Remove `api_key` field in `core/campaign/meilisearch_client.rs:101` if unused
   - Remove `api_key` field in `core/personality/meilisearch.rs:107` if unused
   - Remove `source_archetypes` field in `core/archetype/cache.rs:196` if unused
-  - Remove `keyword_rank`, `semantic_rank` fields in `core/search/hybrid.rs:705` if unused
+  - Remove `keyword_rank`, `semantic_rank` fields in `core/search/hybrid.rs:705-706` if unused
+  - Remove `command_rx` field in `core/voice/queue.rs:580` if unused
   - Remove unused fields in `core/search/providers/openai.rs:25,37` if safe
   - Run `cargo build` and verify zero `dead_code` warnings for fields
-  - _Requirements: 2.1, 2.3_
+  - _Requirements: 2.1, 2.3, 7.1_
 
-- [ ] **1.5 Validation checkpoint**
-  - Run `cargo build 2>&1 | grep -c "warning:"` should be < 10 (only deprecation warnings)
+- [ ] **1.5 Fix Cargo feature flag issues**
+  - Add `chunking` feature to `src-tauri/Cargo.toml` `[features]` section OR
+  - Remove `#[cfg(feature = "chunking")]` from `extraction_settings.rs:308` if feature is obsolete
+  - Verify `cargo build` no longer warns about `unexpected_cfgs`
+  - _Requirements: 7.1, 8.1, 8.3_
+
+- [ ] **1.7 Fix RsSelfConvention warnings (WARNING level)**
+  - `core/llm/health.rs:420` - Method `is_*` takes `&mut self`; rename to `check_*` or change to `&self`
+  - `core/session/plan_types.rs:704` - Method `from_*` takes `&self`; rename to `to_*` or remove self parameter
+  - Run `cargo clippy` to verify convention compliance
+  - _Requirements: 2.3, 7.1, NFR-5_
+
+- [ ] **1.8 Validation checkpoint**
+  - Run `cargo build 2>&1 | grep -c "warning:"` should be 0 (excluding deprecation warnings)
+  - Run `cargo clippy -- -D warnings` should pass
   - Run `cargo test` - all tests pass
   - Document any warnings that must remain with justification
-  - _Requirements: 2.1, 2.2_
+  - _Requirements: 2.1, 2.2, 2.3, 7.1, NFR-5_
 
 ---
 
@@ -326,7 +340,7 @@ This task list implements the refactoring plan from Design.md. The work is organ
 
 ---
 
-### Phase 7: Frontend Cleanup
+### Phase 7: Frontend and Script Cleanup
 
 - [ ] **7.1 Fix deprecated MaybeSignal usage**
   - Update `frontend/src/components/button.rs:50,53` - replace `MaybeSignal<T>` with `Signal<T>`
@@ -341,22 +355,57 @@ This task list implements the refactoring plan from Design.md. The work is organ
   - Test URL opening works
   - _Requirements: 2.5_
 
-- [ ] **7.4 Consolidate Duplicated CSS**
-  - Analyze `frontend/public/effects.css` and `frontend/public/themes.css` for duplicate `@keyframes grain`
-  - Extract common rules to `frontend/public/main.css` or new `shared.css`
-  - Verify styles still apply correctly
-  - _Requirements: NFR-2_
+- [ ] **7.3 Fix ShellCheck warnings in build.sh**
+  - Separate `local` declarations from assignments (lines 51, 59, 61, 106, 117, 120, etc.)
+  - Fix literal brace issues on line 61: `{@}` should be quoted or escaped
+  - Remove or export unused variables: `PACKAGE`, `TEST`, `BUILD`, `DIST_DIR` (lines 23-31)
+  - Add `|| exit` to `cd` commands that can fail
+  - Run `shellcheck build.sh` and verify < 5 remaining warnings
+  - _Requirements: 7.3, NFR-5_
 
-- [ ] **7.5 Verify bindings generation**
+- [ ] **7.4 Fix ShellCheck warnings in mcp-server scripts**
+  - Add `|| exit` to `cd "$PROJECT_ROOT"` in `src-tauri/binaries/mcp-server:13`
+  - Add `|| exit` to `cd "$PROJECT_ROOT"` in `src-tauri/binaries/mcp-server-x86_64-unknown-linux-gnu:13`
+  - _Requirements: 7.3, NFR-5_
+
+- [ ] **7.5 Consolidate Duplicated CSS**
+  - Extract `@keyframes grain` from `frontend/public/effects.css:37`
+  - Remove duplicate from `frontend/public/themes.css:335`
+  - Create `frontend/public/shared-animations.css` with consolidated keyframes
+  - Import shared file in both `effects.css` and `themes.css`
+  - Verify film grain effect still works
+  - _Requirements: 7.4, NFR-2_
+
+- [ ] **7.6 Fix HTML accessibility issues**
+  - Add `lang="en"` attribute to `<html>` tag in `frontend/index.html`
+  - Add `lang="en"` attribute to any other HTML templates
+  - _Requirements: 7.1, 7.6_
+
+- [ ] **7.7 Investigate unused CSS symbols**
+  - Run CSS usage analysis against all Leptos components
+  - Remove confirmed unused classes from stylesheets
+  - Document any classes kept for dynamic usage
+  - _Requirements: 7.1_
+
+- [ ] **7.8 Verify bindings generation**
   - Confirm `bindings.rs` regenerates correctly
   - No manual edits needed to bindings
   - Frontend compiles and works
   - _Requirements: 6.3, 6.4_
 
-- [ ] **7.6 General Inspection Cleanup**
-  - Fix `HtmlRequiredLangAttribute` in `index.html`
-  - Fix valid Markdown table/link issues from inspection results
-  - _Requirements: NFR-2_
+- [ ] **7.9 Fix Rust code style issues (WEAK WARNING level)**
+  - **RsLift** - Restructure return statements:
+    - `gate/gemini/transport/http.rs:159` - lift return out of match
+    - `gate/copilot/auth/device_flow.rs:224` - lift return out of match
+    - `ingestion/ttrpg/dice_extractor.rs:496` - lift return out of if
+  - **RsFieldInitShorthand** - Use shorthand field initialization:
+    - `frontend/src/components/settings/voice.rs:284-287` - change `field: field` to `field`
+  - **HttpUrlsUsage** - Document intentional localhost HTTP usage:
+    - Add `#[allow(clippy::url_http)]` comment or document in code:
+      - `core/sidecar_manager.rs:47`
+      - `core/llm/proxy.rs:373`
+  - Run `cargo clippy` to verify style compliance
+  - _Requirements: 7.1, NFR-5_
 
 ---
 
@@ -393,15 +442,32 @@ This task list implements the refactoring plan from Design.md. The work is organ
 | Phase | Tasks | Commands Migrated | Lines Affected |
 |-------|-------|-------------------|----------------|
 | 0 | 3 | 0 | ~500 (new) |
-| 1 | 5 | 0 | -2,500 (removed) |
+| 1 | 8 | 0 | -2,500 (removed) |
 | 2 | 5 | 18 | ~900 |
 | 3 | 4 | 70+ | ~3,400 |
 | 4 | 4 | 50+ | ~2,700 |
 | 5 | 4 | 40+ | ~1,550 |
 | 6 | 8 | 30+ | ~660 |
-| 7 | 3 | 0 | ~50 |
+| 7 | 9 | 0 | ~100 |
 | 8 | 4 | 0 | 0 |
 
-**Total tasks:** 40
+**Total tasks:** 48
 **Total commands:** 404
 **Net LOC reduction:** ~8,000-10,000 lines
+
+---
+
+## Inspection Issues Traceability
+
+| Inspection Category | Requirement | Task(s) |
+|---------------------|-------------|---------|
+| Rust compiler warnings | 2.1, 2.2, 7.1 | 1.1-1.8 |
+| Cargo feature flags | 8.1, 8.3 | 1.5 |
+| RsSelfConvention (WARNING) | 2.3, 7.1 | 1.7 |
+| RsLift, RsFieldInitShorthand (WEAK WARNING) | 7.1, NFR-5 | 7.9 |
+| HttpUrlsUsage (localhost) | 7.1 | 7.9 |
+| ShellCheck warnings | 7.3, NFR-5 | 7.3, 7.4 |
+| CSS duplication | 7.4, NFR-2 | 7.5 |
+| HTML lang attribute | 7.1, 7.6 | 7.6 |
+| Unused CSS symbols | 7.1 | 7.7 |
+| Deprecated APIs | 2.5, 6.1 | 7.1, 7.2 |

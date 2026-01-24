@@ -154,6 +154,91 @@ This refactoring effort aims to reduce total lines of code by 15-25%, improve mo
 
 ---
 
+### Requirement 7: Static Analysis Issue Resolution
+
+**User Story:** As a developer, I want all static analysis warnings resolved, so that CI/CD pipelines pass cleanly and code quality tools provide meaningful feedback.
+
+#### Acceptance Criteria
+
+1. WHEN the refactoring is complete THEN `cargo build` SHALL produce zero warnings (excluding crate-internal suppressed warnings with documented justification)
+2. WHEN Cargo.toml references feature flags THEN those features SHALL be defined in the relevant crate's `[features]` section
+3. WHEN shell scripts exist in the repository THEN they SHALL pass ShellCheck with no errors and minimal warnings
+4. WHEN CSS files are present THEN duplicate rules (e.g., duplicate `@keyframes`) SHALL be consolidated to a single source of truth
+5. WHEN HTML files include `<html>` tags THEN they SHALL include the required `lang` attribute
+6. IF suppressing a warning is necessary THEN it SHALL be documented with `#[allow(...)]` and a comment explaining why
+
+---
+
+### Requirement 8: Cargo Feature Flag Hygiene
+
+**User Story:** As a developer, I want feature flags properly defined, so that conditional compilation works correctly and IDE tooling resolves all references.
+
+#### Acceptance Criteria
+
+1. WHEN `#[cfg(feature = "X")]` is used THEN feature `X` SHALL be defined in `Cargo.toml` `[features]` section
+2. WHEN a feature depends on external crate features THEN those dependencies SHALL be explicitly specified
+3. WHEN the `chunking` feature is referenced THEN it SHALL be added to the `[features]` table or the `cfg` attribute SHALL be removed
+
+---
+
+## Non-Functional Requirements
+
+### NFR-1: Build Performance
+- WHEN the refactoring is complete THEN incremental build time SHALL not increase by more than 10%
+- WHEN modules are split THEN compilation unit boundaries SHALL be optimized for parallel compilation
+
+### NFR-2: Binary Size
+- WHEN dead code is eliminated THEN release binary size SHALL decrease or remain constant
+- WHEN the refactoring is complete THEN release binary size SHALL not increase by more than 5%
+
+### NFR-3: API Stability
+- WHEN internal refactoring occurs THEN all Tauri command signatures SHALL remain unchanged
+- WHEN internal refactoring occurs THEN all public Rust module APIs used by other crates SHALL remain stable or be documented as breaking changes
+
+### NFR-4: Test Coverage
+- WHEN code is refactored THEN existing test coverage percentage SHALL not decrease
+- WHEN modules are extracted THEN tests SHALL be co-located with the new module structure
+
+### NFR-5: Static Analysis Compliance
+- WHEN code is merged THEN `cargo clippy -- -D warnings` SHALL pass
+- WHEN code is merged THEN ShellCheck SHALL report no errors on shell scripts
+- WHEN code is merged THEN the CSS shall have no duplicate rule definitions
+
+---
+
+## Constraints and Assumptions
+
+### Constraints
+
+1. **Frontend/Backend Contract**: Tauri command names and signatures cannot change without coordinated frontend updates
+2. **Auto-generated Code**: `frontend/src/bindings.rs` appears to be auto-generated and should not be manually refactored
+3. **Feature Flags**: Existing Cargo feature flags must continue to work as expected
+4. **External Dependencies**: No new dependencies should be added solely for refactoring purposes
+
+### Assumptions
+
+1. The two LLM router files (`llm/router.rs` and `llm_router.rs`) represent organic duplication rather than intentional separation
+2. Dead code identified by compiler warnings is safe to remove unless explicitly marked as planned
+3. Test organization changes will not affect CI/CD pipeline configuration
+4. Vocabulary duplication between `ingestion/ttrpg/` and `core/archetype/` modules can be unified
+
+---
+
+## Success Metrics
+
+| Metric | Current | Target |
+|--------|---------|--------|
+| Total backend LOC | ~51,500 | < 45,000 |
+| `commands.rs` LOC | 10,679 | 0 (extracted) |
+| Compiler warnings | ~50+ | 0 |
+| Clippy warnings | ~100+ | 0 |
+| Files > 1,500 LOC | ~12 | < 3 |
+| LLM router combined LOC | ~4,694 | < 3,500 |
+| ShellCheck warnings | ~34 | < 5 |
+| Duplicate CSS rules | 1+ | 0 |
+
+---
+
 ## Out of Scope
 
 - Feature additions or behavior changes
