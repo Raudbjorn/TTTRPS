@@ -53,13 +53,18 @@ pub async fn link_voice_profile_to_npc(
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     if let Some(mut record) = state.database.get_npc(&npc_id).await.map_err(|e| e.to_string())? {
+        // Update the structured voice_profile_id field
+        record.voice_profile_id = Some(profile_id.clone());
+
+        // Also update data_json for backwards compatibility if it exists
         if let Some(json) = &record.data_json {
             let mut npc: serde_json::Value = serde_json::from_str(json)
                 .map_err(|e| e.to_string())?;
             npc["voice_profile_id"] = serde_json::json!(profile_id);
             record.data_json = Some(serde_json::to_string(&npc).map_err(|e| e.to_string())?);
-            state.database.save_npc(&record).await.map_err(|e| e.to_string())?;
         }
+
+        state.database.save_npc(&record).await.map_err(|e| e.to_string())?;
     } else {
         return Err(format!("NPC not found: {}", npc_id));
     }

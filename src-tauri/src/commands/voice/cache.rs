@@ -4,7 +4,7 @@
 
 use tauri::State;
 
-use crate::core::voice::{CacheStats, AudioCache, CacheEntry};
+use crate::core::voice::{CacheStats, CacheEntry};
 use crate::commands::AppState;
 
 // ============================================================================
@@ -92,14 +92,8 @@ pub async fn prune_audio_cache(
 /// - Audio format and duration
 #[tauri::command]
 pub async fn list_audio_cache_entries(state: State<'_, AppState>) -> Result<Vec<CacheEntry>, String> {
-    let cache_dir = state.voice_manager.read().await.get_config()
-        .cache_dir.clone().unwrap_or_else(|| std::path::PathBuf::from("./voice_cache"));
-
-    // For listing entries, we need direct cache access since VoiceManager doesn't expose list_entries
-    match AudioCache::with_defaults(cache_dir).await {
-        Ok(cache) => Ok(cache.list_entries().await),
-        Err(e) => Err(format!("Failed to access cache: {}", e)),
-    }
+    let voice_manager = state.voice_manager.read().await;
+    voice_manager.list_cache_entries().await.map_err(|e| e.to_string())
 }
 
 /// Get cache size information
