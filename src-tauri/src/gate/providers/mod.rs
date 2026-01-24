@@ -1,7 +1,7 @@
 //! OAuth provider implementations.
 //!
 //! This module provides provider-specific OAuth implementations for different
-//! LLM providers (Claude/Anthropic, Gemini/Google Cloud Code).
+//! LLM providers (Claude/Anthropic, Gemini/Google Cloud Code, GitHub Copilot).
 //!
 //! # Architecture
 //!
@@ -15,8 +15,9 @@
 //!
 //! # Providers
 //!
-//! - [`ClaudeProvider`] - Anthropic OAuth with JSON-encoded token requests
-//! - [`GeminiProvider`] - Google OAuth with form-encoded token requests
+//! - [`ClaudeProvider`] - Anthropic OAuth with JSON-encoded token requests (PKCE)
+//! - [`GeminiProvider`] - Google OAuth with form-encoded token requests (PKCE)
+//! - [`CopilotProvider`] - GitHub OAuth with Device Code flow (RFC 8628)
 //!
 //! # Example
 //!
@@ -39,6 +40,7 @@
 //! ```
 
 pub mod claude;
+pub mod copilot;
 pub mod gemini;
 
 use async_trait::async_trait;
@@ -49,6 +51,7 @@ use crate::gate::token::TokenInfo;
 
 // Re-export providers
 pub use claude::ClaudeProvider;
+pub use copilot::CopilotProvider;
 pub use gemini::GeminiProvider;
 
 /// OAuth provider trait for LLM authentication.

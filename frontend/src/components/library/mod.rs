@@ -23,16 +23,15 @@ use leptos::prelude::*;
 use leptos::ev;
 use leptos::task::spawn_local;
 use wasm_bindgen::prelude::*;
-use crate::services::notification_service::{show_error, show_success, ToastAction};
-use std::sync::Arc;
+use crate::services::notification_service::show_error;
 
 use crate::bindings::{
     check_meilisearch_health, ingest_document_two_phase, listen_event,
-    pick_document_file, hybrid_search, HybridSearchOptions,
+    pick_document_file,
     HybridSearchResultPayload, list_library_documents, LibraryDocument,
     rebuild_library_metadata,
 };
-use crate::components::design_system::{Badge, BadgeVariant, Button, ButtonVariant, Card, CardHeader, CardBody, Input, Modal, LoadingSpinner};
+use crate::components::design_system::{Badge, BadgeVariant, Button, ButtonVariant, Card, CardHeader, CardBody};
 
 // ============================================================================
 // Types

@@ -490,7 +490,7 @@ X-Initiator: agent | user             # Request source
 |----------|--------|---------|
 | `https://github.com/login/device/code` | POST | Initiate device flow |
 | `https://github.com/login/oauth/access_token` | POST | Poll for token |
-| `https://api.github.com/copilot_internal/v2/token` | GET | Exchange for Copilot token |
+| `https://api.github.com/copilot_internal/v2/token` | GET | Exchange for Copilot token (internal/undocumented — may change) |
 | `https://api.githubcopilot.com/chat/completions` | POST | Chat completions |
 | `https://api.githubcopilot.com/embeddings` | POST | Embeddings |
 | `https://api.githubcopilot.com/models` | GET | List models |

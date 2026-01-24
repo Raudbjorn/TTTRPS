@@ -85,6 +85,7 @@
 pub mod auth;
 pub mod claude;
 pub mod client;
+pub mod copilot;
 pub mod error;
 pub mod gemini;
 pub mod providers;

@@ -8,6 +8,7 @@ mod claude;
 mod openai;
 mod google;
 mod gemini;
+mod copilot;
 mod openrouter;
 mod mistral;
 mod groq;
@@ -21,6 +22,7 @@ pub use claude::{ClaudeProvider, ClaudeStatus, StorageBackend};
 pub use openai::OpenAIProvider;
 pub use google::GoogleProvider;
 pub use gemini::{GeminiProvider, GeminiStatus, GeminiStorageBackend};
+pub use copilot::{CopilotLLMProvider, CopilotStatus, CopilotStorageBackend};
 pub use openrouter::OpenRouterProvider;
 pub use mistral::MistralProvider;
 pub use groq::GroqProvider;
@@ -85,6 +87,12 @@ pub enum ProviderConfig {
     Claude {
         storage_backend: String,  // Storage backend: "file", "keyring", "memory", "auto"
         model: String,            // Model to use (e.g., "claude-sonnet-4-20250514")
+        max_tokens: u32,          // Max tokens for responses (default 8192)
+    },
+    /// Copilot (Device Code OAuth-based, no API key needed)
+    Copilot {
+        storage_backend: String,  // Storage backend: "file", "keyring", "memory", "auto"
+        model: String,            // Model to use (e.g., "gpt-4o")
         max_tokens: u32,          // Max tokens for responses (default 8192)
     },
     Meilisearch {
@@ -154,6 +162,16 @@ impl ProviderConfig {
                     }
                 }
             }
+            ProviderConfig::Copilot { storage_backend, model, max_tokens } => {
+                // Attempt to create the Device Code OAuth-based Copilot provider; fall back to memory storage on failure
+                match CopilotLLMProvider::from_storage_name(storage_backend, model.clone(), *max_tokens) {
+                    Ok(provider) => Arc::new(provider),
+                    Err(e) => {
+                        tracing::warn!("Failed to create Copilot provider with {} storage: {}. Falling back to memory.", storage_backend, e);
+                        Arc::new(CopilotLLMProvider::with_memory().expect("Memory storage should always work"))
+                    }
+                }
+            }
             ProviderConfig::Meilisearch { host, api_key, workspace_id, model } => {
                 Arc::new(MeilisearchProvider::new(host.clone(), api_key.clone(), workspace_id.clone(), model.clone()))
             }
@@ -168,6 +186,7 @@ impl ProviderConfig {
             ProviderConfig::OpenAI { .. } => "openai",
             ProviderConfig::Google { .. } => "google",
             ProviderConfig::Gemini { .. } => "gemini",
+            ProviderConfig::Copilot { .. } => "copilot",
             ProviderConfig::OpenRouter { .. } => "openrouter",
             ProviderConfig::Mistral { .. } => "mistral",
             ProviderConfig::Groq { .. } => "groq",
@@ -190,6 +209,7 @@ impl ProviderConfig {
             // Others need proxy to look like OpenAI
             ProviderConfig::Claude { .. } => true,
             ProviderConfig::Gemini { .. } => true, // OAuth-based Gemini needs proxy
+            ProviderConfig::Copilot { .. } => true, // Copilot uses OpenAI format but needs auth proxy
 
             // OpenAI-compatible but might need header tweaking or proxy for consistency
             ProviderConfig::OpenRouter { .. } => true,
@@ -211,6 +231,7 @@ impl ProviderConfig {
             ProviderConfig::OpenAI { model, .. } => model.clone(),
             ProviderConfig::Google { model, .. } => model.clone(),
             ProviderConfig::Gemini { model, .. } => model.clone(),
+            ProviderConfig::Copilot { model, .. } => model.clone(),
             ProviderConfig::OpenRouter { model, .. } => model.clone(),
             ProviderConfig::Mistral { model, .. } => model.clone(),
             ProviderConfig::Groq { model, .. } => model.clone(),

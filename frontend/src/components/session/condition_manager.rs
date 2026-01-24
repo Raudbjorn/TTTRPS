@@ -9,8 +9,8 @@ use wasm_bindgen_futures::spawn_local;
 
 use crate::bindings::{
     add_condition, remove_condition, add_condition_advanced, remove_condition_by_id,
-    get_combatant_conditions, list_condition_templates, AddConditionRequest,
-    AdvancedCondition, ConditionDurationType, get_condition_description, STANDARD_CONDITIONS,
+    get_combatant_conditions, AddConditionRequest,
+    AdvancedCondition, ConditionDurationType,
 };
 use crate::components::design_system::{Button, ButtonVariant};
 
@@ -581,7 +581,7 @@ pub fn AdvancedConditionsList(
                 each=move || conditions.get()
                 key=|c| c.id.clone()
                 children=move |condition| {
-                    let condition_id = condition.id.clone();
+                    let _condition_id = condition.id.clone();
                     view! {
                         <AdvancedConditionBadge
                             condition=condition

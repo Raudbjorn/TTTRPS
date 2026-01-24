@@ -13,7 +13,7 @@ use leptos::task::spawn_local;
 
 use crate::bindings::{pick_document_file, ingest_document_two_phase};
 use crate::components::design_system::{Badge, BadgeVariant, LoadingSpinner};
-use super::{use_library_state, SourceType, SearchResult, ViewMode, SourceDocument, DocumentStatus};
+use super::{use_library_state, SearchResult, ViewMode, SourceDocument, DocumentStatus};
 
 /// Document list/grid component displaying search results or all documents
 #[component]
