@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document describes the technical architecture for integrating `copilot-api-rs` into the TTRPG Assistant as a third OAuth-based LLM provider. The design follows the established "quad-gate" pattern, where each OAuth provider (Claude, Gemini, Copilot) shares common infrastructure for storage, authentication flow orchestration, and LLM routing.
+This document describes the technical architecture for integrating `copilot-api-rs` into the TTRPG Assistant as a third OAuth-based LLM provider. The design follows the established "tri-gate" pattern, where each OAuth provider (Claude, Gemini, Copilot) shares common infrastructure for storage, authentication flow orchestration, and LLM routing. (Note: OpenAI and Ollama use separate API-key authentication and are not part of the gate module.)
 
 ### Design Goals
 

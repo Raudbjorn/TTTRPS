@@ -6,7 +6,7 @@ This document specifies requirements for integrating `copilot-api-rs` into the T
 
 GitHub Copilot offers access to multiple LLM models (GPT-4o, Claude, Gemini) through a single OAuth flow, providing users with an alternative authentication pathway. Users with GitHub Copilot subscriptions can leverage their existing credentials without requiring separate API keys or additional OAuth flows for each provider.
 
-The integration follows the established triple-gate architecture pattern, where `copilot-api-rs` becomes the third "gate" alongside the existing Claude and Gemini gates. This provides:
+The integration follows the established tri-gate architecture pattern, where `copilot-api-rs` becomes the third OAuth-based "gate" alongside the existing Claude and Gemini gates. (Note: OpenAI and Ollama use separate API-key authentication, not OAuth.) This provides:
 - **Cost savings**: Users with existing Copilot subscriptions avoid per-token API costs
 - **Simplified auth**: Single GitHub OAuth flow grants access to multiple model families
 - **Model diversity**: Access to GPT-4o, o1/o3 reasoning models, Claude, and Gemini through one provider
@@ -152,7 +152,7 @@ The integration follows the established triple-gate architecture pattern, where 
 - Users have an active GitHub Copilot subscription (Individual, Business, or Enterprise)
 - The system has network access to GitHub and Copilot API endpoints
 - File-based token storage is acceptable for development; production may use keyring
-- The existing tri-gate architecture can accommodate a fourth provider without major refactoring
+- The existing dual-gate OAuth architecture can accommodate a third OAuth provider without major refactoring
 
 ### Dependencies
 
