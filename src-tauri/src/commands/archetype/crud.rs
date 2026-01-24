@@ -5,7 +5,7 @@
 use tauri::State;
 
 use crate::core::archetype::{
-    Archetype, PersonalityAffinity, NpcRoleMapping, NamingCultureWeight, StatTendencies,
+    Archetype, ArchetypeCategory, PersonalityAffinity, NpcRoleMapping, NamingCultureWeight, StatTendencies,
 };
 use crate::commands::AppState;
 use super::types::{
@@ -17,28 +17,11 @@ use super::types::{
 // TASK-ARCH-060: Archetype CRUD Commands
 // ============================================================================
 
-/// Create a new archetype.
+/// Build an Archetype from a CreateArchetypeRequest.
 ///
-/// # Arguments
-/// * `request` - Archetype creation request with all fields
-///
-/// # Returns
-/// The ID of the created archetype.
-///
-/// # Errors
-/// - If archetype ID already exists
-/// - If parent_id references non-existent archetype
-/// - If validation fails
-#[tauri::command]
-pub async fn create_archetype(
-    request: CreateArchetypeRequest,
-    state: State<'_, AppState>,
-) -> Result<String, String> {
-    let registry = get_registry(&state).await?;
-
-    let category = parse_category(&request.category)?;
-
-    let mut archetype = Archetype::new(request.id.clone(), request.display_name.as_str(), category);
+/// This helper reduces duplication between create_archetype and update_archetype.
+fn build_archetype_from_request(request: CreateArchetypeRequest, category: ArchetypeCategory) -> Archetype {
+    let mut archetype = Archetype::new(request.id, request.display_name.as_str(), category);
 
     if let Some(parent) = request.parent_id {
         archetype = archetype.with_parent(parent);
@@ -91,7 +74,29 @@ pub async fn create_archetype(
     }
 
     // Add tags
-    archetype = archetype.with_tags(request.tags);
+    archetype.with_tags(request.tags)
+}
+
+/// Create a new archetype.
+///
+/// # Arguments
+/// * `request` - Archetype creation request with all fields
+///
+/// # Returns
+/// The ID of the created archetype.
+///
+/// # Errors
+/// - If archetype ID already exists
+/// - If parent_id references non-existent archetype
+/// - If validation fails
+#[tauri::command]
+pub async fn create_archetype(
+    request: CreateArchetypeRequest,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    let registry = get_registry(&state).await?;
+    let category = parse_category(&request.category)?;
+    let archetype = build_archetype_from_request(request, category);
 
     let id = registry.register(archetype).await
         .map_err(|e| e.to_string())?;
@@ -157,58 +162,9 @@ pub async fn update_archetype(
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let registry = get_registry(&state).await?;
-
     let category = parse_category(&request.category)?;
-
     let archetype_id = request.id.clone();
-    let mut archetype = Archetype::new(request.id, request.display_name.as_str(), category);
-
-    if let Some(parent) = request.parent_id {
-        archetype = archetype.with_parent(parent);
-    }
-
-    if let Some(desc) = request.description {
-        archetype = archetype.with_description(desc);
-    }
-
-    let affinities: Vec<PersonalityAffinity> = request.personality_affinity
-        .into_iter()
-        .map(|p| PersonalityAffinity::new(p.trait_id, p.weight))
-        .collect();
-    if !affinities.is_empty() {
-        archetype = archetype.with_personality_affinity(affinities);
-    }
-
-    let mappings: Vec<NpcRoleMapping> = request.npc_role_mapping
-        .into_iter()
-        .map(|m| NpcRoleMapping::new(m.role, m.weight))
-        .collect();
-    if !mappings.is_empty() {
-        archetype = archetype.with_npc_role_mapping(mappings);
-    }
-
-    let cultures: Vec<NamingCultureWeight> = request.naming_cultures
-        .into_iter()
-        .map(|c| NamingCultureWeight::new(c.culture, c.weight))
-        .collect();
-    if !cultures.is_empty() {
-        archetype = archetype.with_naming_cultures(cultures);
-    }
-
-    if let Some(vocab_id) = request.vocabulary_bank_id {
-        archetype = archetype.with_vocabulary_bank(vocab_id);
-    }
-
-    if let Some(stats) = request.stat_tendencies {
-        let tendencies = StatTendencies {
-            modifiers: stats.modifiers,
-            minimums: stats.minimums,
-            priority_order: stats.priority_order,
-        };
-        archetype = archetype.with_stat_tendencies(tendencies);
-    }
-
-    archetype = archetype.with_tags(request.tags);
+    let archetype = build_archetype_from_request(request, category);
 
     registry.update(archetype).await
         .map_err(|e| e.to_string())?;

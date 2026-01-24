@@ -520,20 +520,16 @@ build_desktop() {
 
     print_info "Creating application bundle..."
 
-    if [ "$RELEASE" = true ]; then
-        if cargo tauri build; then
-            print_success "Desktop app built successfully"
-        else
-            print_error "Desktop build failed"
-            exit 1
-        fi
+    local build_args=()
+    if [ "$RELEASE" != true ]; then
+        build_args+=(--debug)
+    fi
+
+    if cargo tauri build "${build_args[@]}"; then
+        print_success "Desktop app built successfully"
     else
-        if cargo tauri build --debug; then
-            print_success "Desktop app built successfully"
-        else
-            print_error "Desktop build failed"
-            exit 1
-        fi
+        print_error "Desktop build failed"
+        exit 1
     fi
 
     cd "$PROJECT_ROOT"
