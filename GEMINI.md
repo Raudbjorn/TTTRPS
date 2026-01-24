@@ -7,7 +7,7 @@ This file provides comprehensive context for AI agents working on the TTRPG Assi
 TTRPG Assistant is a local-first, AI-powered desktop application for Game Masters. It integrates LLM capabilities from multiple providers with campaign management tools.
 
 **LLM Providers:**
-*   **OAuth-based (via `gate` module):** Claude, Gemini, Copilot - unified OAuth authentication
+*   **OAuth-based (via `gate` module):** Claude, Gemini (implemented); Copilot (planned - see `planning/`)
 *   **API-key based:** OpenAI, Ollama - configured in Settings with API keys
 
 **Core Technologies:**
@@ -16,7 +16,7 @@ TTRPG Assistant is a local-first, AI-powered desktop application for Game Master
 *   **Database:** SQLite (via `sqlx`)
 *   **Search:** Meilisearch (embedded)
 *   **Document Processing:** `kreuzberg` (PDF/EPUB extraction)
-*   **Authentication:** `gate` module (Unified OAuth for Claude/Gemini/Copilot)
+*   **Authentication:** `gate` module (Unified OAuth for Claude/Gemini; Copilot planned)
 
 ## Architecture
 
@@ -24,7 +24,7 @@ TTRPG Assistant is a local-first, AI-powered desktop application for Game Master
 
 *   `src-tauri/` - Rust Backend
     *   `src/commands.rs` - Tauri IPC command handlers (API surface).
-    *   `src/gate/` - Unified OAuth authentication system (Claude & Gemini).
+    *   `src/gate/` - Unified OAuth authentication system (Claude & Gemini; Copilot planned).
     *   `src/core/` - Business logic:
         *   `llm/` - LLM provider implementations.
         *   `search/` - Hybrid search (BM25 + Vector).
@@ -43,7 +43,7 @@ TTRPG Assistant is a local-first, AI-powered desktop application for Game Master
 *   **Gate (`src-tauri/src/gate/`)**: Handles OAuth flows for external LLM providers.
     *   `client.rs`: Main entry point (`GateClient`).
     *   `auth/flow.rs`: Generic OAuth flow orchestrator.
-    *   `providers/`: Provider-specific implementations (`claude.rs`, `gemini.rs`).
+    *   `providers/`: Provider-specific implementations (`claude.rs`, `gemini.rs`; `copilot.rs` planned).
 *   **Core (`src-tauri/src/core/`)**:
     *   `llm_router.rs`: Routes requests to the appropriate model/provider.
     *   `meilisearch_pipeline.rs`: Manages the indexing of ingested content.
