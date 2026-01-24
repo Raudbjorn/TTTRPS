@@ -420,8 +420,9 @@ fn openai_message_to_copilot(msg: OpenAIMessage) -> Option<Message> {
         "user" => Role::User,
         "assistant" => Role::Assistant,
         "tool" => {
-            // Note: tool_call_id is not preserved as Message lacks that field.
-            // The Copilot API should still handle Role::Tool messages correctly.
+            // TODO: Extend Message struct with tool_call_id field to preserve tool context.
+            // Currently tool_call_id is not preserved, which may affect multi-turn tool
+            // conversations. The Copilot API accepts Role::Tool messages without tool_call_id.
             if msg.tool_call_id.is_some() {
                 tracing::debug!(
                     tool_call_id = ?msg.tool_call_id,
@@ -431,6 +432,8 @@ fn openai_message_to_copilot(msg: OpenAIMessage) -> Option<Message> {
             Role::Tool
         }
         role => {
+            // Unknown roles are dropped rather than converted to a default to avoid
+            // sending semantically incorrect messages. This is logged as a warning.
             tracing::warn!(
                 role = %role,
                 "Unknown OpenAI message role, skipping message"

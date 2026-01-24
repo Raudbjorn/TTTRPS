@@ -286,7 +286,9 @@ pub async fn poll_until_complete(
     let mut attempts = 0u32;
 
     loop {
-        // Wait before polling
+        // Wait before polling (including first attempt).
+        // Per RFC 8628, the client MUST wait at least `interval` seconds between requests.
+        // The first poll should also wait since the user needs time to visit the URL and enter the code.
         tokio::time::sleep(std::time::Duration::from_secs(interval)).await;
 
         attempts += 1;

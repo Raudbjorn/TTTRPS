@@ -157,8 +157,8 @@ impl SseParser {
 
     /// Parses a single line of SSE input.
     ///
-    /// Returns `Some(StreamChunk)` when a complete chunk is parsed,
-    /// `None` if the line doesn't produce a chunk (comment, empty, partial).
+    /// Returns `Some(Vec<StreamChunk>)` when complete chunks are parsed,
+    /// `None` if the line doesn't produce chunks (comment, empty, partial).
     ///
     /// # Arguments
     ///

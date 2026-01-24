@@ -8681,6 +8681,9 @@ pub async fn poll_copilot_auth(
         }
         Err(e) => {
             let error_msg = e.to_string();
+            // TODO: Refactor to propagate structured copilot::error::Error through the trait
+            // instead of string matching. This would involve changing CopilotGateClientOps
+            // to return CopilotResult<T> and matching on Error variants directly.
             // Match against specific error messages from copilot::error::Error variants:
             // - DeviceCodeExpired: "Device code expired - please try again"
             // - AuthorizationDenied: "Authorization denied by user"
