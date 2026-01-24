@@ -417,6 +417,7 @@ impl Default for RouterConfig {
 
 /// State for tracking active streams
 #[derive(Debug)]
+#[allow(dead_code)]
 struct StreamState {
     stream_id: String,
     provider: String,

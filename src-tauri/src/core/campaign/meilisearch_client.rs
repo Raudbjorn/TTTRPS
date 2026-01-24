@@ -97,7 +97,9 @@ pub type Result<T> = std::result::Result<T, MeilisearchCampaignError>;
 /// Client for campaign generation Meilisearch operations
 pub struct MeilisearchCampaignClient {
     client: Client,
+    #[allow(dead_code)]
     host: String,
+    #[allow(dead_code)]
     api_key: Option<String>,
     /// Lock for ensuring single-writer semantics on critical operations
     _write_lock: Mutex<()>,

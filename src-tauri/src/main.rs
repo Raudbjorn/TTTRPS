@@ -595,27 +595,27 @@ fn main() {
             commands::check_ocr_availability,
 
             // Claude Gate OAuth Commands
-            commands::claude_gate_get_status,
-            commands::claude_gate_start_oauth,
-            commands::claude_gate_complete_oauth,
-            commands::claude_gate_logout,
-            commands::claude_gate_set_storage_backend,
-            commands::claude_gate_list_models,
+            commands::oauth::claude::claude_gate_get_status,
+            commands::oauth::claude::claude_gate_start_oauth,
+            commands::oauth::claude::claude_gate_complete_oauth,
+            commands::oauth::claude::claude_gate_logout,
+            commands::oauth::claude::claude_gate_set_storage_backend,
+            commands::oauth::claude::claude_gate_list_models,
 
             // Gemini Gate OAuth Commands
-            commands::gemini_gate_get_status,
-            commands::gemini_gate_start_oauth,
-            commands::gemini_gate_complete_oauth,
-            commands::gemini_gate_logout,
-            commands::gemini_gate_set_storage_backend,
+            commands::oauth::gemini::gemini_gate_get_status,
+            commands::oauth::gemini::gemini_gate_start_oauth,
+            commands::oauth::gemini::gemini_gate_complete_oauth,
+            commands::oauth::gemini::gemini_gate_logout,
+            commands::oauth::gemini::gemini_gate_set_storage_backend,
 
             // Copilot Gate OAuth Commands (Device Code Flow)
-            commands::start_copilot_auth,
-            commands::poll_copilot_auth,
-            commands::check_copilot_auth,
-            commands::logout_copilot,
-            commands::get_copilot_usage,
-            commands::get_copilot_models,
+            commands::oauth::copilot::start_copilot_auth,
+            commands::oauth::copilot::poll_copilot_auth,
+            commands::oauth::copilot::check_copilot_auth,
+            commands::oauth::copilot::logout_copilot,
+            commands::oauth::copilot::get_copilot_usage,
+            commands::oauth::copilot::get_copilot_models,
 
             // Phase 4: Personality Extension Commands (TASK-PERS-014, TASK-PERS-015, TASK-PERS-016, TASK-PERS-017)
             // Template Commands
@@ -649,37 +649,37 @@ fn main() {
             commands::open_url_in_browser,
 
             // Archetype Registry Commands (TASK-ARCH-060)
-            commands::create_archetype,
-            commands::get_archetype,
-            commands::list_archetypes,
-            commands::update_archetype,
-            commands::delete_archetype,
-            commands::archetype_exists,
-            commands::count_archetypes,
+            commands::archetype::crud::create_archetype,
+            commands::archetype::crud::get_archetype,
+            commands::archetype::crud::list_archetypes,
+            commands::archetype::crud::update_archetype,
+            commands::archetype::crud::delete_archetype,
+            commands::archetype::crud::archetype_exists,
+            commands::archetype::crud::count_archetypes,
 
             // Vocabulary Bank Commands (TASK-ARCH-061)
-            commands::create_vocabulary_bank,
-            commands::get_vocabulary_bank,
-            commands::list_vocabulary_banks,
-            commands::update_vocabulary_bank,
-            commands::delete_vocabulary_bank,
-            commands::get_phrases,
+            commands::archetype::vocabulary::create_vocabulary_bank,
+            commands::archetype::vocabulary::get_vocabulary_bank,
+            commands::archetype::vocabulary::list_vocabulary_banks,
+            commands::archetype::vocabulary::update_vocabulary_bank,
+            commands::archetype::vocabulary::delete_vocabulary_bank,
+            commands::archetype::vocabulary::get_phrases,
 
             // Setting Pack Commands (TASK-ARCH-062)
-            commands::load_setting_pack,
-            commands::list_setting_packs,
-            commands::get_setting_pack,
-            commands::activate_setting_pack,
-            commands::deactivate_setting_pack,
-            commands::get_active_setting_pack,
-            commands::get_setting_pack_versions,
+            commands::archetype::setting_packs::load_setting_pack,
+            commands::archetype::setting_packs::list_setting_packs,
+            commands::archetype::setting_packs::get_setting_pack,
+            commands::archetype::setting_packs::activate_setting_pack,
+            commands::archetype::setting_packs::deactivate_setting_pack,
+            commands::archetype::setting_packs::get_active_setting_pack,
+            commands::archetype::setting_packs::get_setting_pack_versions,
 
             // Archetype Resolution Commands (TASK-ARCH-063)
-            commands::resolve_archetype,
-            commands::resolve_for_npc,
-            commands::get_archetype_cache_stats,
-            commands::clear_archetype_cache,
-            commands::is_archetype_registry_ready,
+            commands::archetype::resolution::resolve_archetype,
+            commands::archetype::resolution::resolve_for_npc,
+            commands::archetype::resolution::get_archetype_cache_stats,
+            commands::archetype::resolution::clear_archetype_cache,
+            commands::archetype::resolution::is_archetype_registry_ready,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

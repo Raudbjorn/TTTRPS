@@ -1930,16 +1930,6 @@ impl MeilisearchPipeline {
         Ok(all_chunks)
     }
 
-    /// Process a text file
-    fn process_text_file(&self, path: &Path, source_name: &str) -> Result<Vec<(String, Option<u32>)>, SearchError> {
-        let content = std::fs::read_to_string(path)
-            .map_err(|e| SearchError::ConfigError(format!("Failed to read file: {}", e)))?;
-
-        Ok(self.chunk_text(&content, source_name, None))
-    }
-
-
-
     /// Chunk text content with overlap
     fn chunk_text(&self, text: &str, _source: &str, page_number: Option<u32>) -> Vec<(String, Option<u32>)> {
         self.chunk_text_adaptive(text, _source, page_number, self.config.chunk_config.min_chunk_size)

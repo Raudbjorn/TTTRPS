@@ -350,7 +350,7 @@ impl AdvancedCondition {
     pub fn tick_end_of_turn(&mut self, is_own_turn: bool) -> bool {
         match &self.duration {
             ConditionDuration::EndOfNextTurn if is_own_turn => true,
-            ConditionDuration::Turns(n) if is_own_turn => {
+            ConditionDuration::Turns(_n) if is_own_turn => {
                 if let Some(ref mut remaining) = self.remaining {
                     if *remaining <= 1 {
                         return true;

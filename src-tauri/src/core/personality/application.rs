@@ -766,13 +766,13 @@ impl PersonalityApplicationManager {
     fn apply_speech_patterns(
         &self,
         content: &str,
-        patterns: &SpeechPatterns,
-        content_type: &ContentType,
+        _patterns: &SpeechPatterns,
+        _content_type: &ContentType,
     ) -> String {
         let result = content.to_string();
 
         // Only apply to dialogue
-        if *content_type != ContentType::Dialogue {
+        if *_content_type != ContentType::Dialogue {
             return result;
         }
 
@@ -788,7 +788,7 @@ impl PersonalityApplicationManager {
     fn generate_style_notes(
         &self,
         profile: &PersonalityProfile,
-        content_type: &ContentType,
+        _content_type: &ContentType,
     ) -> Vec<String> {
         let mut notes = vec![];
 

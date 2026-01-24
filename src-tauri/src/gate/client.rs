@@ -8,10 +8,10 @@ use std::sync::Arc;
 
 use reqwest::{Method, RequestBuilder};
 use tokio::sync::RwLock;
-use tracing::{debug, instrument};
+use tracing::instrument;
 
 use crate::gate::auth::{OAuthFlow, OAuthFlowState};
-use crate::gate::error::{Error, Result};
+use crate::gate::error::Result;
 use crate::gate::providers::OAuthProvider;
 use crate::gate::storage::TokenStorage;
 use crate::gate::TokenInfo;

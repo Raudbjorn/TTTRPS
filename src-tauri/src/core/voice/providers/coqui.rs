@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use std::sync::Mutex;
 use reqwest::Client;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
@@ -18,20 +18,12 @@ pub struct CoquiProvider {
     config: std::sync::RwLock<CoquiConfig>,
 }
 
-#[derive(Debug, Serialize)]
-struct TtsRequest {
-    text: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    speaker_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    language_id: Option<String>,
-}
-
 #[derive(Debug, Deserialize)]
 struct ServerInfo {
     #[serde(default)]
     model: Option<String>,
     #[serde(default)]
+    #[allow(dead_code)]
     speakers: Vec<String>,
     #[serde(default)]
     languages: Vec<String>,

@@ -530,7 +530,7 @@ impl HybridSearchEngine {
         };
 
         // Generate query embedding
-        let query_embedding = provider
+        let _query_embedding = provider
             .embed(query)
             .await
             .map_err(|e| HybridSearchError::EmbeddingError(e))?;
@@ -616,7 +616,7 @@ impl HybridSearchEngine {
         &self,
         query: &str,
         options: &HybridSearchOptions,
-        filter: Option<&str>,
+        _filter: Option<&str>,
     ) -> Result<Vec<RankedResult>> {
         let limit = self.config.max_results_per_type;
         let semantic_ratio = self.config.semantic_ratio;
@@ -702,7 +702,9 @@ impl HybridSearchEngine {
 struct RankedResult {
     document: SearchDocument,
     score: f32,
+    #[allow(dead_code)]
     keyword_rank: Option<usize>,
+    #[allow(dead_code)]
     semantic_rank: Option<usize>,
     index: String,
 }

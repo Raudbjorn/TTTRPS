@@ -281,10 +281,10 @@ pub fn VoiceSettingsView() -> impl IntoView {
                         "Piper" => {
                             base.piper = Some(PiperConfig {
                                 models_dir: if piper_dir.is_empty() { None } else { Some(piper_dir.clone()) },
-                                length_scale: length_scale,
-                                noise_scale: noise_scale,
-                                noise_w: noise_w,
-                                sentence_silence: sentence_silence,
+                                length_scale,
+                                noise_scale,
+                                noise_w,
+                                sentence_silence,
                                 speaker_id: 0,
                             });
                         }

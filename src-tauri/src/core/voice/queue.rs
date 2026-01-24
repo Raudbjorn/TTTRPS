@@ -577,6 +577,7 @@ pub struct SynthesisQueue {
     /// Command channel sender
     command_tx: mpsc::Sender<QueueCommand>,
     /// Command channel receiver (for worker)
+    #[allow(dead_code)]
     command_rx: Arc<Mutex<mpsc::Receiver<QueueCommand>>>,
     /// Shutdown signal
     shutdown_tx: watch::Sender<bool>,
@@ -694,7 +695,7 @@ impl SynthesisQueue {
     /// Cancel a job
     pub async fn cancel(&self, job_id: &str, app_handle: Option<&AppHandle>) -> QueueResult<()> {
         // First, check the job status and determine what action to take
-        let (was_pending, was_processing, progress) = {
+        let (_was_pending, was_processing, progress) = {
             let mut state = self.state.write().await;
 
             let job = state.jobs.get_mut(job_id)

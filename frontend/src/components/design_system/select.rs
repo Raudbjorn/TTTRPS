@@ -57,7 +57,7 @@ pub fn SelectRw(
 pub fn Select(
     /// Current selected value (reactive - accepts signals or static strings)
     #[prop(into)]
-    value: MaybeSignal<String>,
+    value: Signal<String>,
     /// Change handler - required to update the value
     #[prop(into, optional)]
     on_change: Option<Callback<String>>,

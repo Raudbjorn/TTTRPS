@@ -28,7 +28,7 @@
 //! ).await?;
 //! ```
 
-use super::blender::{BlendSpec, BlendedProfile, PersonalityBlender};
+use super::blender::{BlendSpec, PersonalityBlender};
 use super::blend_rules::BlendRuleStore;
 use super::context::GameplayContext;
 use super::context_detector::{GameplayContextDetector, SessionStateSnapshot};

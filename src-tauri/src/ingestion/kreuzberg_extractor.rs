@@ -408,7 +408,7 @@ impl DocumentExtractor {
     }
 
     /// Fallback OCR using pdftoppm + tesseract (async)
-    async fn extract_with_fallback_ocr<F>(&self, path: &Path, expected_pages: usize, progress_callback: Option<F>) -> Result<ExtractedContent>
+    async fn extract_with_fallback_ocr<F>(&self, path: &Path, _expected_pages: usize, progress_callback: Option<F>) -> Result<ExtractedContent>
     where F: Fn(f32, &str) + Send + Sync + 'static
     {
         let temp_dir = tempfile::Builder::new()

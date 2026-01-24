@@ -184,7 +184,6 @@ trait GeminiClientTrait: Send + Sync {
     ) -> crate::gate::gemini::Result<
         mpsc::Receiver<crate::gate::gemini::Result<StreamEvent>>,
     >;
-    fn storage_name(&self) -> &str;
 }
 
 /// Wrapper for CloudCodeClient with FileTokenStorage
@@ -285,10 +284,6 @@ impl GeminiClientTrait for FileStorageClient {
         });
 
         Ok(rx)
-    }
-
-    fn storage_name(&self) -> &str {
-        "file"
     }
 }
 
@@ -393,10 +388,6 @@ impl GeminiClientTrait for KeyringStorageClient {
 
         Ok(rx)
     }
-
-    fn storage_name(&self) -> &str {
-        "keyring"
-    }
 }
 
 /// Wrapper for CloudCodeClient with MemoryTokenStorage
@@ -497,10 +488,6 @@ impl GeminiClientTrait for MemoryStorageClient {
         });
 
         Ok(rx)
-    }
-
-    fn storage_name(&self) -> &str {
-        "memory"
     }
 }
 
