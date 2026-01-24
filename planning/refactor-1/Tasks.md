@@ -100,9 +100,9 @@ This task list implements the refactoring plan from Design.md. The work is organ
 - [ ] **2.1 Create OAuth trait infrastructure**
   - Create `commands/oauth/mod.rs`
   - Create `commands/oauth/common.rs` with `OAuthGate` trait
-  - Define `StorageBackend` enum
-  - Define `OAuthStatus` struct
-  - Define common error types
+  - Create `commands/oauth/state.rs` with `GenericGateState<T>` struct
+  - Implement generic methods: `switch_backend`, `start_oauth`, `complete_oauth` (with verification)
+  - Define `StorageBackend` enum and `OAuthStatus` struct in `common.rs`
   - _Requirements: 1.3, 3.2_
 
 - [ ] **2.2 Extract Claude OAuth commands**

@@ -20,6 +20,7 @@ This document describes the technical design for refactoring the TTRPG Assistant
 | Shared OAuth infrastructure | Three providers duplicate identical patterns; generic trait saves ~600 lines |
 | Error type consolidation | 400+ `.map_err()` calls can use a single error type |
 | Keep `bindings.rs` as-is | Auto-generated file; manual intervention risks drift |
+| Preserve function names | Function names (e.g., `get_campaign`) MUST match the command name to avoid breaking frontend bindings. Do not rename to `get` inside a module unless using `#[tauri::command(rename="...")]`. |
 
 ---
 
@@ -146,13 +147,14 @@ impl From<CommandError> for String {
 ?  // with proper From impls
 ```
 
-### Component 2: Shared OAuth Infrastructure (`commands/oauth/common.rs`)
+### Component 2: Shared OAuth Infrastructure (`commands/oauth/common.rs`, `commands/oauth/state.rs`)
 
-**Purpose:** Eliminate triplicated OAuth flow logic for Claude, Gemini, and Copilot.
+**Purpose:** Eliminate triplicated OAuth flow logic AND state management for Claude, Gemini, and Copilot.
 
-**Interface:**
+**Interface (`commands/oauth/common.rs`):**
 ```rust
-pub trait OAuthGate: Send + Sync {
+#[async_trait]
+pub trait OAuthGate: Send + Sync + 'static {
     fn provider_name(&self) -> &'static str;
     fn storage_backend(&self) -> StorageBackend;
     async fn is_authenticated(&self) -> Result<bool, CommandError>;
@@ -162,27 +164,34 @@ pub trait OAuthGate: Send + Sync {
     async fn logout(&self) -> Result<(), CommandError>;
 }
 
-#[derive(Clone, Serialize, Deserialize)]
-pub enum StorageBackend {
-    File,
-    Keyring,
-    Memory,
-    Auto,
+// ... StorageBackend and OAuthStatus enums as before ...
+```
+
+**State Abstraction (`commands/oauth/state.rs`):**
+```rust
+/// Generic state manager for any OAuth provider.
+/// Handles backend switching, pending state verification, and client access.
+pub struct GenericGateState<T: OAuthGate> {
+    client: AsyncRwLock<Option<Box<dyn OAuthGate>>>, // Or specific T if we don't need trait objects here
+    pending_oauth_state: AsyncRwLock<Option<String>>,
+    storage_backend: AsyncRwLock<StorageBackend>,
+    factory: Box<dyn Fn(StorageBackend) -> Result<T, CommandError> + Send + Sync>,
 }
 
-#[derive(Serialize)]
-pub struct OAuthStatus {
-    pub is_authenticated: bool,
-    pub user_email: Option<String>,
-    pub expires_at: Option<i64>,
-    pub storage_backend: String,
+impl<T: OAuthGate> GenericGateState<T> {
+    pub fn new(backend: StorageBackend, factory: impl Fn...) -> Self { ... }
+    pub async fn switch_backend(&self, new_backend: StorageBackend) -> Result<(), CommandError> { ... }
+    pub async fn start_oauth(&self) -> Result<(String, String), CommandError> {
+        // Common logic: get client -> start flow -> store pending state -> return url
+    }
+    // ... complete_oauth with state verification implemented ONCE here ...
 }
 ```
 
 **Implementation Notes:**
-- Each provider (Claude, Gemini, Copilot) implements `OAuthGate`
-- Common command wrappers call trait methods
-- Provider-specific logic isolated to implementation
+- `OAuthGate` trait abstracts the *provider API operations*.
+- `GenericGateState<T>` abstracts the *application state management* (locks, backend switching, flow verification).
+- This removes ~300 lines of duplicated state management code found in `commands.rs`.
 
 ### Component 3: Command Module Structure (`commands/`)
 
