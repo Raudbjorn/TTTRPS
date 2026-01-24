@@ -17,7 +17,7 @@ pub fn Input(
     #[prop(into, optional)]
     on_keydown: Option<Callback<ev::KeyboardEvent>>,
     /// Whether the input is disabled
-    #[prop(into, default = Signal::stored(false))]
+    #[prop(into, default = Signal::derive(|| false))]
     disabled: Signal<bool>,
     /// Input type (text, password, email, etc.)
     #[prop(into, optional)]

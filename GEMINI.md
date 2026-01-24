@@ -7,7 +7,7 @@ This file provides comprehensive context for AI agents working on the TTRPG Assi
 TTRPG Assistant is a local-first, AI-powered desktop application for Game Masters. It integrates LLM capabilities from multiple providers with campaign management tools.
 
 **LLM Providers:**
-*   **OAuth-based (via `gate` module):** Claude, Gemini (implemented); Copilot (planned - see `planning/`)
+*   **OAuth-based (via `gate` module):** Claude, Gemini, Copilot (implemented)
 *   **API-key based:** OpenAI, Ollama - configured in Settings with API keys
 
 **Core Technologies:**
@@ -16,7 +16,7 @@ TTRPG Assistant is a local-first, AI-powered desktop application for Game Master
 *   **Database:** SQLite (via `sqlx`)
 *   **Search:** Meilisearch (embedded)
 *   **Document Processing:** `kreuzberg` (PDF/EPUB extraction)
-*   **Authentication:** `gate` module (Unified OAuth for Claude/Gemini; Copilot planned)
+*   **Authentication:** `gate` module (Unified OAuth for Claude/Gemini/Copilot)
 
 ## Architecture
 

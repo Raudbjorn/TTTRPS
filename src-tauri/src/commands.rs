@@ -8681,9 +8681,12 @@ pub async fn poll_copilot_auth(
         }
         Err(e) => {
             let error_msg = e.to_string();
-            let status = if error_msg.contains("expired") {
+            // Match against specific error messages from copilot::error::Error variants:
+            // - DeviceCodeExpired: "Device code expired - please try again"
+            // - AuthorizationDenied: "Authorization denied by user"
+            let status = if error_msg.contains("Device code expired") {
                 "expired"
-            } else if error_msg.contains("denied") || error_msg.contains("Denied") {
+            } else if error_msg.contains("Authorization denied") {
                 "denied"
             } else {
                 "error"
