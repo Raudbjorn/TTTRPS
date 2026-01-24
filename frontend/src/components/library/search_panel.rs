@@ -12,9 +12,9 @@ use leptos::ev;
 use leptos::task::spawn_local;
 
 use crate::bindings::{
-    hybrid_search, HybridSearchOptions, get_search_suggestions, get_search_hints,
+    hybrid_search, HybridSearchOptions, get_search_suggestions,
 };
-use crate::components::design_system::{Button, ButtonVariant, Slider};
+use crate::components::design_system::{Button, ButtonVariant};
 use super::{use_library_state, SourceType, SearchResult, SearchMeta};
 
 /// Advanced search panel with filters and suggestions

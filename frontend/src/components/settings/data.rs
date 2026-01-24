@@ -1,12 +1,12 @@
 use leptos::prelude::*;
 use leptos::ev;
-use crate::components::design_system::{Card, Button, ButtonVariant, Input};
+use crate::components::design_system::{Card, Button, ButtonVariant};
 use wasm_bindgen_futures::spawn_local;
 use crate::bindings::{
     reindex_library,
     get_extraction_settings, save_extraction_settings, get_extraction_presets,
     check_ocr_availability,
-    ExtractionSettings, ExtractionPreset, OcrBackend, TokenReductionLevel, OcrAvailability,
+    ExtractionSettings, ExtractionPreset, TokenReductionLevel, OcrAvailability,
 };
 use crate::services::notification_service::{show_success, show_error};
 

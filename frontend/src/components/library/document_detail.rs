@@ -13,7 +13,7 @@ use leptos::task::spawn_local;
 
 use crate::bindings::{hybrid_search, HybridSearchOptions, copy_to_clipboard};
 use crate::components::design_system::{Badge, BadgeVariant, Button, ButtonVariant, Card, CardHeader, CardBody};
-use super::{use_library_state, SearchResult, SourceType};
+use super::{use_library_state, SearchResult};
 
 /// Document detail panel showing selected search result
 #[component]
@@ -130,9 +130,9 @@ pub fn DocumentDetail() -> impl IntoView {
                         // `state` is Copy (likely `Signal` or wrapper).
                         // `doc` is a `SearchResult` likely.
 
-                        let content_len = content.len();
-                        let source_clone = source.clone();
-                        let source_clone2 = source.clone();
+                        let _content_len = content.len();
+                        let _source_clone = source.clone();
+                        let _source_clone2 = source.clone();
                         let source_for_meta = source.clone();
 
                         view! {

@@ -47,6 +47,7 @@ impl NpcPresence {
         }
     }
 
+    #[allow(dead_code)]
     pub fn label(&self) -> &'static str {
         match self {
             NpcPresence::InScene => "In Scene",
@@ -334,6 +335,7 @@ pub fn NpcList(
 }
 
 /// Collapsible NPC section
+#[allow(clippy::needless_pass_by_value)]
 #[component]
 fn NpcSection(
     title: &'static str,
@@ -650,4 +652,5 @@ fn LoadingSpinner() -> impl IntoView {
 }
 
 /// Also export as InfoPanel for the new naming convention
+#[allow(unused_imports)]
 pub use NpcList as InfoPanel;

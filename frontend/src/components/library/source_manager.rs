@@ -17,7 +17,7 @@ use crate::bindings::{
     update_library_document, UpdateLibraryDocumentRequest,
 };
 use crate::components::design_system::{
-    Badge, BadgeVariant, Button, ButtonVariant, Card, CardHeader, CardBody, Input, Modal,
+    Button, ButtonVariant, Card, CardHeader, CardBody, Input, Modal,
 };
 use super::{
     use_library_state, SourceType, SourceDocument, DocumentStatus,
@@ -510,7 +510,7 @@ pub fn SourceManager() -> impl IntoView {
                             view! {
                                 <div class="space-y-2">
                                     {docs.into_iter().map(|doc| {
-                                        let doc_id = doc.id.clone();
+                                        let _doc_id = doc.id.clone();
                                         let is_editing = editing.as_ref().map(|e| e.id == doc.id).unwrap_or(false);
                                         let doc_for_edit = doc.clone();
                                         let doc_for_delete = doc.id.clone();

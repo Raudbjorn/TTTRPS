@@ -14,6 +14,7 @@ use leptos::prelude::*;
 use crate::bindings::SessionSummary;
 
 /// Session status for display styling
+#[allow(dead_code)]
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum SessionStatus {
     Active,
@@ -21,6 +22,7 @@ pub enum SessionStatus {
     Completed,
 }
 
+#[allow(dead_code)]
 impl SessionStatus {
     pub fn from_str(status: &str) -> Self {
         match status.to_lowercase().as_str() {
@@ -505,4 +507,5 @@ fn MoreIcon() -> impl IntoView {
 }
 
 /// Also export as ContextSidebar for the new naming convention
+#[allow(unused_imports)]
 pub use SessionList as ContextSidebar;

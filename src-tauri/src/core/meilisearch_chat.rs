@@ -535,6 +535,12 @@ pub enum ChatProviderConfig {
         #[serde(default)]
         max_tokens: Option<u32>,
     },
+    /// Copilot (via proxy, no API key needed - uses Device Code OAuth tokens)
+    CopilotGate {
+        model: String,
+        #[serde(default)]
+        max_tokens: Option<u32>,
+    },
 }
 
 impl ChatProviderConfig {
@@ -555,6 +561,7 @@ impl ChatProviderConfig {
             ChatProviderConfig::Grok { .. } => "grok",
             ChatProviderConfig::ClaudeGate { .. } => "claude",
             ChatProviderConfig::GeminiGate { .. } => "gemini",
+            ChatProviderConfig::CopilotGate { .. } => "copilot",
         }
     }
 
@@ -603,6 +610,9 @@ impl ChatProviderConfig {
             }
             ChatProviderConfig::GeminiGate { model, .. } => {
                 return format!("gemini:{}", model);
+            }
+            ChatProviderConfig::CopilotGate { model, .. } => {
+                return format!("copilot:{}", model);
             }
         };
         format!("{}:{}", provider, model)
@@ -785,6 +795,13 @@ impl ChatProviderConfig {
             }
             ChatProviderConfig::GeminiGate { model, max_tokens } => {
                 ProviderConfig::Gemini {
+                    storage_backend: "auto".to_string(),
+                    model: model.clone(),
+                    max_tokens: max_tokens.unwrap_or(8192),
+                }
+            }
+            ChatProviderConfig::CopilotGate { model, max_tokens } => {
+                ProviderConfig::Copilot {
                     storage_backend: "auto".to_string(),
                     model: model.clone(),
                     max_tokens: max_tokens.unwrap_or(8192),
@@ -1477,6 +1494,10 @@ impl MeilisearchChatClient {
                 model: model.clone(),
                 max_tokens: Some(*max_tokens),
             },
+            ProviderConfig::Copilot { model, max_tokens, .. } => ChatProviderConfig::CopilotGate {
+                model: model.clone(),
+                max_tokens: Some(*max_tokens),
+            },
             ProviderConfig::Meilisearch { .. } => return Err("Recursive Meilisearch configuration".to_string()),
         };
 
@@ -1693,6 +1714,10 @@ impl DMChatManager {
                 max_tokens: Some(*max_tokens),
             },
             ProviderConfig::Gemini { model, max_tokens, .. } => ChatProviderConfig::GeminiGate {
+                model: model.clone(),
+                max_tokens: Some(*max_tokens),
+            },
+            ProviderConfig::Copilot { model, max_tokens, .. } => ChatProviderConfig::CopilotGate {
                 model: model.clone(),
                 max_tokens: Some(*max_tokens),
             },

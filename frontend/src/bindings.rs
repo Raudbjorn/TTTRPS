@@ -4900,6 +4900,152 @@ pub async fn claude_gate_list_models() -> Result<Vec<ClaudeGateModelInfo>, Strin
 }
 
 // ============================================================================
+// Copilot Gate OAuth Commands (GitHub Copilot Device Code Flow)
+// ============================================================================
+
+/// Response from starting Copilot Device Code authentication flow
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CopilotDeviceCodeResponse {
+    /// The device verification code (internal, for polling)
+    pub device_code: String,
+    /// The user-facing code to enter at the verification URL
+    pub user_code: String,
+    /// URL where the user should enter the code
+    pub verification_uri: String,
+    /// Seconds until the device code expires
+    pub expires_in: u64,
+    /// Minimum seconds between polling attempts
+    pub interval: u64,
+}
+
+/// Start Copilot authentication using Device Code flow
+///
+/// Returns device code information. The user should visit verification_uri
+/// and enter the user_code to authorize the application.
+pub async fn start_copilot_auth() -> Result<CopilotDeviceCodeResponse, String> {
+    invoke_no_args("start_copilot_auth").await
+}
+
+/// Result of polling for Copilot authorization
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CopilotAuthPollResult {
+    /// Status: "success", "pending", "slow_down", "expired", "denied", or "error"
+    pub status: String,
+    /// Whether authentication is complete
+    pub authenticated: bool,
+    /// Error message if status is "expired", "denied", or "error"
+    pub error: Option<String>,
+}
+
+/// Poll for Copilot authorization completion
+///
+/// Should be called repeatedly with appropriate delays (as specified by interval)
+/// until status is "success", "expired", or "denied".
+pub async fn poll_copilot_auth(device_code: String) -> Result<CopilotAuthPollResult, String> {
+    #[derive(Serialize)]
+    struct Args {
+        device_code: String,
+    }
+    invoke("poll_copilot_auth", &Args { device_code }).await
+}
+
+/// Status of Copilot authentication
+#[derive(Debug, Clone, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct CopilotAuthStatus {
+    /// Whether the user is authenticated with valid tokens
+    pub authenticated: bool,
+    /// Current storage backend being used
+    pub storage_backend: String,
+    /// Unix timestamp when the Copilot token expires (short-lived)
+    pub copilot_token_expires_at: Option<i64>,
+    /// Whether the user has a valid GitHub token (long-lived)
+    pub has_github_token: bool,
+}
+
+/// Check current Copilot authentication status
+pub async fn check_copilot_auth() -> Result<CopilotAuthStatus, String> {
+    invoke_no_args("check_copilot_auth").await
+}
+
+/// Logout from Copilot (remove stored tokens)
+pub async fn logout_copilot() -> Result<(), String> {
+    invoke_void_no_args("logout_copilot").await
+}
+
+/// Detail about a single quota category
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CopilotQuotaDetail {
+    /// Number of units used in the current period
+    pub used: u64,
+    /// Maximum units allowed in the current period
+    pub limit: u64,
+    /// Whether the quota is unlimited
+    pub unlimited: bool,
+    /// Remaining quota
+    pub remaining: u64,
+    /// Whether the quota is exhausted
+    pub is_exhausted: bool,
+}
+
+/// Usage information for Copilot quotas
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CopilotUsageInfo {
+    /// The user's Copilot plan type
+    pub copilot_plan: String,
+    /// The date when quotas reset (ISO 8601 format)
+    pub quota_reset_date: String,
+    /// Chat completions quota info
+    pub completions: Option<CopilotQuotaDetail>,
+    /// Premium requests quota info
+    pub premium_requests: Option<CopilotQuotaDetail>,
+    /// Code completions quota info
+    pub code_completions: Option<CopilotQuotaDetail>,
+}
+
+/// Get Copilot usage and quota information
+///
+/// Requires authentication. Returns current usage against quotas.
+pub async fn get_copilot_usage() -> Result<CopilotUsageInfo, String> {
+    invoke_no_args("get_copilot_usage").await
+}
+
+/// Model information from Copilot API
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CopilotGateModelInfo {
+    /// The model ID (e.g., "gpt-4o", "claude-3.5-sonnet")
+    pub id: String,
+    /// Owner organization
+    pub owned_by: String,
+    /// Unix timestamp when created
+    pub created: i64,
+    /// Whether the model supports chat completions
+    pub supports_chat: bool,
+    /// Whether the model supports tool calls
+    pub supports_tools: bool,
+    /// Whether the model supports vision
+    pub supports_vision: bool,
+    /// Maximum context window in tokens
+    pub max_context_tokens: Option<u64>,
+    /// Maximum output tokens
+    pub max_output_tokens: Option<u64>,
+    /// Whether the model is in preview
+    pub preview: bool,
+}
+
+/// List available models from Copilot API
+///
+/// Requires authentication. Returns list of models the user can access.
+pub async fn get_copilot_models() -> Result<Vec<CopilotGateModelInfo>, String> {
+    invoke_no_args("get_copilot_models").await
+}
+
+// ============================================================================
 // Utility Commands
 // ============================================================================
 

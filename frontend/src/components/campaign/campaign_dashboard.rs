@@ -7,13 +7,11 @@ use leptos::prelude::*;
 use leptos::task::spawn_local;
 use crate::bindings::{
     Campaign, get_campaign, get_campaign_stats, CampaignStats,
-    list_npcs, list_locations, list_world_events, list_campaign_versions,
-    VersionSummary, LocationState, WorldEvent, NPC,
 };
-use super::campaign_card::CampaignCard;
 use super::version_history::VersionHistory;
 use super::world_state_editor::WorldStateEditor;
 use super::entity_browser::EntityBrowser;
+#[allow(unused_imports)]
 use super::relationship_graph::RelationshipGraph;
 
 /// Dashboard tab
