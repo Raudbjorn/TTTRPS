@@ -567,7 +567,7 @@ let (item, _) = {
 | 10. Documentation | 3 | 0 | 50 |
 | **Total** | **32** | **~37 new** | **-~500** |
 
-**Note**: Some commands are already partially extracted. The net effect is removal of ~1,400 lines from `commands_legacy.rs` and proper organization of ~56 commands across 8 focused submodules.
+**Note**: Some commands are already partially extracted. The extraction removes ~1,400 lines from `commands_legacy.rs` while adding ~940 lines to organized submodules, for a net reduction of ~460 lines. This improves maintainability by organizing ~56 commands across 8 focused submodules.
 
 ---
 

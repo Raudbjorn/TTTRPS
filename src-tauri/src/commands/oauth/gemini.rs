@@ -29,20 +29,17 @@ use crate::commands::AppState;
 /// Storage backend type for Gemini Gate
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum GeminiGateStorageBackend {
     /// File-based storage (~/.config/antigravity/auth.json)
     File,
     /// System keyring storage
     Keyring,
     /// Auto-select (keyring if available, else file)
+    #[default]
     Auto,
 }
 
-impl Default for GeminiGateStorageBackend {
-    fn default() -> Self {
-        Self::Auto
-    }
-}
 
 impl std::fmt::Display for GeminiGateStorageBackend {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -112,7 +109,6 @@ impl GeminiGateClientOps for GeminiFileStorageClientWrapper {
         self.client
             .get_token_info()
             .await
-            .map(|opt| opt.map(GateTokenInfo::from))
             .map_err(|e| e.to_string())
     }
     async fn start_oauth_flow_with_state(&self) -> Result<(String, GateOAuthFlowState), String> {
@@ -129,9 +125,7 @@ impl GeminiGateClientOps for GeminiFileStorageClientWrapper {
     ) -> Result<GateTokenInfo, String> {
         self.client
             .complete_oauth_flow(code, state)
-            .await
-            .map(GateTokenInfo::from)
-            .map_err(|e| e.to_string())
+            .await.map_err(|e| e.to_string())
     }
     async fn logout(&self) -> Result<(), String> {
         self.client.logout().await.map_err(|e| e.to_string())
@@ -162,7 +156,6 @@ impl GeminiGateClientOps for GeminiKeyringStorageClientWrapper {
         self.client
             .get_token_info()
             .await
-            .map(|opt| opt.map(GateTokenInfo::from))
             .map_err(|e| e.to_string())
     }
     async fn start_oauth_flow_with_state(&self) -> Result<(String, GateOAuthFlowState), String> {
@@ -179,9 +172,7 @@ impl GeminiGateClientOps for GeminiKeyringStorageClientWrapper {
     ) -> Result<GateTokenInfo, String> {
         self.client
             .complete_oauth_flow(code, state)
-            .await
-            .map(GateTokenInfo::from)
-            .map_err(|e| e.to_string())
+            .await.map_err(|e| e.to_string())
     }
     async fn logout(&self) -> Result<(), String> {
         self.client.logout().await.map_err(|e| e.to_string())
@@ -354,7 +345,7 @@ impl GeminiGateState {
             match pending.take() {
                 Some(expected_state) => {
                     match state {
-                        Some(received_state) if received_state == &expected_state => {
+                        Some(received_state) if received_state == expected_state => {
                             // State matches - pending already cleared by take()
                         }
                         Some(_received_state) => {
