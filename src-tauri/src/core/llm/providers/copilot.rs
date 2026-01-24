@@ -184,7 +184,6 @@ trait CopilotClientTrait: Send + Sync {
         std::pin::Pin<Box<dyn futures_util::Stream<Item = crate::gate::copilot::Result<StreamChunk>> + Send>>,
     >;
     async fn embeddings(&self, text: &str) -> crate::gate::copilot::Result<EmbeddingResponse>;
-    fn storage_name(&self) -> &str;
 }
 
 /// Wrapper for CopilotClient with FileTokenStorage
@@ -270,10 +269,6 @@ impl CopilotClientTrait for FileStorageClient {
 
     async fn embeddings(&self, text: &str) -> crate::gate::copilot::Result<EmbeddingResponse> {
         self.client.embeddings().input(text).send().await
-    }
-
-    fn storage_name(&self) -> &str {
-        "file"
     }
 }
 
@@ -363,10 +358,6 @@ impl CopilotClientTrait for KeyringStorageClient {
     async fn embeddings(&self, text: &str) -> crate::gate::copilot::Result<EmbeddingResponse> {
         self.client.embeddings().input(text).send().await
     }
-
-    fn storage_name(&self) -> &str {
-        "keyring"
-    }
 }
 
 /// Wrapper for CopilotClient with MemoryTokenStorage
@@ -452,10 +443,6 @@ impl CopilotClientTrait for MemoryStorageClient {
 
     async fn embeddings(&self, text: &str) -> crate::gate::copilot::Result<EmbeddingResponse> {
         self.client.embeddings().input(text).send().await
-    }
-
-    fn storage_name(&self) -> &str {
-        "memory"
     }
 }
 

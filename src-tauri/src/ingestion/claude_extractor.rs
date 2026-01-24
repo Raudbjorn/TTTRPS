@@ -67,9 +67,6 @@ Guidelines:
 /// User prompt template for single PDF extraction
 const PDF_EXTRACTION_PROMPT: &str = "Extract all text from this PDF document. Preserve the document structure including headers, paragraphs, lists, and tables.";
 
-/// User prompt template for page-by-page extraction
-const PAGE_EXTRACTION_PROMPT: &str = "Extract all text from this page. This is page {page_num} of {total_pages}. Preserve the document structure.";
-
 /// Claude-based document extractor configuration
 #[derive(Debug, Clone)]
 pub struct ClaudeExtractorConfig {

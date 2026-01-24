@@ -20,6 +20,7 @@ struct OpenAIEmbeddingRequest {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct OpenAIEmbeddingResponse {
     data: Vec<EmbeddingData>,
     model: String,
@@ -27,12 +28,14 @@ struct OpenAIEmbeddingResponse {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct EmbeddingData {
     embedding: Vec<f32>,
     index: usize,
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 struct Usage {
     prompt_tokens: u32,
     total_tokens: u32,
@@ -83,6 +86,7 @@ impl OpenAIEmbeddings {
     }
 
     /// Get dimensions for OpenAI embedding models
+    #[allow(dead_code)]
     fn model_dimensions(model: &str) -> usize {
         match model {
             "text-embedding-3-small" => 1536,

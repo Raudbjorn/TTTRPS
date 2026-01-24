@@ -305,35 +305,6 @@ impl ExtractionSettings {
     }
 
     /// Convert to kreuzberg ExtractionConfig
-    #[cfg(feature = "chunking")]
-    pub fn to_kreuzberg_config(&self) -> kreuzberg::ExtractionConfig {
-        use kreuzberg::core::config::{ChunkingConfig, PageConfig};
-
-        let mut config = kreuzberg::ExtractionConfig::default();
-        config.use_cache = self.use_cache;
-        config.force_ocr = self.force_ocr;
-        config.max_concurrent_extractions = Some(self.max_concurrent_extractions);
-
-        // Page extraction
-        config.pages = Some(PageConfig {
-            extract_pages: true,
-            insert_page_markers: false,
-            marker_format: String::new(),
-        });
-
-        // Chunking (if enabled via kreuzberg)
-        if self.chunking_enabled {
-            config.chunking = Some(ChunkingConfig {
-                max_chars: self.max_chunk_chars,
-                max_overlap: self.chunk_overlap,
-                ..Default::default()
-            });
-        }
-
-        config
-    }
-
-    /// Convert to kreuzberg ExtractionConfig (basic version without chunking feature)
     pub fn to_kreuzberg_config_basic(&self) -> kreuzberg::ExtractionConfig {
         use kreuzberg::core::config::PageConfig;
 

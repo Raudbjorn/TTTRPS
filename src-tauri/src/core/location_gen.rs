@@ -546,7 +546,7 @@ impl LocationGenerator {
         names[rng.gen_range(0..names.len())].to_string()
     }
 
-    fn generate_description(&self, loc_type: &LocationType, theme: &Option<String>, rng: &mut impl rand::Rng) -> String {
+    fn generate_description(&self, loc_type: &LocationType, theme: &Option<String>, _rng: &mut impl rand::Rng) -> String {
         let base = match loc_type {
             LocationType::Tavern => "A well-worn establishment where travelers and locals gather to share tales over drinks.",
             LocationType::Inn => "A welcoming rest stop offering warm beds and hot meals to weary travelers.",
@@ -568,7 +568,7 @@ impl LocationGenerator {
         }
     }
 
-    fn generate_atmosphere(&self, loc_type: &LocationType, rng: &mut impl rand::Rng) -> Atmosphere {
+    fn generate_atmosphere(&self, loc_type: &LocationType, _rng: &mut impl rand::Rng) -> Atmosphere {
         match loc_type {
             LocationType::Tavern | LocationType::Inn => Atmosphere {
                 lighting: "Warm candlelight and flickering fireplace".to_string(),

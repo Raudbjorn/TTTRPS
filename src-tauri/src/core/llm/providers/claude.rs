@@ -178,7 +178,6 @@ trait ClaudeClientTrait: Send + Sync {
         system: Option<String>,
         temperature: Option<f32>,
     ) -> crate::gate::claude::Result<mpsc::Receiver<crate::gate::claude::Result<StreamEvent>>>;
-    fn storage_name(&self) -> &str;
 }
 
 /// Wrapper for ClaudeClient with FileTokenStorage
@@ -269,10 +268,6 @@ impl ClaudeClientTrait for FileStorageClient {
         });
 
         Ok(rx)
-    }
-
-    fn storage_name(&self) -> &str {
-        "file"
     }
 }
 
@@ -367,10 +362,6 @@ impl ClaudeClientTrait for KeyringStorageClient {
 
         Ok(rx)
     }
-
-    fn storage_name(&self) -> &str {
-        "keyring"
-    }
 }
 
 /// Wrapper for ClaudeClient with MemoryTokenStorage
@@ -461,10 +452,6 @@ impl ClaudeClientTrait for MemoryStorageClient {
         });
 
         Ok(rx)
-    }
-
-    fn storage_name(&self) -> &str {
-        "memory"
     }
 }
 

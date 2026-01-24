@@ -10,7 +10,7 @@ if [ ! -d "$PROJECT_ROOT/src" ]; then
     exit 1
 fi
 
-cd "$PROJECT_ROOT"
+cd "$PROJECT_ROOT" || exit 1
 
 # Ensure MCP_STDIO_MODE is exported and exec the Python server
 export MCP_STDIO_MODE="${MCP_STDIO_MODE:-true}"

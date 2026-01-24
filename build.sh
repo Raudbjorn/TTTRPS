@@ -20,15 +20,11 @@ CHECK="✅"
 CROSS="❌"
 WARNING="⚠️"
 GEAR="⚙️"
-PACKAGE="📦"
-TEST="🧪"
-BUILD="🔨"
 
 # Project paths
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FRONTEND_DIR="$PROJECT_ROOT/frontend"
 BACKEND_DIR="$PROJECT_ROOT/src-tauri"
-DIST_DIR="$PROJECT_ROOT/dist"
 
 print_header() {
     echo -e "\n${PURPLE}╔═══════════════════════════════════════════════════════════════════════════════╗${NC}"
@@ -48,7 +44,8 @@ check_git_status() {
     local warnings=()
 
     # Check for uncommitted changes
-    local uncommitted=$(git status --porcelain 2>/dev/null | wc -l)
+    local uncommitted
+    uncommitted=$(git status --porcelain 2>/dev/null | wc -l)
     if [ "$uncommitted" -gt 20 ]; then
         warnings+=("🔄 You have $uncommitted uncommitted changes - consider committing or stashing")
     elif [ "$uncommitted" -gt 5 ]; then
@@ -56,9 +53,11 @@ check_git_status() {
     fi
 
     # Check for unpushed commits and branch divergence
-    local current_branch=$(git branch --show-current 2>/dev/null || echo "")
+    local current_branch
+    current_branch=$(git branch --show-current 2>/dev/null || echo "")
     if [ -n "$current_branch" ]; then
-        local unpushed=$(git rev-list --count @{u}..HEAD 2>/dev/null || echo "0")
+        local unpushed
+        unpushed=$(git rev-list --count @{u}..HEAD 2>/dev/null || echo "0")
         if [ "$unpushed" -gt 0 ]; then
             warnings+=("📤 You have $unpushed unpushed commits on branch '$current_branch'")
         fi
@@ -103,7 +102,8 @@ check_branch_divergence() {
     fi
 
     # Check how far behind we are
-    local behind=$(git rev-list --count HEAD.."$default_branch" 2>/dev/null || echo "0")
+    local behind
+    behind=$(git rev-list --count HEAD.."$default_branch" 2>/dev/null || echo "0")
 
     if [ "$behind" -gt 20 ]; then
         warnings_ref+=("📉 Branch '$current_branch' is $behind commits behind '$default_branch' - consider rebasing")
@@ -117,22 +117,26 @@ check_github_status() {
     local -n warnings_ref=$1
 
     # Check if we're in a GitHub repo
-    local github_repo=$(gh repo view --json nameWithOwner --jq .nameWithOwner 2>/dev/null || echo "")
+    local github_repo
+    github_repo=$(gh repo view --json nameWithOwner --jq .nameWithOwner 2>/dev/null || echo "")
     if [ -z "$github_repo" ]; then
         return 0
     fi
 
     # Check for open pull requests
-    local pr_count=$(gh pr list --state open --json number 2>/dev/null | jq length 2>/dev/null || echo "0")
+    local pr_count
+    pr_count=$(gh pr list --state open --json number 2>/dev/null | jq length 2>/dev/null || echo "0")
 
     if [ "$pr_count" -gt 0 ]; then
         warnings_ref+=("🔀 There are $pr_count open pull request(s) in $github_repo")
     fi
 
     # Check for failed CI/CD runs on current branch
-    local current_branch=$(git branch --show-current 2>/dev/null || echo "")
+    local current_branch
+    current_branch=$(git branch --show-current 2>/dev/null || echo "")
     if [ -n "$current_branch" ]; then
-        local failed_runs=$(gh run list --branch "$current_branch" --status failure --limit 3 --json conclusion 2>/dev/null | jq length 2>/dev/null || echo "0")
+        local failed_runs
+        failed_runs=$(gh run list --branch "$current_branch" --status failure --limit 3 --json conclusion 2>/dev/null | jq length 2>/dev/null || echo "0")
         if [ "$failed_runs" -gt 0 ]; then
             warnings_ref+=("❌ Recent CI/CD failures on branch '$current_branch'")
         fi
@@ -212,7 +216,8 @@ detect_linux_distro() {
 }
 
 install_linux_deps() {
-    local distro=$(detect_linux_distro)
+    local distro
+    distro=$(detect_linux_distro)
     print_info "Detected Linux distribution: $distro"
 
     case "$distro" in
@@ -400,7 +405,8 @@ install_frontend_tools() {
     if [ ! -f "tailwindcss" ]; then
         needs_install=true
     else
-        local current_version=$(./tailwindcss --help 2>&1 | head -1 | grep -oP 'v\K[0-9.]+' || echo "0.0.0")
+        local current_version
+        current_version=$(./tailwindcss --help 2>&1 | head -1 | grep -oP 'v\K[0-9.]+' || echo "0.0.0")
         if [ "$current_version" != "$tailwind_version" ]; then
             print_warning "Tailwind CSS version mismatch (current: $current_version, expected: $tailwind_version)"
             needs_install=true
@@ -514,13 +520,12 @@ build_desktop() {
 
     print_info "Creating application bundle..."
 
-    if [ "$RELEASE" = true ]; then
-        cargo tauri build
-    else
-        cargo tauri build --debug
+    local build_args=()
+    if [ "$RELEASE" != true ]; then
+        build_args+=(--debug)
     fi
 
-    if [ $? -eq 0 ]; then
+    if cargo tauri build "${build_args[@]}"; then
         print_success "Desktop app built successfully"
     else
         print_error "Desktop build failed"
@@ -656,9 +661,10 @@ show_status() {
 
     # Basic git status
     echo -e "${BLUE}Git Status:${NC}"
-    local current_branch=$(git branch --show-current 2>/dev/null || echo "detached")
-    local uncommitted=$(git status --porcelain 2>/dev/null | wc -l)
-    local unpushed=$(git rev-list --count @{u}..HEAD 2>/dev/null || echo "unknown")
+    local current_branch uncommitted unpushed
+    current_branch=$(git branch --show-current 2>/dev/null || echo "detached")
+    uncommitted=$(git status --porcelain 2>/dev/null | wc -l)
+    unpushed=$(git rev-list --count @{u}..HEAD 2>/dev/null || echo "unknown")
 
     echo -e "  Branch: ${CYAN}$current_branch${NC}"
     echo -e "  Uncommitted changes: ${CYAN}$uncommitted${NC}"
@@ -666,13 +672,15 @@ show_status() {
 
     # GitHub status if available
     if command_exists gh; then
-        local github_repo=$(gh repo view --json nameWithOwner --jq .nameWithOwner 2>/dev/null || echo "")
+        local github_repo
+        github_repo=$(gh repo view --json nameWithOwner --jq .nameWithOwner 2>/dev/null || echo "")
         if [ -n "$github_repo" ]; then
             echo -e "\n${BLUE}GitHub Status (${CYAN}$github_repo${BLUE}):${NC}"
 
             # Pull requests
-            local open_prs=$(gh pr list --state open --json number,title,author 2>/dev/null)
-            local pr_count=$(echo "$open_prs" | jq length 2>/dev/null || echo "0")
+            local open_prs pr_count
+            open_prs=$(gh pr list --state open --json number,title,author 2>/dev/null)
+            pr_count=$(echo "$open_prs" | jq length 2>/dev/null || echo "0")
             echo -e "  Open pull requests: ${CYAN}$pr_count${NC}"
 
             if [ "$pr_count" -gt 0 ] && [ "$pr_count" -le 5 ]; then
@@ -680,11 +688,13 @@ show_status() {
             fi
 
             # Issues
-            local open_issues=$(gh issue list --state open --json number 2>/dev/null | jq length 2>/dev/null || echo "0")
+            local open_issues
+            open_issues=$(gh issue list --state open --json number 2>/dev/null | jq length 2>/dev/null || echo "0")
             echo -e "  Open issues: ${CYAN}$open_issues${NC}"
 
             # Dependabot alerts
-            local vuln_count=$(gh api repos/:owner/:repo/dependabot/alerts --jq '[.[] | select(.state == "open")] | length' 2>/dev/null || echo "0")
+            local vuln_count
+            vuln_count=$(gh api repos/:owner/:repo/dependabot/alerts --jq '[.[] | select(.state == "open")] | length' 2>/dev/null || echo "0")
             if [ "$vuln_count" -gt 0 ]; then
                 echo -e "  ${YELLOW}Security vulnerabilities: $vuln_count${NC}"
             fi
@@ -743,17 +753,19 @@ check_port_usage() {
     local seize=$2
 
     # Check if port is in use
-    local pid=$(lsof -t -i:"$port" 2>/dev/null | head -1)
+    local pid
+    pid=$(lsof -t -i:"$port" 2>/dev/null | head -1)
 
     if [ -z "$pid" ]; then
         return 0  # Port is free
     fi
 
     # Get process info
-    local proc_name=$(ps -p "$pid" -o comm= 2>/dev/null || echo "unknown")
-    local proc_cmd=$(ps -p "$pid" -o args= 2>/dev/null || echo "unknown")
-    local proc_user=$(ps -p "$pid" -o user= 2>/dev/null || echo "unknown")
-    local proc_start=$(ps -p "$pid" -o lstart= 2>/dev/null || echo "unknown")
+    local proc_name proc_cmd proc_user proc_start
+    proc_name=$(ps -p "$pid" -o comm= 2>/dev/null || echo "unknown")
+    proc_cmd=$(ps -p "$pid" -o args= 2>/dev/null || echo "unknown")
+    proc_user=$(ps -p "$pid" -o user= 2>/dev/null || echo "unknown")
+    proc_start=$(ps -p "$pid" -o lstart= 2>/dev/null || echo "unknown")
 
     echo -e "\n${YELLOW}${WARNING} Port $port is already in use${NC}"
     echo -e "${BLUE}Process Information:${NC}"
