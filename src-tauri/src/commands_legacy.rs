@@ -6627,15 +6627,13 @@ pub fn add_location_connection(
         )),
     };
 
-    // Include description in hazards if provided (workaround until LocationConnection has description field)
-    let hazards = description.map_or_else(Vec::new, |d| vec![format!("Note: {}", d)]);
-
     let connection = LocationConnection {
         target_id: Some(target_location_id.clone()),
         target_name: "Unknown".to_string(), // Placeholder
         connection_type: conn_type,
+        description,
         travel_time,
-        hazards,
+        hazards: Vec::new(),
     };
 
     state.location_manager.add_connection(&source_location_id, connection.clone())
@@ -6647,6 +6645,7 @@ pub fn add_location_connection(
             target_id: Some(source_location_id),
             target_name: "Unknown".to_string(),
             connection_type: connection.connection_type.clone(),
+            description: connection.description.clone(),
             travel_time: connection.travel_time.clone(),
             hazards: connection.hazards.clone(),
         };
