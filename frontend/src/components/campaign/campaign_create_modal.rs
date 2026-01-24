@@ -7,9 +7,8 @@ use leptos::ev;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use crate::bindings::{
-    create_campaign, get_theme_preset, Campaign, ThemeWeights,
+    create_campaign, Campaign,
 };
-use crate::components::design_system::{Button, ButtonVariant, Input, Modal};
 
 /// Wizard step
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
