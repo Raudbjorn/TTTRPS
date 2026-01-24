@@ -98,6 +98,7 @@ impl CampaignGenre {
 }
 
 /// Helper function to get system-based styling
+#[allow(dead_code)]
 fn get_system_style(system: &str) -> (&'static str, &'static str) {
     CampaignGenre::from_system(system).style()
 }
@@ -120,6 +121,7 @@ fn format_last_played(timestamp: &str) -> String {
 }
 
 /// System badge component with genre styling
+#[allow(dead_code)]
 #[component]
 fn SystemBadge(
     #[prop(into)]

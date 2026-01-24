@@ -7,9 +7,9 @@ use leptos::prelude::*;
 use wasm_bindgen_futures::spawn_local;
 
 use crate::bindings::{
-    get_session_timeline, get_timeline_summary,
+    get_session_timeline,
     TimelineEventData, TimelineEventType as BindingEventType,
-    TimelineEventSeverity, TimelineSummaryData,
+    TimelineEventSeverity,
 };
 use crate::components::design_system::{Card, CardHeader, CardBody, Badge, BadgeVariant};
 
@@ -157,7 +157,7 @@ pub fn TimelineView(
     min_severity: Option<Signal<TimelineEventSeverity>>,
     /// Auto-refresh interval in seconds (0 = no refresh)
     #[prop(default = 30)]
-    refresh_interval: u32,
+    _refresh_interval: u32,
 ) -> impl IntoView {
     // Local state for fetched events
     let fetched_events = RwSignal::new(Vec::<TimelineEventData>::new());

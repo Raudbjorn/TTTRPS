@@ -50,6 +50,7 @@ fn GraphFilterToggle(
 }
 
 /// Entity types for the graph
+#[allow(dead_code)]
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EntityType {
     Npc,
@@ -115,6 +116,7 @@ impl EntityType {
     }
 
     /// Get icon character
+    #[allow(dead_code)]
     pub fn icon(&self) -> &'static str {
         match self {
             EntityType::Npc => "N",
@@ -128,6 +130,7 @@ impl EntityType {
     }
 
     /// Parse from string
+    #[allow(dead_code)]
     pub fn from_str(s: &str) -> Self {
         match s.to_lowercase().as_str() {
             "npc" | "character" => EntityType::Npc,
@@ -143,6 +146,7 @@ impl EntityType {
 }
 
 /// Relationship strength for edge styling
+#[allow(dead_code)]
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum RelationshipStrength {
     Weak,
@@ -152,6 +156,7 @@ pub enum RelationshipStrength {
 }
 
 impl RelationshipStrength {
+    #[allow(dead_code)]
     pub fn from_u8(v: u8) -> Self {
         match v {
             0..=2 => RelationshipStrength::Weak,
@@ -216,6 +221,7 @@ pub struct GraphEdge {
 }
 
 /// Filter options for the graph
+#[allow(dead_code)]
 #[derive(Clone)]
 pub struct GraphFilter {
     pub show_npcs: bool,

@@ -17,16 +17,16 @@
 //! - Timeline events (ordering, filtering)
 //! - Session snapshot creation/restoration
 
-#[allow(unused_imports)]
+
 use crate::core::session_manager::{
-    CombatEvent, CombatEventType, CombatState, CombatStatus, Combatant, CombatantType,
-    Condition, ConditionDuration, GameSession, LogEntryType, SessionError, SessionManager,
+    CombatEventType, CombatState, CombatStatus, Combatant, CombatantType,
+    GameSession, LogEntryType, SessionError, SessionManager,
     SessionStatus, create_common_condition,
 };
-#[allow(unused_imports)]
+
 use crate::core::session::conditions::{
-    AdvancedCondition, ConditionDuration as AdvancedConditionDuration, ConditionEffect,
-    ConditionTemplates, ConditionTracker, StackingRule, SaveTiming,
+    AdvancedCondition, ConditionDuration as AdvancedConditionDuration,
+    ConditionTemplates, ConditionTracker, SaveTiming,
 };
 use crate::core::session::timeline::{
     EventSeverity, TimelineEvent, TimelineEventType,

@@ -8,12 +8,11 @@ use leptos::ev;
 use wasm_bindgen_futures::spawn_local;
 use log::{info, error};
 
-use crate::components::design_system::{Button, ButtonVariant, Card, CardHeader, CardBody, Badge, BadgeVariant, Input};
+use crate::components::design_system::{Button, ButtonVariant, Card, CardHeader, CardBody};
 use crate::bindings::{
     self,
     SessionNote as BackendNote,
     NoteCategory as BackendCategory,
-    CategorizationResponse,
 };
 
 // ============================================================================
@@ -648,7 +647,7 @@ pub fn NotesPanel(
                         let cat_for_color = cat.clone();
                         let cat_for_click = cat.clone();
                         let cat_display = cat.display().to_string();
-                        let cat_color = cat.color();
+                        let _cat_color = cat.color();
 
                         view! {
                             <button

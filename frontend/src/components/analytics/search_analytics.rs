@@ -6,19 +6,17 @@
 use leptos::prelude::*;
 use leptos::ev;
 use wasm_bindgen_futures::spawn_local;
-use std::collections::HashMap;
 
 use crate::bindings::{
     // In-memory (session) analytics
     get_search_analytics, get_popular_queries, get_cache_stats,
-    get_trending_queries, get_zero_result_queries,
+    get_trending_queries,
     // Database-backed (historical) analytics
     get_search_analytics_db, get_popular_queries_db, get_cache_stats_db,
-    get_trending_queries_db, get_zero_result_queries_db,
-    cleanup_search_analytics,
+    get_trending_queries_db,
     SearchAnalyticsSummary, PopularQuery, CacheStats,
 };
-use crate::components::design_system::{Button, ButtonVariant, Card, CardBody, CardHeader, Select};
+use crate::components::design_system::{Card, CardBody, CardHeader, Select};
 
 // ============================================================================
 // Search Analytics Component

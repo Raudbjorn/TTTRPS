@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use gloo_timers::callback::Timeout;
 
 /// GitHub URL for the Sidecar DM Gemini extension
+#[allow(dead_code)]
 const SIDECAR_DM_EXTENSION_URL: &str = "https://github.com/Raudbjorn/sidecar-dm-gemini-extension";
 use crate::bindings::{
     check_llm_health, configure_llm, get_llm_config, list_claude_models, list_gemini_models,

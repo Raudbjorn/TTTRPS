@@ -16,6 +16,7 @@ use crate::services::theme_service::{preset_description, ThemeState, ThemeWeight
 use leptos::prelude::*;
 
 /// Theme metadata for UI display
+#[allow(dead_code)]
 struct ThemeInfo {
     name: &'static str,
     label: &'static str,

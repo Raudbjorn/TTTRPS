@@ -49,7 +49,7 @@ impl std::fmt::Display for SemanticAnalysisProvider {
 pub fn EmbeddingSettingsView() -> impl IntoView {
     // State
     let embedding_provider = RwSignal::new(EmbeddingProvider::Ollama);
-    let semantic_provider = RwSignal::new(SemanticAnalysisProvider::Disabled);
+    let _semantic_provider = RwSignal::new(SemanticAnalysisProvider::Disabled);
 
     view! {
         <div class="space-y-8 animate-fade-in pb-20">

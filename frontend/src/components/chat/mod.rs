@@ -7,7 +7,6 @@ pub use personality_selector::{PersonalitySelector, PersonalityIndicator};
 use leptos::ev;
 use leptos::prelude::*;
 use leptos_router::components::A;
-use wasm_bindgen::JsValue;
 use wasm_bindgen_futures::spawn_local;
 use std::sync::Arc;
 use crate::services::notification_service::{show_error, ToastAction};
@@ -18,7 +17,6 @@ use crate::bindings::{
     ChatChunk, ChatRequestPayload, SessionUsage, StreamingChatMessage,
     // Global chat session bindings
     get_or_create_chat_session, get_chat_messages, add_chat_message, update_chat_message,
-    GlobalChatSession, ChatMessageRecord,
 };
 use crate::components::design_system::{Button, ButtonVariant, Input};
 
@@ -506,7 +504,7 @@ pub fn Chat() -> impl IntoView {
     };
 
     // Fallback to non-streaming chat (available as a backup if needed)
-    #[allow(dead_code)]
+
     let _send_message_non_streaming = move || {
         let msg = message_input.get();
         if msg.trim().is_empty() || is_loading.get() {

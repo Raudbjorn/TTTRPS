@@ -14,6 +14,7 @@ use leptos::prelude::*;
 use crate::bindings::SessionSummary;
 
 /// Session status for display styling
+#[allow(dead_code)]
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum SessionStatus {
     Active,
@@ -22,6 +23,7 @@ pub enum SessionStatus {
 }
 
 impl SessionStatus {
+    #[allow(dead_code)]
     pub fn from_str(status: &str) -> Self {
         match status.to_lowercase().as_str() {
             "active" | "in_progress" => SessionStatus::Active,
@@ -504,5 +506,4 @@ fn MoreIcon() -> impl IntoView {
     }
 }
 
-/// Also export as ContextSidebar for the new naming convention
-pub use SessionList as ContextSidebar;
+// Note: ContextSidebar alias moved to campaign_details/session_list.rs

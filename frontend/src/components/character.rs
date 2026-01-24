@@ -8,9 +8,8 @@ use leptos::prelude::*;
 use leptos::task::spawn_local;
 
 use crate::bindings::{
-    generate_character_advanced, get_supported_systems, list_system_info,
-    get_game_system_info, Character, CharacterAttributeValue, CharacterTrait,
-    CharacterEquipment, CharacterBackground, GenerationOptions, GameSystemInfo,
+    generate_character_advanced, list_system_info,
+    get_game_system_info, Character, GenerationOptions, GameSystemInfo,
 };
 use crate::components::design_system::{Button, ButtonVariant, Card, CardBody, CardHeader, Input};
 
