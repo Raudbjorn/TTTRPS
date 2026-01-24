@@ -573,8 +573,13 @@ The following inspection results are false positives and do not require action:
 ### Phase 8: Final Validation
 1. Run full test suite
 2. Verify metrics
-3. Update documentation
-4. Create PR
+3. **Automated command name verification:**
+   - Capture snapshot of all Tauri command names (functions with `#[tauri::command]`)
+   - Compare pre-refactor snapshot to post-refactor command names
+   - Fail if any command name changed without `#[tauri::command(rename="...")]`
+   - Verification script: `grep -r "#\[tauri::command" src-tauri/src/commands/ | sort`
+4. Update documentation
+5. Create PR
 
 ---
 

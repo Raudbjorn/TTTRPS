@@ -104,56 +104,6 @@ This refactoring effort aims to reduce total lines of code by 15-25%, improve mo
 
 ---
 
-## Non-Functional Requirements
-
-### NFR-1: Build Performance
-- WHEN the refactoring is complete THEN incremental build time SHALL not increase by more than 10%
-- WHEN modules are split THEN compilation unit boundaries SHALL be optimized for parallel compilation
-
-### NFR-2: Binary Size
-- WHEN dead code is eliminated THEN release binary size SHALL decrease or remain constant
-- WHEN the refactoring is complete THEN release binary size SHALL not increase by more than 5%
-
-### NFR-3: API Stability
-- WHEN internal refactoring occurs THEN all Tauri command signatures SHALL remain unchanged
-- WHEN internal refactoring occurs THEN all public Rust module APIs used by other crates SHALL remain stable or be documented as breaking changes
-
-### NFR-4: Test Coverage
-- WHEN code is refactored THEN existing test coverage percentage SHALL not decrease
-- WHEN modules are extracted THEN tests SHALL be co-located with the new module structure
-
----
-
-## Constraints and Assumptions
-
-### Constraints
-
-1. **Frontend/Backend Contract**: Tauri command names and signatures cannot change without coordinated frontend updates
-2. **Auto-generated Code**: `frontend/src/bindings.rs` appears to be auto-generated and should not be manually refactored
-3. **Feature Flags**: Existing Cargo feature flags must continue to work as expected
-4. **External Dependencies**: No new dependencies should be added solely for refactoring purposes
-
-### Assumptions
-
-1. The two LLM router files (`llm/router.rs` and `llm_router.rs`) represent organic duplication rather than intentional separation
-2. Dead code identified by compiler warnings is safe to remove unless explicitly marked as planned
-3. Test organization changes will not affect CI/CD pipeline configuration
-4. Vocabulary duplication between `ingestion/ttrpg/` and `core/archetype/` modules can be unified
-
----
-
-## Success Metrics
-
-| Metric | Current | Target |
-|--------|---------|--------|
-| Total backend LOC | ~51,500 | < 45,000 |
-| `commands.rs` LOC | 10,679 | 0 (extracted) |
-| Compiler warnings | ~20+ | 0 |
-| Files > 1,500 LOC | ~12 | < 3 |
-| LLM router combined LOC | ~4,694 | < 3,500 |
-
----
-
 ### Requirement 7: Static Analysis Issue Resolution
 
 **User Story:** As a developer, I want all static analysis warnings resolved, so that CI/CD pipelines pass cleanly and code quality tools provide meaningful feedback.

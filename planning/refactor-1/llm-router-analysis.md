@@ -158,15 +158,17 @@ pub trait LLMProvider: Send + Sync {
 
 ### Potential Trait Abstractions
 
-1. **`OAuthProvider` Trait**
+1. **`OAuthGate` Trait** (canonical name from Design.md)
    ```rust
-   trait OAuthProvider: LLMProvider {
-       fn storage_backend(&self) -> &str;
-       async fn is_authenticated(&self) -> Result<bool>;
-       async fn start_oauth_flow(&self) -> Result<String>;
-       async fn complete_oauth_flow(&self, code: &str) -> Result<()>;
-       async fn logout(&self) -> Result<()>;
-       async fn get_status(&self) -> ProviderStatus;
+   #[async_trait]
+   pub trait OAuthGate: Send + Sync + 'static {
+       fn provider_name(&self) -> &'static str;
+       fn storage_backend(&self) -> StorageBackend;
+       async fn is_authenticated(&self) -> Result<bool, CommandError>;
+       async fn get_status(&self) -> Result<OAuthStatus, CommandError>;
+       async fn start_oauth(&self) -> Result<OAuthFlowState, CommandError>;
+       async fn complete_oauth(&self, code: &str) -> Result<(), CommandError>;
+       async fn logout(&self) -> Result<(), CommandError>;
    }
    ```
    Would unify: Claude, Gemini, Copilot
