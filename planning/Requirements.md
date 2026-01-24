@@ -35,7 +35,7 @@ The integration follows the established tri-gate architecture pattern, where `co
 
 1. WHEN Copilot provider initializes THEN system SHALL use the configured TokenStorage backend (File, Memory, Keyring, or Callback)
 2. WHEN storing tokens to file THEN system SHALL set file permissions to 0600 (Unix) or equivalent
-3. WHEN loading tokens from environment THEN system SHALL support `COPILOT_GITHUB_TOKEN` variable
+3. WHEN loading tokens from environment THEN system SHALL support `COPILOT_GITHUB_TOKEN` variable (expects GitHub OAuth access token string; refresh token optional via `COPILOT_REFRESH_TOKEN`)
 4. IF keyring feature is enabled THEN system SHALL store tokens in system credential store
 5. WHEN token storage fails THEN system SHALL propagate storage-specific error with path context
 6. WHEN application starts THEN system SHALL load cached tokens without requiring network calls
@@ -101,8 +101,10 @@ The integration follows the established tri-gate architecture pattern, where `co
 2. WHEN `poll_copilot_auth` command is invoked THEN system SHALL poll GitHub until authorization completes or times out
 3. WHEN `check_copilot_auth` command is invoked THEN system SHALL return current authentication status
 4. WHEN `logout_copilot` command is invoked THEN system SHALL clear stored tokens and return success
-5. WHEN auth command fails THEN system SHALL return error message suitable for UI display
-6. WHILE polling for authorization THEN system SHALL respect GitHub's poll interval to avoid rate limiting
+5. WHEN `get_copilot_models` command is invoked THEN system SHALL return available models (cached if available)
+6. WHEN `get_copilot_usage` command is invoked THEN system SHALL return current quota and usage statistics
+7. WHEN auth command fails THEN system SHALL return error message suitable for UI display
+8. WHILE polling for authorization THEN system SHALL respect GitHub's poll interval to avoid rate limiting
 
 ### Requirement 8: Usage and Quota Tracking
 
@@ -145,7 +147,7 @@ The integration follows the established tri-gate architecture pattern, where `co
 - The integration must use the existing `TokenStorage` trait from the gate module
 - The `LLMProvider` trait interface cannot be modified
 - Device Code OAuth is the only supported authentication method (no API keys)
-- The Copilot client ID is public and matches VS Code's Copilot extension
+- The Copilot client ID uses GitHub's public OAuth Device Code flow (same approach as VS Code Copilot; no client secret required per RFC 8628)
 
 ### Assumptions
 
