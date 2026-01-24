@@ -2,13 +2,11 @@
 //!
 //! Commands for configuring voice providers and managing voice settings.
 
-use std::path::PathBuf;
 use tauri::State;
 
 use crate::core::voice::{
-    VoiceManager, VoiceConfig, VoiceProviderType, VoiceProviderDetection,
-    detect_providers, ProviderInstaller, InstallStatus,
-    AvailablePiperVoice, get_recommended_piper_voices, Voice,
+    VoiceManager, VoiceConfig, VoiceProviderDetection,
+    detect_providers, Voice,
 };
 use crate::commands::AppState;
 

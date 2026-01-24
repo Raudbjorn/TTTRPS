@@ -2,13 +2,11 @@
 //!
 //! Commands for managing the voice synthesis queue.
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::State;
-use tokio::sync::RwLock as AsyncRwLock;
 
 use crate::core::voice::{
-    VoiceManager, SynthesisRequest, OutputFormat,
+    SynthesisRequest, OutputFormat,
     types::{QueuedVoice, VoiceStatus},
 };
 use crate::commands::AppState;
