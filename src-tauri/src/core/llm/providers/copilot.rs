@@ -1003,18 +1003,13 @@ impl LLMProvider for CopilotLLMProvider {
     }
 
     fn supports_embeddings(&self) -> bool {
-        // Copilot supports embeddings
-        true
+        // TODO: Enable when embeddings are implemented
+        false
     }
 
-    async fn embeddings(&self, text: String) -> Result<Vec<f32>> {
-        if !self.is_authenticated().await {
-            return Err(LLMError::AuthError(
-                "Not authenticated. Please complete Device Code flow first.".to_string(),
-            ));
-        }
-
+    async fn embeddings(&self, _text: String) -> Result<Vec<f32>> {
         // TODO: Implement embeddings using the CopilotClient embeddings API
+        // The Copilot API supports embeddings but this integration hasn't been completed yet.
         Err(LLMError::EmbeddingNotSupported(
             "Copilot embeddings not yet implemented".to_string(),
         ))
