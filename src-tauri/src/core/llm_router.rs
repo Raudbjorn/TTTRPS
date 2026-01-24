@@ -525,7 +525,7 @@ pub struct StreamState {
     pub stream_id: String,
     pub provider: String,
     pub model: String,
-    pub is_cancelled: bool,
+    pub is_canceled: bool,
     pub chunks_received: u32,
     pub total_content: String,
 }
@@ -872,7 +872,7 @@ impl LLMRouter {
     }
 
     /// Get the next available provider (backward compatible)
-    #[allow(dead_code)]
+
     fn get_available_provider(&self) -> Option<(String, LLMConfig)> {
         self.get_next_provider()
     }
@@ -1018,7 +1018,7 @@ impl LLMRouter {
                 stream_id: stream_id.clone(),
                 provider: name.clone(),
                 model: model.clone(),
-                is_cancelled: false,
+                is_canceled: false,
                 chunks_received: 0,
                 total_content: String::new(),
             });
@@ -1213,10 +1213,10 @@ impl LLMRouter {
         let mut stream = response.bytes_stream();
 
         loop {
-            // Check if stream is cancelled
+            // Check if stream is canceled
             if let Ok(streams) = self.active_streams.read() {
                 if let Some(state) = streams.get(stream_id) {
-                    if state.is_cancelled {
+                    if state.is_canceled {
                         break;
                     }
                 }
@@ -1373,7 +1373,7 @@ impl LLMRouter {
         loop {
             if let Ok(streams) = self.active_streams.read() {
                 if let Some(state) = streams.get(stream_id) {
-                    if state.is_cancelled {
+                    if state.is_canceled {
                         break;
                     }
                 }
@@ -1533,7 +1533,7 @@ impl LLMRouter {
         loop {
             if let Ok(streams) = self.active_streams.read() {
                 if let Some(state) = streams.get(stream_id) {
-                    if state.is_cancelled {
+                    if state.is_canceled {
                         break;
                     }
                 }
@@ -1696,7 +1696,7 @@ impl LLMRouter {
         loop {
             if let Ok(streams) = self.active_streams.read() {
                 if let Some(state) = streams.get(stream_id) {
-                    if state.is_cancelled {
+                    if state.is_canceled {
                         break;
                     }
                 }
@@ -1777,7 +1777,7 @@ impl LLMRouter {
     pub fn cancel_stream(&self, stream_id: &str) -> bool {
         if let Ok(mut streams) = self.active_streams.write() {
             if let Some(state) = streams.get_mut(stream_id) {
-                state.is_cancelled = true;
+                state.is_canceled = true;
                 return true;
             }
         }

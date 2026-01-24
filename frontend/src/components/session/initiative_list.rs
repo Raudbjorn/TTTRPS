@@ -109,7 +109,7 @@ pub fn InitiativeList(
                     key=|(_, combatant, _)| combatant.id.clone()
                     children=move |(idx, combatant, current_turn)| {
                         let is_current = idx == current_turn;
-                        let cid = combatant.id.clone();
+                        let _cid = combatant.id.clone();
 
                         view! {
                             <CombatantCard

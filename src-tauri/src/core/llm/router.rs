@@ -61,8 +61,8 @@ pub enum LLMError {
     #[error("Serialization error: {0}")]
     SerializationError(#[from] serde_json::Error),
 
-    #[error("Stream cancelled")]
-    StreamCancelled,
+    #[error("Stream canceled")]
+    StreamCanceled,
 
     #[error("Embedding generation failed: {0}")]
     EmbeddingError(String),
@@ -415,13 +415,15 @@ impl Default for RouterConfig {
 // Active Stream State
 // ============================================================================
 
-/// State for tracking active streams
+/// State for tracking active streams.
+/// Fields are used for Debug output and potential future monitoring/metrics.
 #[derive(Debug)]
+#[allow(dead_code)]
 struct StreamState {
     stream_id: String,
     provider: String,
     model: String,
-    is_cancelled: bool,
+    is_canceled: bool,
     chunks_received: u32,
 }
 
@@ -603,7 +605,7 @@ impl LLMRouter {
 
     /// Check if provider is available (healthy + circuit allows)
     async fn is_provider_available(&self, id: &str) -> bool {
-        self.health_tracker.write().await.is_available(id)
+        self.health_tracker.write().await.check_availability(id)
     }
 
     /// Record successful request
@@ -835,7 +837,7 @@ impl LLMRouter {
                     stream_id: stream_id.clone(),
                     provider: id.clone(),
                     model: model.clone(),
-                    is_cancelled: false,
+                    is_canceled: false,
                     chunks_received: 0,
                 },
             );
@@ -865,12 +867,12 @@ impl LLMRouter {
                     let mut total_usage: Option<TokenUsage> = None;
 
                     while let Some(chunk_result) = stream_rx.recv().await {
-                        // Check if cancelled
+                        // Check if canceled
                         {
                             let streams = router_streams.read().await;
                             if let Some(state) = streams.get(&stream_id_clone) {
-                                if state.is_cancelled {
-                                    let _ = tx.send(Err(LLMError::StreamCancelled)).await;
+                                if state.is_canceled {
+                                    let _ = tx.send(Err(LLMError::StreamCanceled)).await;
                                     break;
                                 }
                             }
@@ -942,7 +944,7 @@ impl LLMRouter {
     pub async fn cancel_stream(&self, stream_id: &str) -> bool {
         let mut streams = self.active_streams.write().await;
         if let Some(state) = streams.get_mut(stream_id) {
-            state.is_cancelled = true;
+            state.is_canceled = true;
             true
         } else {
             false
@@ -1102,6 +1104,7 @@ mod tests {
     }
 
     #[derive(Debug, Clone)]
+    #[allow(dead_code)] // Variants reserved for comprehensive error testing
     enum MockErrorType {
         None,
         ApiError { status: u16, message: String },
@@ -2081,8 +2084,8 @@ mod tests {
         let stream_ids = router.active_stream_ids().await;
         assert!(!stream_ids.is_empty());
 
-        let cancelled = router.cancel_stream(&stream_ids[0]).await;
-        assert!(cancelled);
+        let canceled = router.cancel_stream(&stream_ids[0]).await;
+        assert!(canceled);
     }
 
     #[tokio::test]

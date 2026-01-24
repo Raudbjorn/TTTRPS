@@ -181,7 +181,7 @@ Detect boxed/shaded regions (sidebars, callouts, read-aloud text).
 - `[NEW] src/ingestion/layout/table_extractor.rs`
 
 **Description:**
-Extract table structure with multi-page continuation support.
+Extract table structure with multipage continuation support.
 
 **Key Types:**
 - `ExtractedTable` struct (title, headers, rows, page_numbers, is_continuation)
@@ -191,7 +191,7 @@ Extract table structure with multi-page continuation support.
 **Patterns:**
 - "(continued)" or "Table X (cont" indicate continuation
 
-**Test:** Merge multi-page table correctly.
+**Test:** Merge multipage table correctly.
 - _Requirements: 1.3, 4.4, 4.5_
 
 ---
@@ -1264,12 +1264,12 @@ For a functional MVP, complete in order:
 3. **Tasks 2.1-2.2**: TTRPG-aware chunking with hierarchy
 
 **Search Integration (5 tasks):**
-4. **Tasks 3.1-3.3**: Meilisearch TTRPGSearchDocument
-5. **Tasks 4.1-4.3**: Query parsing and antonym mapping
+1. **Tasks 3.1-3.3**: Meilisearch TTRPGSearchDocument
+2. **Tasks 4.1-4.3**: Query parsing and antonym mapping
 
 **Persistence + Commands (4 tasks):**
-6. **Task 5.1**: Database migration
-7. **Tasks 6.1, 6.5**: Ingestion command and registration
+1. **Task 5.1**: Database migration
+2. **Tasks 6.1, 6.5**: Ingestion command and registration
 
 **Total MVP: 24 tasks**
 

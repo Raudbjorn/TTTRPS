@@ -1,0 +1,44 @@
+{
+  "problems": [
+    {
+      "file": "file://$PROJECT_DIR$/frontend/input.css",
+      "line": 21,
+      "offset": 8,
+      "length": 7,
+      "module": "TTTRPS",
+      "problem_class": {
+        "name": "Spelling",
+        "id": "SpellCheckingInspection",
+        "severity": "TYPO",
+        "attribute_key": "TYPO"
+      },
+      "entry_point": {
+        "TYPE": "file",
+        "FQNAME": "file://$PROJECT_DIR$/frontend/input.css"
+      },
+      "highlighted_element": "Xdesign",
+      "language": "CSS",
+      "description": "Typo: In word 'Xdesign'"
+    },
+    {
+      "file": "file://$PROJECT_DIR$/frontend/public/themes.css",
+      "line": 6,
+      "offset": 8,
+      "length": 7,
+      "module": "TTTRPS",
+      "problem_class": {
+        "name": "Spelling",
+        "id": "SpellCheckingInspection",
+        "severity": "TYPO",
+        "attribute_key": "TYPO"
+      },
+      "entry_point": {
+        "TYPE": "file",
+        "FQNAME": "file://$PROJECT_DIR$/frontend/public/themes.css"
+      },
+      "highlighted_element": "Xdesign",
+      "language": "CSS",
+      "description": "Typo: In word 'Xdesign'"
+    }
+  ]
+}

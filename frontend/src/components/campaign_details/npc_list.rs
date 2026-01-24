@@ -286,7 +286,7 @@ fn NpcSkeleton() -> impl IntoView {
     }
 }
 
-/// Format ISO timestamp to short time (HH:MM or "Yesterday" etc)
+/// Format ISO timestamp to short time (HH:MM or "Yesterday" etc.)
 fn format_time_short(iso: &str) -> String {
     if let Some(time_part) = iso.split('T').nth(1) {
         if let Some(hm) = time_part.get(0..5) {

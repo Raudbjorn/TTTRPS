@@ -285,7 +285,7 @@ criterion = "0.5"  # For benchmarks
 
 ### 6.3 Exclusions
 
-- Dead code paths (marked with `#[cfg(test)]` or `#[allow(dead_code)]`)
+- Dead code paths (marked with `#[cfg(test)]` or ``)
 - Panic-only error handlers
 - Generated code (Tauri commands boilerplate)
 

@@ -47,10 +47,10 @@ pub fn Button<F>(
     on_click: Option<F>,
     /// Whether the button is disabled
     #[prop(into, default = false.into())]
-    disabled: MaybeSignal<bool>,
+    disabled: Signal<bool>,
     /// Whether to show a loading spinner
     #[prop(into, default = false.into())]
-    loading: MaybeSignal<bool>,
+    loading: Signal<bool>,
     /// Additional CSS classes
     #[prop(into, optional)]
     class: String,

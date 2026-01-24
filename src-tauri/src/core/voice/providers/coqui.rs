@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use std::sync::Mutex;
 use reqwest::Client;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
@@ -18,21 +18,12 @@ pub struct CoquiProvider {
     config: std::sync::RwLock<CoquiConfig>,
 }
 
-#[derive(Debug, Serialize)]
-struct TtsRequest {
-    text: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    speaker_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    language_id: Option<String>,
-}
-
 #[derive(Debug, Deserialize)]
 struct ServerInfo {
     #[serde(default)]
     model: Option<String>,
     #[serde(default)]
-    speakers: Vec<String>,
+    _speakers: Vec<String>,
     #[serde(default)]
     languages: Vec<String>,
 }
@@ -160,12 +151,12 @@ impl CoquiProvider {
             .get(format!("{}/api/tts", self.base_url()))
             .send()
             .await
-            .map_err(|e| VoiceError::NetworkError(e))?;
+            .map_err(VoiceError::NetworkError)?;
 
         if response.status().is_success() {
             Ok(ServerInfo {
                 model: None,
-                speakers: vec![],
+                _speakers: vec![],
                 languages: vec!["en".to_string()],
             })
         } else {
@@ -263,7 +254,7 @@ impl VoiceProvider for CoquiProvider {
             .query(&params)
             .send()
             .await
-            .map_err(|e| VoiceError::NetworkError(e))?;
+            .map_err(VoiceError::NetworkError)?;
 
         if !response.status().is_success() {
             let status = response.status();
@@ -277,7 +268,7 @@ impl VoiceProvider for CoquiProvider {
         let audio_data = response
             .bytes()
             .await
-            .map_err(|e| VoiceError::NetworkError(e))?;
+            .map_err(VoiceError::NetworkError)?;
 
         Ok(audio_data.to_vec())
     }

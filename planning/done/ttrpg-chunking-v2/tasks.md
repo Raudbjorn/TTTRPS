@@ -97,12 +97,13 @@ pub struct ElementMetadata {
 **Patterns**:
 - `(?i)\bd\d+\b` — Dice notation (d4, d6, d8, d10, d12, d20, d100)
 - `(?i)\b\d+d\d+\b` — Multi-dice (2d6, 3d8)
+
 - `(?i)\b(\d+)[-–—](\d+)\b` — Range patterns (1-3, 4-6, 01-50)
 - `(?i)roll\s+(?:a\s+)?d\d+` — "Roll a d20"
 - `(?i)table\s*\d*:?` — Table headers
 
 **Additional heuristics**:
-- Presence of `|` characters (markdown table)
+- Presence of `|` characters (Markdown table)
 - Multiple lines with aligned numbers at start
 - Uniform line structure (number, dash, result)
 
@@ -119,7 +120,7 @@ pub struct ElementMetadata {
 **Patterns** (any match = ReadAloudText):
 - `(?i)read\s*(?:the\s*)?(?:following\s*)?aloud` — Explicit instruction
 - `(?i)boxed\s*text` — Layout reference
-- Line starts with `>` (markdown blockquote)
+- Line starts with `>` (Markdown blockquote)
 - Entire block in italics (if typography detected)
 - Block surrounded by horizontal rules
 
@@ -549,6 +550,7 @@ impl TTRPGChunker {
 pub enum BoundaryType {
     SectionHeader,      // 0.95 - Markdown headers, all-caps titles
     DoubleNewline,      // 0.85 - Paragraph break
+
     AllCapsLine,        // 0.80 - OSR-style headers
     BulletStart,        // 0.70 - List item
     SentenceCapital,    // 0.60 - Sentence end + capital letter

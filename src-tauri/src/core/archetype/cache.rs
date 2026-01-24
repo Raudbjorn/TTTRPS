@@ -193,6 +193,7 @@ struct CacheEntry {
 
     /// Source archetypes that contributed to this resolution.
     /// Used for dependency-based invalidation.
+    #[allow(dead_code)]
     source_archetypes: Vec<String>,
 }
 

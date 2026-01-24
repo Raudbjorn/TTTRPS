@@ -1,0 +1,124 @@
+{
+  "problems": [
+    {
+      "file": "file://$PROJECT_DIR$/build.sh",
+      "line": 183,
+      "offset": 59,
+      "length": 6,
+      "module": "TTTRPS",
+      "problem_class": {
+        "name": "Spelling",
+        "id": "SpellCheckingInspection",
+        "severity": "TYPO",
+        "attribute_key": "TYPO"
+      },
+      "entry_point": {
+        "TYPE": "file",
+        "FQNAME": "file://$PROJECT_DIR$/build.sh"
+      },
+      "highlighted_element": "libstd",
+      "language": "Shell Script",
+      "description": "Typo: In word 'libstd'"
+    },
+    {
+      "file": "file://$PROJECT_DIR$/build.sh",
+      "line": 183,
+      "offset": 68,
+      "length": 4,
+      "module": "TTTRPS",
+      "problem_class": {
+        "name": "Spelling",
+        "id": "SpellCheckingInspection",
+        "severity": "TYPO",
+        "attribute_key": "TYPO"
+      },
+      "entry_point": {
+        "TYPE": "file",
+        "FQNAME": "file://$PROJECT_DIR$/build.sh"
+      },
+      "highlighted_element": "rlib",
+      "language": "Shell Script",
+      "description": "Typo: In word 'rlib'"
+    },
+    {
+      "file": "file://$PROJECT_DIR$/build.sh",
+      "line": 378,
+      "offset": 89,
+      "length": 7,
+      "module": "TTTRPS",
+      "problem_class": {
+        "name": "Spelling",
+        "id": "SpellCheckingInspection",
+        "severity": "TYPO",
+        "attribute_key": "TYPO"
+      },
+      "entry_point": {
+        "TYPE": "file",
+        "FQNAME": "file://$PROJECT_DIR$/build.sh"
+      },
+      "highlighted_element": "vctools",
+      "language": "Shell Script",
+      "description": "Typo: In word 'vctools'"
+    },
+    {
+      "file": "file://$PROJECT_DIR$/build.sh",
+      "line": 438,
+      "offset": 22,
+      "length": 4,
+      "module": "TTTRPS",
+      "problem_class": {
+        "name": "Spelling",
+        "id": "SpellCheckingInspection",
+        "severity": "TYPO",
+        "attribute_key": "TYPO"
+      },
+      "entry_point": {
+        "TYPE": "file",
+        "FQNAME": "file://$PROJECT_DIR$/build.sh"
+      },
+      "highlighted_element": "armv",
+      "language": "Shell Script",
+      "description": "Typo: In word 'armv'"
+    },
+    {
+      "file": "file://$PROJECT_DIR$/build.sh",
+      "line": 687,
+      "offset": 18,
+      "length": 4,
+      "module": "TTTRPS",
+      "problem_class": {
+        "name": "Spelling",
+        "id": "SpellCheckingInspection",
+        "severity": "TYPO",
+        "attribute_key": "TYPO"
+      },
+      "entry_point": {
+        "TYPE": "file",
+        "FQNAME": "file://$PROJECT_DIR$/build.sh"
+      },
+      "highlighted_element": "vuln",
+      "language": "Shell Script",
+      "description": "Typo: In word 'vuln'"
+    },
+    {
+      "file": "file://$PROJECT_DIR$/build.sh",
+      "line": 756,
+      "offset": 39,
+      "length": 6,
+      "module": "TTTRPS",
+      "problem_class": {
+        "name": "Spelling",
+        "id": "SpellCheckingInspection",
+        "severity": "TYPO",
+        "attribute_key": "TYPO"
+      },
+      "entry_point": {
+        "TYPE": "file",
+        "FQNAME": "file://$PROJECT_DIR$/build.sh"
+      },
+      "highlighted_element": "lstart",
+      "language": "Shell Script",
+      "description": "Typo: In word 'lstart'"
+    }
+  ]
+}

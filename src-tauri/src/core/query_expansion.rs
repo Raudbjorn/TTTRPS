@@ -192,7 +192,7 @@ impl QueryExpander {
         let mut applied_synonyms: Vec<(String, Vec<String>)> = Vec::new();
 
         // Tokenize query
-        let words: Vec<&str> = query.split_whitespace().collect();
+        let _words: Vec<&str> = query.split_whitespace().collect();
 
         // Step 1: Apply spelling correction
         let corrected_query = if self.config.correct_spelling {

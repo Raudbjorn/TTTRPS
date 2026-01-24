@@ -34,6 +34,7 @@ use meilisearch_sdk::client::Client;
 use serde_json::json;
 
 // Re-export types from the main crate
+#[allow(unused_imports)]
 use ttrpg_assistant::core::archetype::*;
 // For this integration test to work, the main crate must expose these types.
 

@@ -627,7 +627,7 @@ impl PersonalityApplicationManager {
         // Add extended settings if provided
         if let Some(s) = settings {
             prompt.push_str(&s.to_prompt_section());
-            prompt.push_str("\n");
+            prompt.push('\n');
         }
 
         // Add content type guidance
@@ -656,7 +656,7 @@ impl PersonalityApplicationManager {
 
         // Add scene mood modifier
         if let Some(mood) = scene_mood {
-            prompt.push_str(&format!("\nSCENE MOOD:\n"));
+            prompt.push_str("\nSCENE MOOD:\n");
             prompt.push_str(&format!("- Tone: {} (intensity {}/10)\n", mood.tone, mood.intensity));
             prompt.push_str(&format!("- Context: {}\n", mood.description));
             prompt.push_str("Adjust your response to match this mood throughout.\n");
@@ -766,7 +766,7 @@ impl PersonalityApplicationManager {
     fn apply_speech_patterns(
         &self,
         content: &str,
-        patterns: &SpeechPatterns,
+        _patterns: &SpeechPatterns,
         content_type: &ContentType,
     ) -> String {
         let result = content.to_string();
@@ -788,7 +788,7 @@ impl PersonalityApplicationManager {
     fn generate_style_notes(
         &self,
         profile: &PersonalityProfile,
-        content_type: &ContentType,
+        _content_type: &ContentType,
     ) -> Vec<String> {
         let mut notes = vec![];
 

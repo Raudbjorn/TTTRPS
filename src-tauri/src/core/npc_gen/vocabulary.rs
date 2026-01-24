@@ -230,17 +230,14 @@ impl PhraseCategory {
 /// Formality level for phrase selection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum Formality {
     Formal,
+    #[default]
     Casual,
     Hostile,
 }
 
-impl Default for Formality {
-    fn default() -> Self {
-        Self::Casual
-    }
-}
 
 impl Formality {
     /// Parse formality from a string.
@@ -679,7 +676,7 @@ mod tests {
             .with_tags(vec!["nervous".to_string(), "formal".to_string()]);
 
         assert!(phrase.has_tag("nervous"));
-        assert!(phrase.has_tag("NERVOUS")); // Case insensitive
+        assert!(phrase.has_tag("NERVOUS")); // Case-insensitive
         assert!(!phrase.has_tag("casual"));
     }
 

@@ -42,9 +42,17 @@ impl PatternTemplate {
     }
 }
 
-#[allow(dead_code)]
+
 pub struct AdaptiveLearningSystem {
+    /// Learned patterns by system and type. Used by learn_from_document.
+    #[allow(dead_code)]
     patterns: RwLock<HashMap<String, HashMap<String, PatternTemplate>>>, // System -> Type -> Template
+}
+
+impl Default for AdaptiveLearningSystem {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl AdaptiveLearningSystem {

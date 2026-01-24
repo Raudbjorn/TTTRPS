@@ -530,10 +530,10 @@ impl HybridSearchEngine {
         };
 
         // Generate query embedding
-        let query_embedding = provider
+        let _query_embedding = provider
             .embed(query)
             .await
-            .map_err(|e| HybridSearchError::EmbeddingError(e))?;
+            .map_err(HybridSearchError::EmbeddingError)?;
 
         // For now, fall back to Meilisearch's built-in hybrid search
         // In a full implementation, this would query a vector database directly
@@ -568,8 +568,8 @@ impl HybridSearchEngine {
             .map(|(rank, r)| RankedResult {
                 document: r.document,
                 score: r.score,
-                keyword_rank: None,
-                semantic_rank: Some(rank),
+                _keyword_rank: None,
+                _semantic_rank: Some(rank),
                 index: r.index,
             })
             .collect())
@@ -604,8 +604,8 @@ impl HybridSearchEngine {
             .map(|(rank, r)| RankedResult {
                 document: r.document,
                 score: r.score,
-                keyword_rank: Some(rank),
-                semantic_rank: None,
+                _keyword_rank: Some(rank),
+                _semantic_rank: None,
                 index: r.index,
             })
             .collect())
@@ -616,7 +616,7 @@ impl HybridSearchEngine {
         &self,
         query: &str,
         options: &HybridSearchOptions,
-        filter: Option<&str>,
+        _filter: Option<&str>,
     ) -> Result<Vec<RankedResult>> {
         let limit = self.config.max_results_per_type;
         let semantic_ratio = self.config.semantic_ratio;
@@ -648,8 +648,8 @@ impl HybridSearchEngine {
             .map(|(rank, r)| RankedResult {
                 document: r.document,
                 score: r.score,
-                keyword_rank: None,
-                semantic_rank: Some(rank),
+                _keyword_rank: None,
+                _semantic_rank: Some(rank),
                 index: r.index,
             })
             .collect())
@@ -702,8 +702,8 @@ impl HybridSearchEngine {
 struct RankedResult {
     document: SearchDocument,
     score: f32,
-    keyword_rank: Option<usize>,
-    semantic_rank: Option<usize>,
+    _keyword_rank: Option<usize>,
+    _semantic_rank: Option<usize>,
     index: String,
 }
 

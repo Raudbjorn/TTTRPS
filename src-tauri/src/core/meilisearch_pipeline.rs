@@ -132,7 +132,7 @@ pub fn generate_source_slug(path: &Path, title_override: Option<&str>) -> String
 
 /// Convert any string to a clean slug.
 ///
-/// Handles unicode by attempting transliteration of common characters,
+/// Handles Unicode by attempting transliteration of common characters,
 /// then falling back to stripping non-ASCII.
 pub fn slugify(input: &str) -> String {
     let mut slug = String::with_capacity(input.len());
@@ -157,7 +157,7 @@ pub fn slugify(input: &str) -> String {
                     last_was_hyphen = true;
                 }
             }
-            // Transliterate common unicode characters (lowercase and uppercase)
+            // Transliterate common Unicode characters (lowercase and uppercase)
             'á' | 'à' | 'ä' | 'â' | 'ã' | 'å' | 'Á' | 'À' | 'Ä' | 'Â' | 'Ã' | 'Å' => {
                 slug.push('a');
                 last_was_hyphen = false;
@@ -643,8 +643,7 @@ impl TTRPGMetadata {
             // Remove common prefixes/suffixes
             .trim_start_matches(|c: char| c.is_ascii_digit() || c == '_' || c == '-' || c == '.')
             // Replace underscores and hyphens with spaces
-            .replace('_', " ")
-            .replace('-', " ")
+            .replace(['_', '-'], " ")
             // Remove multiple spaces
             .split_whitespace()
             .collect::<Vec<_>>()
@@ -2073,7 +2072,9 @@ impl MeilisearchPipeline {
         Ok(all_chunks)
     }
 
-    /// Process a text file
+    /// Process a text file.
+    /// Retained for direct text file processing outside the main extraction pipeline.
+    #[allow(dead_code)]
     fn process_text_file(&self, path: &Path, source_name: &str) -> Result<Vec<(String, Option<u32>)>, SearchError> {
         let content = std::fs::read_to_string(path)
             .map_err(|e| SearchError::ConfigError(format!("Failed to read file: {}", e)))?;
@@ -2115,7 +2116,7 @@ impl MeilisearchPipeline {
 
         // Split into sentences for smarter chunking
         let sentences: Vec<&str> = text
-            .split(|c| c == '.' || c == '!' || c == '?')
+            .split(['.', '!', '?'])
             .filter(|s| !s.trim().is_empty())
             .collect();
 

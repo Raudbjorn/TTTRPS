@@ -312,7 +312,7 @@ mod tests {
     fn test_error_recovery_info() {
         let error = NativeFeatureError::FileDialog {
             operation: "open".to_string(),
-            reason: "user cancelled".to_string(),
+            reason: "user canceled".to_string(),
             recoverable: true,
         };
         

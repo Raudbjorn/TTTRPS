@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 const DEFAULT_MIN_COLUMN_GAP: f32 = 20.0;
 
 /// Default minimum column width to consider valid
-const DEFAULT_MIN_COLUMN_WIDTH: f32 = 100.0;
+const _DEFAULT_MIN_COLUMN_WIDTH: f32 = 100.0;
 
 // ============================================================================
 // Types

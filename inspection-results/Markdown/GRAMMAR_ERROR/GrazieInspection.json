@@ -1,0 +1,24 @@
+{
+  "problems": [
+    {
+      "file": "file://$PROJECT_DIR$/src-tauri/PERFORMANCE_OPTIMIZATIONS.md",
+      "line": 59,
+      "offset": 45,
+      "length": 9,
+      "module": "TTTRPS",
+      "problem_class": {
+        "name": "Grammar",
+        "id": "GrazieInspection",
+        "severity": "GRAMMAR_ERROR",
+        "attribute_key": "GRAMMAR_ERROR"
+      },
+      "entry_point": {
+        "TYPE": "file",
+        "FQNAME": "file://$PROJECT_DIR$/src-tauri/PERFORMANCE_OPTIMIZATIONS.md"
+      },
+      "highlighted_element": "re-parsed",
+      "language": "Markdown",
+      "description": "This word is normally spelled as one."
+    }
+  ]
+}

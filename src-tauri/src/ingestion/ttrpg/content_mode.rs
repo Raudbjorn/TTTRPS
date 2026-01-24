@@ -292,7 +292,7 @@ impl ContentModeClassifier {
     fn check_fiction_mode(&self, text: &str, text_lower: &str) -> Option<ContentModeResult> {
         let mut fiction_score: f32 = 0.0;
 
-        // Italicized story text (often indicated by markdown or special formatting)
+        // Italicized story text (often indicated by Markdown or special formatting)
         // Check for common fiction indicators
         if text.starts_with('*') && text.ends_with('*')
             || text.starts_with('_') && text.ends_with('_')

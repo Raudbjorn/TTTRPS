@@ -471,7 +471,7 @@ fn format_timestamp(iso: &str) -> String {
     }
 }
 
-/// Format bytes to human readable
+/// Format bytes to human-readable
 fn format_bytes(bytes: usize) -> String {
     if bytes < 1024 {
         format!("{} B", bytes)

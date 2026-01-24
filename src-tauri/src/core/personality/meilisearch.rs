@@ -104,6 +104,8 @@ pub fn blend_rules_settings() -> Settings {
 pub struct PersonalityIndexManager {
     client: Client,
     host: String,
+    /// API key stored for potential reconnection scenarios
+    #[allow(dead_code)]
     api_key: Option<String>,
 }
 

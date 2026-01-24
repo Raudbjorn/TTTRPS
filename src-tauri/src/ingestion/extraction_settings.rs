@@ -2,7 +2,7 @@
 //!
 //! Configurable settings for document extraction using kreuzberg or Claude.
 //! These settings control OCR, chunking, quality processing, and language detection.
-//! Also includes settings for markdown page detection and layout JSON import.
+//! Also includes settings for Markdown page detection and layout JSON import.
 
 use serde::{Deserialize, Serialize};
 
@@ -115,10 +115,10 @@ impl OcrBackend {
 // Markdown Page Detection Settings
 // ============================================================================
 
-/// Settings for markdown page boundary detection
+/// Settings for Markdown page boundary detection
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MarkdownSettings {
-    /// Enable detection of *Page N* markers in markdown files
+    /// Enable detection of *Page N* markers in Markdown files
     pub detect_page_markers: bool,
     /// Fallback page size in characters when no markers are found
     pub fallback_page_size: usize,
@@ -218,7 +218,7 @@ pub struct ExtractionSettings {
     pub large_pdf_chunk_size: usize,
 
     // ========== Markdown Settings ==========
-    /// Settings for markdown page boundary detection
+    /// Settings for Markdown page boundary detection
     #[serde(default)]
     pub markdown: MarkdownSettings,
 

@@ -133,13 +133,13 @@ impl LLMProvider for MeilisearchProvider {
 
         tokio::spawn(async move {
             let mut chunk_index = 0;
-            let mut received_done = false;
+            let received_done = false;
 
             while let Some(result) = rx.recv().await {
                 match result {
                     Ok(content) => {
                         if content == "[DONE]" {
-                            received_done = true;
+                            // Note: received_done not set here since we return immediately
                             let final_chunk = ChatChunk {
                                 stream_id: stream_id.clone(),
                                 content: String::new(),

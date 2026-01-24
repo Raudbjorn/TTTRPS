@@ -225,13 +225,11 @@ impl LayoutDocument {
         let mut header = String::new();
         let mut bytes_read = 0;
 
-        for line in reader.lines().take(20) {
-            if let Ok(line) = line {
-                header.push_str(&line);
-                bytes_read += line.len();
-                if bytes_read > 500 {
-                    break;
-                }
+        for line in reader.lines().take(20).flatten() {
+            header.push_str(&line);
+            bytes_read += line.len();
+            if bytes_read > 500 {
+                break;
             }
         }
 
@@ -278,7 +276,7 @@ impl LayoutDocument {
     pub fn page_count(&self) -> usize {
         self.metadata
             .page_count
-            .unwrap_or_else(|| self.pages.len())
+            .unwrap_or(self.pages.len())
     }
 
     /// Convert layout pages to simple Page structs for the ingestion pipeline.

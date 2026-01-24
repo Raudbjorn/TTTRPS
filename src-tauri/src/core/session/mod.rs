@@ -1,6 +1,6 @@
 //! Session Module
 //!
-//! Sub-modules for session management including timeline tracking,
+//! Submodules for session management including timeline tracking,
 //! advanced conditions, session notes with AI categorization,
 //! and session planning with pacing templates.
 

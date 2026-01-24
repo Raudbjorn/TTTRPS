@@ -1,0 +1,44 @@
+{
+  "problems": [
+    {
+      "file": "file://$PROJECT_DIR$/README.md",
+      "line": 62,
+      "offset": 0,
+      "length": 3,
+      "module": "TTTRPS",
+      "problem_class": {
+        "name": "Incorrectly numbered list item",
+        "id": "MarkdownIncorrectlyNumberedListItem",
+        "severity": "WEAK WARNING",
+        "attribute_key": "INFO_ATTRIBUTES"
+      },
+      "entry_point": {
+        "TYPE": "file",
+        "FQNAME": "file://$PROJECT_DIR$/README.md"
+      },
+      "highlighted_element": "2.",
+      "language": "Markdown",
+      "description": "Item is not correctly numbered. Expected item number 1, but got 2."
+    },
+    {
+      "file": "file://$PROJECT_DIR$/README.md",
+      "line": 68,
+      "offset": 0,
+      "length": 3,
+      "module": "TTTRPS",
+      "problem_class": {
+        "name": "Incorrectly numbered list item",
+        "id": "MarkdownIncorrectlyNumberedListItem",
+        "severity": "WEAK WARNING",
+        "attribute_key": "INFO_ATTRIBUTES"
+      },
+      "entry_point": {
+        "TYPE": "file",
+        "FQNAME": "file://$PROJECT_DIR$/README.md"
+      },
+      "highlighted_element": "3.",
+      "language": "Markdown",
+      "description": "Item is not correctly numbered. Expected item number 1, but got 3."
+    }
+  ]
+}

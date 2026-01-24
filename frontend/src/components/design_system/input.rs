@@ -9,7 +9,7 @@ pub fn Input(
     value: RwSignal<String>,
     /// Placeholder text
     #[prop(into, optional)]
-    placeholder: MaybeSignal<String>,
+    placeholder: Signal<String>,
     /// Input change handler (called with the new value)
     #[prop(into, optional)]
     on_input: Option<Callback<String>>,
@@ -18,10 +18,10 @@ pub fn Input(
     on_keydown: Option<Callback<ev::KeyboardEvent>>,
     /// Whether the input is disabled
     #[prop(into, default = false.into())]
-    disabled: MaybeSignal<bool>,
+    disabled: Signal<bool>,
     /// Input type (text, password, email, etc.)
     #[prop(into, optional)]
-    r#type: MaybeSignal<String>,
+    r#type: Signal<String>,
     /// Additional CSS classes
     #[prop(into, optional)]
     class: String,

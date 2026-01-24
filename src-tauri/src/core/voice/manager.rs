@@ -164,8 +164,7 @@ impl VoiceManager {
         // Create the cache
         let cache = AudioCache::new(self.cache_dir.clone(), self.cache_config.clone())
             .await
-            .map_err(|e| VoiceError::IoError(std::io::Error::new(
-                std::io::ErrorKind::Other,
+            .map_err(|e| VoiceError::IoError(std::io::Error::other(
                 format!("Failed to initialize audio cache: {}", e)
             )))?;
 
@@ -184,8 +183,7 @@ impl VoiceManager {
     /// Clear all cache entries
     pub async fn clear_cache(&self) -> Result<()> {
         let cache = self.get_cache().await?;
-        cache.clear().await.map_err(|e| VoiceError::IoError(std::io::Error::new(
-            std::io::ErrorKind::Other,
+        cache.clear().await.map_err(|e| VoiceError::IoError(std::io::Error::other(
             format!("Failed to clear cache: {}", e)
         )))
     }
@@ -193,8 +191,7 @@ impl VoiceManager {
     /// Clear cache entries by tag (e.g., session_id, npc_id)
     pub async fn clear_cache_by_tag(&self, tag: &str) -> Result<usize> {
         let cache = self.get_cache().await?;
-        cache.clear_by_tag(tag).await.map_err(|e| VoiceError::IoError(std::io::Error::new(
-            std::io::ErrorKind::Other,
+        cache.clear_by_tag(tag).await.map_err(|e| VoiceError::IoError(std::io::Error::other(
             format!("Failed to clear cache by tag: {}", e)
         )))
     }
@@ -202,8 +199,7 @@ impl VoiceManager {
     /// Prune cache entries older than the specified age
     pub async fn prune_cache(&self, max_age_seconds: i64) -> Result<usize> {
         let cache = self.get_cache().await?;
-        cache.prune_older_than(max_age_seconds).await.map_err(|e| VoiceError::IoError(std::io::Error::new(
-            std::io::ErrorKind::Other,
+        cache.prune_older_than(max_age_seconds).await.map_err(|e| VoiceError::IoError(std::io::Error::other(
             format!("Failed to prune cache: {}", e)
         )))
     }
@@ -314,8 +310,7 @@ impl VoiceManager {
             || async {
                 // This closure is only called if the key is not in cache
                 let audio_data = provider.synthesize(&request_clone).await
-                    .map_err(|e| CacheError::IoError(std::io::Error::new(
-                        std::io::ErrorKind::Other,
+                    .map_err(|e| CacheError::IoError(std::io::Error::other(
                         format!("Synthesis failed: {}", e)
                     )))?;
                 Ok(audio_data)
@@ -336,8 +331,7 @@ impl VoiceManager {
                     cached,
                 })
             }
-            Err(e) => Err(VoiceError::IoError(std::io::Error::new(
-                std::io::ErrorKind::Other,
+            Err(e) => Err(VoiceError::IoError(std::io::Error::other(
                 format!("Cache operation failed: {}", e)
             )))
         }
@@ -383,13 +377,13 @@ impl VoiceManager {
     /// Play audio data through the system audio output
     pub fn play_audio(&self, audio_data: Vec<u8>) -> Result<()> {
         let (_stream, stream_handle) = OutputStream::try_default()
-            .map_err(|e| VoiceError::IoError(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())))?;
+            .map_err(|e| VoiceError::IoError(std::io::Error::other(e.to_string())))?;
         let sink = Sink::try_new(&stream_handle)
-            .map_err(|e| VoiceError::IoError(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())))?;
+            .map_err(|e| VoiceError::IoError(std::io::Error::other(e.to_string())))?;
 
         let cursor = Cursor::new(audio_data);
         let source = Decoder::new(cursor)
-            .map_err(|e| VoiceError::IoError(std::io::Error::new(std::io::ErrorKind::Other, e.to_string())))?;
+            .map_err(|e| VoiceError::IoError(std::io::Error::other(e.to_string())))?;
 
         sink.append(source);
         sink.sleep_until_end();

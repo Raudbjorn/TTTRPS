@@ -49,10 +49,10 @@ use crate::core::personality::{
     ExtendedPersonalityPreview, PreviewResponse, NarrativeTone, VocabularyLevel,
     NarrativeStyle, VerbosityLevel, GenreConvention, PersonalityStore,
     // Phase 4: Personality Extensions
-    SettingTemplate, SettingTemplateStore, TemplateLoader, GameplayContext,
-    BlendRule, BlendRuleStore, PersonalityBlender, GameplayContextDetector,
+    SettingTemplate, SettingTemplateStore, GameplayContext,
+    BlendRule, BlendRuleStore, PersonalityBlender,
     SessionStateSnapshot, ContextualPersonalityManager, ContextualPersonalityResult,
-    ContextDetectionResult, PersonalityId, BlendRuleId, TemplateId, BlendComponent,
+    ContextDetectionResult, PersonalityId, BlendRuleId, TemplateId,
     PersonalityIndexManager, ContextualConfig, BlenderCacheStats, RuleCacheStats,
 };
 use crate::core::credentials::CredentialManager;
@@ -106,20 +106,17 @@ fn serialize_enum_to_string<T: serde::Serialize>(value: &T) -> String {
 /// Storage backend type for Claude Gate
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum ClaudeGateStorageBackend {
     /// File-based storage (~/.config/cld/auth.json)
     File,
     /// System keyring storage
     Keyring,
     /// Auto-select (keyring if available, else file)
+    #[default]
     Auto,
 }
 
-impl Default for ClaudeGateStorageBackend {
-    fn default() -> Self {
-        Self::Auto
-    }
-}
 
 impl std::fmt::Display for ClaudeGateStorageBackend {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -779,7 +776,7 @@ pub async fn chat(
         .ok_or("LLM not configured. Please configure in Settings.")?;
 
     // Determine effective system prompt
-    let system_prompt = if let Some(pid) = &payload.personality_id {
+    let _system_prompt = if let Some(pid) = &payload.personality_id {
         match state.personality_store.get(pid) {
             Ok(profile) => profile.to_system_prompt(),
             Err(_) => payload.system_prompt.clone().unwrap_or_else(|| {
@@ -837,7 +834,6 @@ pub async fn chat(
         LLMConfig::Cohere { model, .. } => model.clone(),
         LLMConfig::DeepSeek { model, .. } => model.clone(),
         LLMConfig::Ollama { model, .. } => model.clone(),
-        LLMConfig::Claude { model, .. } => model.clone(),
         LLMConfig::Meilisearch { model, .. } => model.clone(),
     };
 
@@ -964,13 +960,6 @@ pub fn get_llm_config(state: State<'_, AppState>) -> Result<Option<LLMSettings>,
             model: model.clone(),
             embedding_model: None,
         },
-        LLMConfig::Claude { model, .. } => LLMSettings {
-            provider: "claude".to_string(),
-            api_key: None, // No API key needed - uses OAuth
-            host: None,
-            model: model.clone(),
-            embedding_model: None,
-        },
         LLMConfig::Meilisearch { host, model, .. } => LLMSettings {
             provider: "meilisearch".to_string(),
             api_key: None,
@@ -1045,7 +1034,7 @@ pub async fn list_gemini_models(api_key: Option<String>) -> Result<Vec<crate::co
 pub async fn list_openrouter_models() -> Result<Vec<crate::core::llm::ModelInfo>, String> {
     // OpenRouter has a public models endpoint
     match crate::core::llm::fetch_openrouter_models().await {
-        Ok(models) => Ok(models.into_iter().map(|m| m.into()).collect()),
+        Ok(models) => Ok(models.into_iter().collect()),
         Err(_) => Ok(crate::core::llm::get_extended_fallback_models("openrouter")),
     }
 }
@@ -1146,7 +1135,7 @@ pub async fn run_provider_health_checks(
 pub async fn stream_chat(
     app_handle: tauri::AppHandle,
     messages: Vec<ChatMessage>,
-    system_prompt: Option<String>,
+    _system_prompt: Option<String>,
     temperature: Option<f32>,
     max_tokens: Option<u32>,
     provided_stream_id: Option<String>,
@@ -5357,30 +5346,18 @@ pub fn get_security_events(state: State<'_, AuditLoggerState>) -> Vec<SecurityAu
 // ============================================================================
 
 /// State wrapper for usage tracking
+#[derive(Default)]
 pub struct UsageTrackerState {
     pub tracker: UsageTracker,
 }
 
-impl Default for UsageTrackerState {
-    fn default() -> Self {
-        Self {
-            tracker: UsageTracker::new(),
-        }
-    }
-}
 
 /// State wrapper for search analytics
+#[derive(Default)]
 pub struct SearchAnalyticsState {
     pub analytics: SearchAnalytics,
 }
 
-impl Default for SearchAnalyticsState {
-    fn default() -> Self {
-        Self {
-            analytics: SearchAnalytics::new(),
-        }
-    }
-}
 
 /// State wrapper for audit logging
 pub struct AuditLoggerState {
@@ -5519,7 +5496,7 @@ pub fn search_voice_profiles(query: String) -> Vec<VoiceProfile> {
             p.name.to_lowercase().contains(&query_lower)
                 || p.metadata.personality_traits.iter().any(|t| t.to_lowercase().contains(&query_lower))
                 || p.metadata.tags.iter().any(|t| t.to_lowercase().contains(&query_lower))
-                || p.metadata.description.as_ref().map_or(false, |d| d.to_lowercase().contains(&query_lower))
+                || p.metadata.description.as_ref().is_some_and(|d| d.to_lowercase().contains(&query_lower))
         })
         .collect()
 }
@@ -5942,7 +5919,7 @@ pub async fn list_processing_synthesis_jobs(
     Ok(state.queue.list_processing().await)
 }
 
-/// List synthesis job history (completed/failed/cancelled)
+/// List synthesis job history (completed/failed/canceled)
 #[tauri::command]
 pub async fn list_synthesis_job_history(
     limit: Option<usize>,
@@ -6979,8 +6956,8 @@ pub fn list_location_types() -> Vec<String> {
 pub fn add_location_connection(
     source_location_id: String,
     target_location_id: String,
-    connection_type: String,
-    description: Option<String>,
+    _connection_type: String,
+    _description: Option<String>,
     travel_time: Option<String>,
     bidirectional: Option<bool>,
     state: State<'_, AppState>,
@@ -8355,7 +8332,7 @@ pub async fn get_blend_rule_cache_stats(
 #[tauri::command]
 pub fn list_gameplay_contexts() -> Vec<GameplayContextInfo> {
     GameplayContext::all_defined()
-        .into_iter()
+        .iter()
         .map(|ctx| GameplayContextInfo {
             id: ctx.as_str().to_string(),
             name: ctx.display_name().to_string(),
@@ -8385,15 +8362,15 @@ pub struct GameplayContextInfo {
 
 /// Open a URL in the system's default browser
 ///
-/// Uses Tauri's shell plugin to open URLs properly on all platforms.
+/// Uses Tauri's opener plugin to open URLs properly on all platforms.
 #[tauri::command]
 pub async fn open_url_in_browser(
     url: String,
     app_handle: tauri::AppHandle,
 ) -> Result<(), String> {
-    use tauri_plugin_shell::ShellExt;
+    use tauri_plugin_opener::OpenerExt;
 
-    app_handle.shell().open(&url, None)
+    app_handle.opener().open_url(&url, None::<&str>)
         .map_err(|e| format!("Failed to open URL: {}", e))
 }
 

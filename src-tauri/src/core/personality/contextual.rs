@@ -28,7 +28,7 @@
 //! ).await?;
 //! ```
 
-use super::blender::{BlendSpec, BlendedProfile, PersonalityBlender};
+use super::blender::{BlendSpec, PersonalityBlender};
 use super::blend_rules::BlendRuleStore;
 use super::context::GameplayContext;
 use super::context_detector::{GameplayContextDetector, SessionStateSnapshot};
@@ -58,7 +58,7 @@ pub struct ContextualConfig {
     /// Whether to cache blended profiles for repeated context detections.
     /// Note: Caching is currently delegated to the PersonalityBlender component.
     /// This field is reserved for future manager-level cache control.
-    #[allow(dead_code)]
+
     pub enable_caching: bool,
 
     /// Campaign-specific default personality (if no blend rule matches).
@@ -302,7 +302,7 @@ impl ContextualPersonalityManager {
 
         // Gather personality profiles
         let mut profiles: HashMap<PersonalityId, PersonalityProfile> = HashMap::new();
-        for (id, _) in &rule.blend_weights {
+        for id in rule.blend_weights.keys() {
             match self.personality_store.get(id.as_str()) {
                 Ok(profile) => {
                     profiles.insert(id.clone(), profile);

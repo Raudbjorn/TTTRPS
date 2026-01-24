@@ -44,6 +44,7 @@ impl Default for MeilisearchConfig {
 
 impl MeilisearchConfig {
     pub fn url(&self) -> String {
+        // HTTP is intentional for localhost (127.0.0.1) - Meilisearch runs locally without TLS
         format!("http://{}:{}", self.host, self.port)
     }
 
@@ -420,7 +421,7 @@ impl SidecarManager {
             "--master-key",
             &self.config.master_key,
             "--db-path",
-            &db_path,
+            db_path,
             "--env",
             "development",
             "--log-level",

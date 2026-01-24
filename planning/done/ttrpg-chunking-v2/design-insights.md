@@ -209,6 +209,7 @@ Standard TTRPG typography:
 - Sidebars: Inverted colors or contrasting font
 
 **Without font extraction**, detect hierarchy through:
+
 - Line length patterns (headers usually shorter)
 - All-caps lines (section headers)
 - Indentation patterns

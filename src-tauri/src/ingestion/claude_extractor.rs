@@ -378,7 +378,6 @@ impl<S: TokenStorage + 'static> ClaudeDocumentExtractor<S> {
     where
         F: Fn(usize, usize, &str) + Send + Sync + Clone + 'static,
     {
-        use futures::stream::{self, StreamExt};
         use tokio::process::Command;
 
         let path_str = path.to_string_lossy().to_string();

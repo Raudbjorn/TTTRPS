@@ -1,0 +1,84 @@
+{
+  "problems": [
+    {
+      "file": "file://$PROJECT_DIR$/cargo_check_output.txt",
+      "line": 202,
+      "offset": 98,
+      "length": 6,
+      "module": "TTTRPS",
+      "problem_class": {
+        "name": "Style",
+        "id": "GrazieStyle",
+        "severity": "STYLE_SUGGESTION",
+        "attribute_key": "TEXT_STYLE_SUGGESTION"
+      },
+      "entry_point": {
+        "TYPE": "file",
+        "FQNAME": "file://$PROJECT_DIR$/cargo_check_output.txt"
+      },
+      "highlighted_element": "favour",
+      "language": "TEXT",
+      "description": "British roots ending with '-our' usually have '-or' in American English"
+    },
+    {
+      "file": "file://$PROJECT_DIR$/cargo_check_output.txt",
+      "line": 210,
+      "offset": 98,
+      "length": 6,
+      "module": "TTTRPS",
+      "problem_class": {
+        "name": "Style",
+        "id": "GrazieStyle",
+        "severity": "STYLE_SUGGESTION",
+        "attribute_key": "TEXT_STYLE_SUGGESTION"
+      },
+      "entry_point": {
+        "TYPE": "file",
+        "FQNAME": "file://$PROJECT_DIR$/cargo_check_output.txt"
+      },
+      "highlighted_element": "favour",
+      "language": "TEXT",
+      "description": "British roots ending with '-our' usually have '-or' in American English"
+    },
+    {
+      "file": "file://$PROJECT_DIR$/cargo_check_output.txt",
+      "line": 216,
+      "offset": 98,
+      "length": 6,
+      "module": "TTTRPS",
+      "problem_class": {
+        "name": "Style",
+        "id": "GrazieStyle",
+        "severity": "STYLE_SUGGESTION",
+        "attribute_key": "TEXT_STYLE_SUGGESTION"
+      },
+      "entry_point": {
+        "TYPE": "file",
+        "FQNAME": "file://$PROJECT_DIR$/cargo_check_output.txt"
+      },
+      "highlighted_element": "favour",
+      "language": "TEXT",
+      "description": "British roots ending with '-our' usually have '-or' in American English"
+    },
+    {
+      "file": "file://$PROJECT_DIR$/cargo_check_output.txt",
+      "line": 222,
+      "offset": 98,
+      "length": 6,
+      "module": "TTTRPS",
+      "problem_class": {
+        "name": "Style",
+        "id": "GrazieStyle",
+        "severity": "STYLE_SUGGESTION",
+        "attribute_key": "TEXT_STYLE_SUGGESTION"
+      },
+      "entry_point": {
+        "TYPE": "file",
+        "FQNAME": "file://$PROJECT_DIR$/cargo_check_output.txt"
+      },
+      "highlighted_element": "favour",
+      "language": "TEXT",
+      "description": "British roots ending with '-our' usually have '-or' in American English"
+    }
+  ]
+}

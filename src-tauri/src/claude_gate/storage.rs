@@ -929,7 +929,7 @@ impl KeyringTokenStorage {
     const DEFAULT_USER: &'static str = "anthropic";
     /// Service name used for availability testing (separate from token storage).
     const AVAILABILITY_TEST_SERVICE: &'static str = "claude-gate-availability-test";
-    /// User name used for availability testing.
+    /// Username used for availability testing.
     const AVAILABILITY_TEST_USER: &'static str = "test";
     /// Test value written during availability check.
     const AVAILABILITY_TEST_VALUE: &'static str = "availability-check";

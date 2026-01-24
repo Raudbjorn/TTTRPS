@@ -728,7 +728,7 @@ mod edge_case_tests {
         // Use a config with small min_size to accommodate short test text
         let chunker = SemanticChunker::with_config(ChunkConfig {
             target_size: 100,
-            min_size: 10,  // Small min_size for short unicode test
+            min_size: 10,  // Small min_size for short Unicode test
             max_size: 200,
             overlap_size: 10,
             preserve_sentences: true,
@@ -737,7 +737,7 @@ mod edge_case_tests {
         let unicode_text = "First paragraph with unicode: cafe.\n\nSecond paragraph with more: resume.\n\nThird: naive.";
         let chunks = chunker.chunk_text(unicode_text, "test");
 
-        // Should handle unicode without panicking and produce chunks
+        // Should handle Unicode without panicking and produce chunks
         assert!(!chunks.is_empty());
 
         // Unicode should be preserved

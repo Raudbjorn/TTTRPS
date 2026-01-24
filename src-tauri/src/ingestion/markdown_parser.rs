@@ -1,6 +1,6 @@
 //! Markdown Page Parser
 //!
-//! Detects page boundaries in markdown documents and splits content into pages.
+//! Detects page boundaries in Markdown documents and splits content into pages.
 //! Supports explicit `*Page N*` markers and fallback size-based splitting.
 
 use once_cell::sync::Lazy;
@@ -27,7 +27,7 @@ impl MarkdownPageParser {
         PAGE_MARKER.is_match(content)
     }
 
-    /// Split markdown content by explicit `*Page N*` markers.
+    /// Split Markdown content by explicit `*Page N*` markers.
     ///
     /// Returns a vector of (page_number, content) tuples.
     /// Content before the first marker is treated as page 1.
@@ -131,7 +131,7 @@ impl MarkdownPageParser {
         pages
     }
 
-    /// Parse markdown content into pages.
+    /// Parse Markdown content into pages.
     ///
     /// First attempts to detect `*Page N*` markers. If none are found,
     /// falls back to size-based splitting.

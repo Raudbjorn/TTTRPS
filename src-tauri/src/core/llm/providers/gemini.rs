@@ -222,8 +222,7 @@ impl LLMProvider for GeminiProvider {
                         let text = String::from_utf8_lossy(&bytes);
 
                         for line in text.lines() {
-                            if line.starts_with("data: ") {
-                                let data = &line[6..];
+                            if let Some(data) = line.strip_prefix("data: ") {
                                 if let Ok(json) = serde_json::from_str::<serde_json::Value>(data) {
                                     if let Some(text) =
                                         json["candidates"][0]["content"]["parts"][0]["text"]

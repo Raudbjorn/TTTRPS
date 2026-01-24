@@ -359,16 +359,16 @@ pub fn Chat() -> impl IntoView {
                 let _ = cancel_stream(stream_id_clone).await;
             });
 
-            // Mark the message as cancelled
+            // Mark the message as canceled
             if let Some(msg_id) = streaming_message_id.get() {
                 messages.update(|msgs| {
                     if let Some(msg) = msgs.iter_mut().find(|m| m.id == msg_id) {
                         msg.is_streaming = false;
                         msg.stream_id = None;
                         if msg.content.is_empty() {
-                            msg.content = "[Response cancelled]".to_string();
+                            msg.content = "[Response canceled]".to_string();
                         } else {
-                            msg.content.push_str("\n\n[Stream cancelled]");
+                            msg.content.push_str("\n\n[Stream canceled]");
                         }
                     }
                 });

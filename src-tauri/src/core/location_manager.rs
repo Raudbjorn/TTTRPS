@@ -390,7 +390,7 @@ mod tests {
         let generator = LocationGenerator::new();
 
         // Create locations for different campaigns
-        for i in 0..3 {
+        for _ in 0..3 {
             let options = LocationGenerationOptions {
                 location_type: Some("tavern".to_string()),
                 campaign_id: Some("campaign-1".to_string()),
@@ -400,7 +400,7 @@ mod tests {
             manager.save_location(location).unwrap();
         }
 
-        for i in 0..2 {
+        for _ in 0..2 {
             let options = LocationGenerationOptions {
                 location_type: Some("dungeon".to_string()),
                 campaign_id: Some("campaign-2".to_string()),

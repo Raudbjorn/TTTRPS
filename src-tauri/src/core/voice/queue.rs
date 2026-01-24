@@ -21,12 +21,14 @@ use super::types::{VoiceProviderType, VoiceSettings, OutputFormat};
 /// Priority levels for synthesis jobs
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum JobPriority {
     /// Highest priority - immediate playback requested
     Immediate = 100,
     /// High priority - user is actively waiting
     High = 75,
     /// Normal priority - standard queue processing
+    #[default]
     Normal = 50,
     /// Low priority - background pre-generation
     Low = 25,
@@ -34,11 +36,6 @@ pub enum JobPriority {
     Batch = 10,
 }
 
-impl Default for JobPriority {
-    fn default() -> Self {
-        Self::Normal
-    }
-}
 
 impl From<u8> for JobPriority {
     fn from(value: u8) -> Self {
@@ -67,8 +64,10 @@ impl std::fmt::Display for JobPriority {
 /// Status of a synthesis job
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum JobStatus {
     /// Job is waiting in queue
+    #[default]
     Pending,
     /// Job is currently being processed
     Processing,
@@ -76,23 +75,18 @@ pub enum JobStatus {
     Completed,
     /// Job failed with error
     Failed(String),
-    /// Job was cancelled
-    Cancelled,
+    /// Job was canceled
+    Canceled,
 }
 
-impl Default for JobStatus {
-    fn default() -> Self {
-        Self::Pending
-    }
-}
 
 impl JobStatus {
     /// Check if job is in a terminal state
     pub fn is_terminal(&self) -> bool {
-        matches!(self, Self::Completed | Self::Failed(_) | Self::Cancelled)
+        matches!(self, Self::Completed | Self::Failed(_) | Self::Canceled)
     }
 
-    /// Check if job can be cancelled
+    /// Check if job can be canceled
     pub fn can_cancel(&self) -> bool {
         matches!(self, Self::Pending | Self::Processing)
     }
@@ -283,11 +277,11 @@ impl SynthesisJob {
         self.progress.stage = "Failed".to_string();
     }
 
-    /// Mark job as cancelled
-    pub fn mark_cancelled(&mut self) {
-        self.status = JobStatus::Cancelled;
+    /// Mark job as canceled
+    pub fn mark_canceled(&mut self) {
+        self.status = JobStatus::Canceled;
         self.completed_at = Some(Utc::now());
-        self.progress.stage = "Cancelled".to_string();
+        self.progress.stage = "Canceled".to_string();
     }
 
     /// Update progress
@@ -414,8 +408,8 @@ pub struct QueueStats {
     pub completed_count: u64,
     /// Total jobs failed
     pub failed_count: u64,
-    /// Total jobs cancelled
-    pub cancelled_count: u64,
+    /// Total jobs canceled
+    pub canceled_count: u64,
     /// Average processing time in milliseconds
     pub avg_processing_ms: f64,
     /// Queue utilization (0.0 - 1.0)
@@ -462,7 +456,7 @@ pub mod events {
     pub const JOB_PROGRESS: &str = "synthesis:job-progress";
     pub const JOB_COMPLETED: &str = "synthesis:job-completed";
     pub const JOB_FAILED: &str = "synthesis:job-failed";
-    pub const JOB_CANCELLED: &str = "synthesis:job-cancelled";
+    pub const JOB_CANCELED: &str = "synthesis:job-canceled";
     pub const QUEUE_STATS: &str = "synthesis:queue-stats";
     pub const QUEUE_PAUSED: &str = "synthesis:queue-paused";
     pub const QUEUE_RESUMED: &str = "synthesis:queue-resumed";
@@ -527,7 +521,7 @@ struct QueueState {
     jobs: HashMap<String, SynthesisJob>,
     /// Jobs currently being processed
     processing: HashMap<String, SynthesisJob>,
-    /// Completed/failed/cancelled jobs (history)
+    /// Completed/failed/canceled jobs (history)
     history: Vec<SynthesisJob>,
     /// Statistics
     stats: QueueStats,
@@ -576,7 +570,8 @@ pub struct SynthesisQueue {
     state: Arc<RwLock<QueueState>>,
     /// Command channel sender
     command_tx: mpsc::Sender<QueueCommand>,
-    /// Command channel receiver (for worker)
+    /// Command channel receiver (for worker). Stored for potential worker spawning.
+    #[allow(dead_code)]
     command_rx: Arc<Mutex<mpsc::Receiver<QueueCommand>>>,
     /// Shutdown signal
     shutdown_tx: watch::Sender<bool>,
@@ -694,7 +689,7 @@ impl SynthesisQueue {
     /// Cancel a job
     pub async fn cancel(&self, job_id: &str, app_handle: Option<&AppHandle>) -> QueueResult<()> {
         // First, check the job status and determine what action to take
-        let (was_pending, was_processing, progress) = {
+        let (_was_pending, was_processing, progress) = {
             let mut state = self.state.write().await;
 
             let job = state.jobs.get_mut(job_id)
@@ -710,7 +705,7 @@ impl SynthesisQueue {
                 )));
             }
 
-            job.mark_cancelled();
+            job.mark_canceled();
             let progress = job.progress.clone();
 
             if was_pending {
@@ -720,11 +715,11 @@ impl SynthesisQueue {
                 for pj in remaining {
                     state.pending.push(pj);
                 }
-                state.stats.cancelled_count += 1;
+                state.stats.canceled_count += 1;
                 state.stats.pending_count = state.pending.len();
             } else if was_processing {
                 state.processing.remove(job_id);
-                state.stats.cancelled_count += 1;
+                state.stats.canceled_count += 1;
                 state.stats.processing_count = state.processing.len();
             }
 
@@ -740,16 +735,16 @@ impl SynthesisQueue {
 
         // Emit event
         if let Some(handle) = app_handle {
-            let _ = handle.emit(events::JOB_CANCELLED, JobStatusEvent {
+            let _ = handle.emit(events::JOB_CANCELED, JobStatusEvent {
                 job_id: job_id.to_string(),
-                status: JobStatus::Cancelled,
+                status: JobStatus::Canceled,
                 progress,
                 result_path: None,
                 error: None,
             });
         }
 
-        log::info!("Synthesis job {} cancelled", job_id);
+        log::info!("Synthesis job {} canceled", job_id);
 
         Ok(())
     }
@@ -757,13 +752,13 @@ impl SynthesisQueue {
     /// Cancel all pending and processing jobs
     pub async fn cancel_all(&self, app_handle: Option<&AppHandle>) -> QueueResult<usize> {
         let mut state = self.state.write().await;
-        let mut cancelled = 0;
+        let mut canceled = 0;
 
         // Cancel pending jobs
         while let Some(pj) = state.pending.pop() {
             if let Some(job) = state.jobs.get_mut(&pj.job.id) {
-                job.mark_cancelled();
-                cancelled += 1;
+                job.mark_canceled();
+                canceled += 1;
             }
         }
 
@@ -774,13 +769,13 @@ impl SynthesisQueue {
                 let _ = token.send(());
             }
             if let Some(job) = state.jobs.get_mut(job_id) {
-                job.mark_cancelled();
-                cancelled += 1;
+                job.mark_canceled();
+                canceled += 1;
             }
         }
         state.processing.clear();
 
-        state.stats.cancelled_count += cancelled as u64;
+        state.stats.canceled_count += canceled as u64;
         state.stats.pending_count = 0;
         state.stats.processing_count = 0;
 
@@ -791,9 +786,9 @@ impl SynthesisQueue {
             });
         }
 
-        log::info!("Cancelled {} synthesis jobs", cancelled);
+        log::info!("Canceled {} synthesis jobs", canceled);
 
-        Ok(cancelled)
+        Ok(canceled)
     }
 
     /// Pause queue processing
@@ -1038,7 +1033,7 @@ impl SynthesisQueue {
         state.processing.values().cloned().collect()
     }
 
-    /// List job history (completed/failed/cancelled)
+    /// List job history (completed/failed/canceled)
     pub async fn list_history(&self, limit: Option<usize>) -> Vec<SynthesisJob> {
         let state = self.state.read().await;
         let limit = limit.unwrap_or(state.history.len());
@@ -1255,8 +1250,8 @@ impl QueueWorker {
                 }
             }
             _ = cancel_rx => {
-                log::info!("Synthesis job {} cancelled during processing", job_id);
-                // Job already marked as cancelled by cancel()
+                log::info!("Synthesis job {} canceled during processing", job_id);
+                // Job already marked as canceled by cancel()
             }
         }
 
@@ -1325,13 +1320,13 @@ mod tests {
     async fn test_cancel_job() {
         let queue = SynthesisQueue::with_defaults();
 
-        let job = create_test_job("To be cancelled");
+        let job = create_test_job("To be canceled");
         let job_id = queue.submit(job, None).await.unwrap();
 
         queue.cancel(&job_id, None).await.unwrap();
 
         let status = queue.get_status(&job_id).await.unwrap();
-        assert!(matches!(status, JobStatus::Cancelled));
+        assert!(matches!(status, JobStatus::Canceled));
     }
 
     #[tokio::test]

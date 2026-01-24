@@ -22,8 +22,8 @@ pub enum DownloadError {
     #[error("Parse error: {0}")]
     Parse(String),
 
-    #[error("Download cancelled")]
-    Cancelled,
+    #[error("Download canceled")]
+    Canceled,
 }
 
 pub type DownloadResult<T> = std::result::Result<T, DownloadError>;

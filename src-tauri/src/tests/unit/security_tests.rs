@@ -1,7 +1,7 @@
 //! Security Unit Tests (Phase 2c)
 //!
 //! Comprehensive tests for security features including:
-//! - XSS prevention (script tags, event handlers, javascript: URLs, encoded payloads)
+//! - XSS prevention (script tags, event handlers, JavaScript: URLs, encoded payloads)
 //! - SQL injection prevention (single quotes, UNION, comments, stacked queries)
 //! - Path traversal prevention (../, ..\\, encoded, absolute paths)
 //! - Command injection prevention (semicolons, pipes, backticks)
@@ -13,6 +13,7 @@
 //! - Audit log completeness
 
 #[cfg(test)]
+
 mod tests {
     use std::collections::{HashMap, VecDeque};
     use std::path::Path;
@@ -23,6 +24,7 @@ mod tests {
     // ============================================================================
 
     #[derive(Debug, Clone)]
+    #[allow(dead_code)]
     struct ValidationResult {
         is_valid: bool,
         sanitized: String,
@@ -30,6 +32,7 @@ mod tests {
     }
 
     #[derive(Debug, Clone, PartialEq)]
+    #[allow(dead_code)]
     enum ValidationError {
         TooLong { max: usize },
         Empty,
@@ -1054,6 +1057,7 @@ mod tests {
     }
 
     #[derive(Debug, Clone, PartialEq, PartialOrd)]
+    #[allow(dead_code)]
     enum AuditSeverity {
         Info,
         Warning,
@@ -1309,7 +1313,7 @@ mod tests {
     fn test_unicode_handling() {
         let validator = InputValidator::new();
 
-        // Valid unicode should pass
+        // Valid Unicode should pass
         assert!(validator.validate_text("Hello, 世界!").is_ok());
         assert!(validator.validate_text("Emoji test: 🎮🐉⚔️").is_ok());
 
@@ -1480,7 +1484,7 @@ mod tests {
     fn test_xss_javascript_url_encoded() {
         let validator = InputValidator::new();
 
-        // Encoded javascript: URLs
+        // Encoded JavaScript: URLs
         // The url_decode function only decodes a specific set of characters (%3c, %3e, %3a, etc.)
         // but not %6a, %61, %76, %73, %63, %72, %69, %70, %74 (which spell "javascript").
         // So "%6a%61%76%61script%3aalert(1)" after decode becomes "%6a%61%76%61script:alert(1)"
@@ -1496,6 +1500,7 @@ mod tests {
     // ============================================================================
 
     #[derive(Debug, Clone, PartialEq)]
+    #[allow(dead_code)]
     enum CredentialError {
         NotFound(String),
         InvalidFormat,
@@ -1503,6 +1508,7 @@ mod tests {
     }
 
     #[derive(Debug, Clone)]
+    #[allow(dead_code)]
     struct MockCredential {
         provider: String,
         api_key: String,

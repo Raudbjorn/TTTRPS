@@ -98,6 +98,8 @@ pub type Result<T> = std::result::Result<T, MeilisearchCampaignError>;
 pub struct MeilisearchCampaignClient {
     client: Client,
     host: String,
+    /// API key stored for potential reconnection scenarios
+    #[allow(dead_code)]
     api_key: Option<String>,
     /// Lock for ensuring single-writer semantics on critical operations
     _write_lock: Mutex<()>,

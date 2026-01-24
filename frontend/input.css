@@ -18,7 +18,7 @@
    - Effect class integration with Tailwind's utility system
    - Accessibility-aware custom utilities
 
-   See UXdesign/design.md for the full theme specification.
+   See planning/done/ux-overhaul/design.md for the full theme specification.
    See src/services/theme_service.rs for Rust-side theme blending logic.
 ============================================================================= */
 

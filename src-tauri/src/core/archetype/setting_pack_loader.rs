@@ -169,7 +169,7 @@ pub struct SettingPackLoader {
     version_index: Arc<RwLock<HashMap<String, Vec<String>>>>,
 
     /// Event listeners (stub for future event system).
-    #[allow(dead_code)]
+
     event_listeners: Arc<RwLock<Vec<Box<dyn Fn(SettingPackEvent) + Send + Sync>>>>,
 }
 
@@ -736,6 +736,7 @@ impl SettingPackLoader {
     }
 
     /// Remove a version from the version index.
+    /// Retained for future use in pack unloading functionality.
     #[allow(dead_code)]
     async fn remove_from_version_index(&self, pack_id: &str, version: &str) {
         let mut index = self.version_index.write().await;
@@ -1010,7 +1011,7 @@ gameSystem: "dnd5e"
 version: "1.0.0"
 "#;
         // This should fail because id is missing
-        // Note: serde_yaml may produce an empty string for missing fields
+        // Note: serde_yaml may produce an empty string for missing fields in YAML
         let result = loader.load_from_yaml(yaml).await;
         // The pack validation should catch this
         assert!(result.is_err());

@@ -51,7 +51,7 @@ Development convenience (not a first-class LLM provider):
 
 - `connect_claude_desktop(port)` - Connect to running instance
 - `launch_claude_desktop()` - Launch Claude Desktop with CDP enabled
-- `connect_or_launch_claude_desktop(port)` - Try connect, launch if needed
+- `connect_or_launch_claude_desktop(port)` - Try to connect, launch if needed
 - `disconnect_claude_desktop()` - Disconnect
 - `get_claude_desktop_status()` - Get connection state
 - `claude_desktop_new_conversation()` - Start new chat
