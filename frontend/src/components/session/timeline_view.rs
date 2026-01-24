@@ -157,6 +157,7 @@ pub fn TimelineView(
     min_severity: Option<Signal<TimelineEventSeverity>>,
     /// Auto-refresh interval in seconds (0 = no refresh)
     #[prop(default = 30)]
+    #[allow(unused_variables)]
     _refresh_interval: u32,
 ) -> impl IntoView {
     // Local state for fetched events

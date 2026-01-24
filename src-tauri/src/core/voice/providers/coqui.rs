@@ -23,7 +23,8 @@ struct ServerInfo {
     #[serde(default)]
     model: Option<String>,
     #[serde(default)]
-    _speakers: Vec<String>,
+    #[allow(dead_code)]
+    speakers: Vec<String>,
     #[serde(default)]
     languages: Vec<String>,
 }
@@ -156,7 +157,7 @@ impl CoquiProvider {
         if response.status().is_success() {
             Ok(ServerInfo {
                 model: None,
-                _speakers: vec![],
+                speakers: vec![],
                 languages: vec!["en".to_string()],
             })
         } else {

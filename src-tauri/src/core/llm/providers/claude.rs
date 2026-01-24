@@ -34,13 +34,13 @@
 //! }
 //! ```
 
-use crate::claude_gate::{
+use crate::gate::claude::{
     ClaudeClient, ContentBlock as GateContentBlock, FileTokenStorage, MemoryTokenStorage,
     MessagesResponse, Role as GateRole, StreamEvent,
 };
-use crate::claude_gate::models::ContentDelta;
+use crate::gate::claude::models::ContentDelta;
 #[cfg(feature = "keyring")]
-use crate::claude_gate::KeyringTokenStorage;
+use crate::gate::claude::KeyringTokenStorage;
 
 use crate::core::llm::cost::{ProviderPricing, TokenUsage};
 use crate::core::llm::router::{
@@ -150,31 +150,31 @@ pub struct ClaudeProvider {
 /// Trait to abstract over different storage backends
 #[async_trait]
 trait ClaudeClientTrait: Send + Sync {
-    async fn is_authenticated(&self) -> crate::claude_gate::Result<bool>;
-    async fn start_oauth_flow(&self) -> crate::claude_gate::Result<String>;
+    async fn is_authenticated(&self) -> crate::gate::claude::Result<bool>;
+    async fn start_oauth_flow(&self) -> crate::gate::claude::Result<String>;
     async fn complete_oauth_flow(
         &self,
         code: &str,
         state: Option<&str>,
-    ) -> crate::claude_gate::Result<crate::claude_gate::TokenInfo>;
-    async fn logout(&self) -> crate::claude_gate::Result<()>;
-    async fn get_token_info(&self) -> crate::claude_gate::Result<Option<crate::claude_gate::TokenInfo>>;
+    ) -> crate::gate::claude::Result<crate::gate::claude::TokenInfo>;
+    async fn logout(&self) -> crate::gate::claude::Result<()>;
+    async fn get_token_info(&self) -> crate::gate::claude::Result<Option<crate::gate::claude::TokenInfo>>;
     async fn send_message(
         &self,
         model: &str,
         max_tokens: u32,
-        messages: Vec<crate::claude_gate::Message>,
+        messages: Vec<crate::gate::claude::Message>,
         system: Option<String>,
         temperature: Option<f32>,
-    ) -> crate::claude_gate::Result<MessagesResponse>;
+    ) -> crate::gate::claude::Result<MessagesResponse>;
     async fn stream_message(
         &self,
         model: &str,
         max_tokens: u32,
-        messages: Vec<crate::claude_gate::Message>,
+        messages: Vec<crate::gate::claude::Message>,
         system: Option<String>,
         temperature: Option<f32>,
-    ) -> crate::claude_gate::Result<mpsc::Receiver<crate::claude_gate::Result<StreamEvent>>>;
+    ) -> crate::gate::claude::Result<mpsc::Receiver<crate::gate::claude::Result<StreamEvent>>>;
 }
 
 /// Wrapper for ClaudeClient with FileTokenStorage
@@ -184,11 +184,11 @@ struct FileStorageClient {
 
 #[async_trait]
 impl ClaudeClientTrait for FileStorageClient {
-    async fn is_authenticated(&self) -> crate::claude_gate::Result<bool> {
+    async fn is_authenticated(&self) -> crate::gate::claude::Result<bool> {
         self.client.is_authenticated().await
     }
 
-    async fn start_oauth_flow(&self) -> crate::claude_gate::Result<String> {
+    async fn start_oauth_flow(&self) -> crate::gate::claude::Result<String> {
         self.client.start_oauth_flow().await
     }
 
@@ -196,15 +196,15 @@ impl ClaudeClientTrait for FileStorageClient {
         &self,
         code: &str,
         state: Option<&str>,
-    ) -> crate::claude_gate::Result<crate::claude_gate::TokenInfo> {
+    ) -> crate::gate::claude::Result<crate::gate::claude::TokenInfo> {
         self.client.complete_oauth_flow(code, state).await
     }
 
-    async fn logout(&self) -> crate::claude_gate::Result<()> {
+    async fn logout(&self) -> crate::gate::claude::Result<()> {
         self.client.logout().await
     }
 
-    async fn get_token_info(&self) -> crate::claude_gate::Result<Option<crate::claude_gate::TokenInfo>> {
+    async fn get_token_info(&self) -> crate::gate::claude::Result<Option<crate::gate::claude::TokenInfo>> {
         self.client.get_token_info().await
     }
 
@@ -212,10 +212,10 @@ impl ClaudeClientTrait for FileStorageClient {
         &self,
         model: &str,
         max_tokens: u32,
-        messages: Vec<crate::claude_gate::Message>,
+        messages: Vec<crate::gate::claude::Message>,
         system: Option<String>,
         temperature: Option<f32>,
-    ) -> crate::claude_gate::Result<MessagesResponse> {
+    ) -> crate::gate::claude::Result<MessagesResponse> {
         let mut builder = self.client.messages()
             .model(model)
             .max_tokens(max_tokens)
@@ -235,10 +235,10 @@ impl ClaudeClientTrait for FileStorageClient {
         &self,
         model: &str,
         max_tokens: u32,
-        messages: Vec<crate::claude_gate::Message>,
+        messages: Vec<crate::gate::claude::Message>,
         system: Option<String>,
         temperature: Option<f32>,
-    ) -> crate::claude_gate::Result<mpsc::Receiver<crate::claude_gate::Result<StreamEvent>>> {
+    ) -> crate::gate::claude::Result<mpsc::Receiver<crate::gate::claude::Result<StreamEvent>>> {
         let mut builder = self.client.messages()
             .model(model)
             .max_tokens(max_tokens)
@@ -277,11 +277,11 @@ struct KeyringStorageClient {
 #[cfg(feature = "keyring")]
 #[async_trait]
 impl ClaudeClientTrait for KeyringStorageClient {
-    async fn is_authenticated(&self) -> crate::claude_gate::Result<bool> {
+    async fn is_authenticated(&self) -> crate::gate::claude::Result<bool> {
         self.client.is_authenticated().await
     }
 
-    async fn start_oauth_flow(&self) -> crate::claude_gate::Result<String> {
+    async fn start_oauth_flow(&self) -> crate::gate::claude::Result<String> {
         self.client.start_oauth_flow().await
     }
 
@@ -289,15 +289,15 @@ impl ClaudeClientTrait for KeyringStorageClient {
         &self,
         code: &str,
         state: Option<&str>,
-    ) -> crate::claude_gate::Result<crate::claude_gate::TokenInfo> {
+    ) -> crate::gate::claude::Result<crate::gate::claude::TokenInfo> {
         self.client.complete_oauth_flow(code, state).await
     }
 
-    async fn logout(&self) -> crate::claude_gate::Result<()> {
+    async fn logout(&self) -> crate::gate::claude::Result<()> {
         self.client.logout().await
     }
 
-    async fn get_token_info(&self) -> crate::claude_gate::Result<Option<crate::claude_gate::TokenInfo>> {
+    async fn get_token_info(&self) -> crate::gate::claude::Result<Option<crate::gate::claude::TokenInfo>> {
         self.client.get_token_info().await
     }
 
@@ -305,10 +305,10 @@ impl ClaudeClientTrait for KeyringStorageClient {
         &self,
         model: &str,
         max_tokens: u32,
-        messages: Vec<crate::claude_gate::Message>,
+        messages: Vec<crate::gate::claude::Message>,
         system: Option<String>,
         temperature: Option<f32>,
-    ) -> crate::claude_gate::Result<MessagesResponse> {
+    ) -> crate::gate::claude::Result<MessagesResponse> {
         let mut builder = self.client.messages()
             .model(model)
             .max_tokens(max_tokens)
@@ -328,10 +328,10 @@ impl ClaudeClientTrait for KeyringStorageClient {
         &self,
         model: &str,
         max_tokens: u32,
-        messages: Vec<crate::claude_gate::Message>,
+        messages: Vec<crate::gate::claude::Message>,
         system: Option<String>,
         temperature: Option<f32>,
-    ) -> crate::claude_gate::Result<mpsc::Receiver<crate::claude_gate::Result<StreamEvent>>> {
+    ) -> crate::gate::claude::Result<mpsc::Receiver<crate::gate::claude::Result<StreamEvent>>> {
         let mut builder = self.client.messages()
             .model(model)
             .max_tokens(max_tokens)
@@ -368,11 +368,11 @@ struct MemoryStorageClient {
 
 #[async_trait]
 impl ClaudeClientTrait for MemoryStorageClient {
-    async fn is_authenticated(&self) -> crate::claude_gate::Result<bool> {
+    async fn is_authenticated(&self) -> crate::gate::claude::Result<bool> {
         self.client.is_authenticated().await
     }
 
-    async fn start_oauth_flow(&self) -> crate::claude_gate::Result<String> {
+    async fn start_oauth_flow(&self) -> crate::gate::claude::Result<String> {
         self.client.start_oauth_flow().await
     }
 
@@ -380,15 +380,15 @@ impl ClaudeClientTrait for MemoryStorageClient {
         &self,
         code: &str,
         state: Option<&str>,
-    ) -> crate::claude_gate::Result<crate::claude_gate::TokenInfo> {
+    ) -> crate::gate::claude::Result<crate::gate::claude::TokenInfo> {
         self.client.complete_oauth_flow(code, state).await
     }
 
-    async fn logout(&self) -> crate::claude_gate::Result<()> {
+    async fn logout(&self) -> crate::gate::claude::Result<()> {
         self.client.logout().await
     }
 
-    async fn get_token_info(&self) -> crate::claude_gate::Result<Option<crate::claude_gate::TokenInfo>> {
+    async fn get_token_info(&self) -> crate::gate::claude::Result<Option<crate::gate::claude::TokenInfo>> {
         self.client.get_token_info().await
     }
 
@@ -396,10 +396,10 @@ impl ClaudeClientTrait for MemoryStorageClient {
         &self,
         model: &str,
         max_tokens: u32,
-        messages: Vec<crate::claude_gate::Message>,
+        messages: Vec<crate::gate::claude::Message>,
         system: Option<String>,
         temperature: Option<f32>,
-    ) -> crate::claude_gate::Result<MessagesResponse> {
+    ) -> crate::gate::claude::Result<MessagesResponse> {
         let mut builder = self.client.messages()
             .model(model)
             .max_tokens(max_tokens)
@@ -419,10 +419,10 @@ impl ClaudeClientTrait for MemoryStorageClient {
         &self,
         model: &str,
         max_tokens: u32,
-        messages: Vec<crate::claude_gate::Message>,
+        messages: Vec<crate::gate::claude::Message>,
         system: Option<String>,
         temperature: Option<f32>,
-    ) -> crate::claude_gate::Result<mpsc::Receiver<crate::claude_gate::Result<StreamEvent>>> {
+    ) -> crate::gate::claude::Result<mpsc::Receiver<crate::gate::claude::Result<StreamEvent>>> {
         let mut builder = self.client.messages()
             .model(model)
             .max_tokens(max_tokens)
@@ -672,7 +672,7 @@ impl ClaudeProvider {
     /// the system prompt to be passed separately via the `system` parameter,
     /// not as part of the messages array. The system prompt is extracted from
     /// `request.system_prompt` and passed directly to the API.
-    fn convert_messages(&self, request: &ChatRequest) -> Vec<crate::claude_gate::Message> {
+    fn convert_messages(&self, request: &ChatRequest) -> Vec<crate::gate::claude::Message> {
         request
             .messages
             .iter()
@@ -688,7 +688,7 @@ impl ClaudeProvider {
                     }
                 };
 
-                crate::claude_gate::Message::with_content(
+                crate::gate::claude::Message::with_content(
                     role,
                     vec![GateContentBlock::text(&msg.content)],
                 )
@@ -810,7 +810,7 @@ impl LLMProvider for ClaudeProvider {
                     LLMError::AuthError(e.to_string())
                 } else {
                     match &e {
-                        crate::claude_gate::Error::Api { status, message, .. } => {
+                        crate::gate::claude::Error::Api { status, message, .. } => {
                             if *status == 429 {
                                 LLMError::RateLimited { retry_after_secs: 60 }
                             } else {

@@ -17,7 +17,7 @@ use crate::core::voice::providers::{
     ollama::OllamaProvider, openai::OpenAIVoiceProvider, piper::PiperProvider,
     ChatterboxProvider, GptSoVitsProvider, XttsV2Provider, FishSpeechProvider, DiaProvider, CoquiProvider,
 };
-use crate::core::voice::cache::{AudioCache, CacheKeyParams, CacheConfig, CacheStats, CacheError};
+use crate::core::voice::cache::{AudioCache, CacheKeyParams, CacheConfig, CacheStats, CacheError, CacheEntry};
 
 use rodio::{Decoder, OutputStream, Sink};
 use std::io::Cursor;
@@ -202,6 +202,12 @@ impl VoiceManager {
         cache.prune_older_than(max_age_seconds).await.map_err(|e| VoiceError::IoError(std::io::Error::other(
             format!("Failed to prune cache: {}", e)
         )))
+    }
+
+    /// List all cache entries
+    pub async fn list_cache_entries(&self) -> Result<Vec<CacheEntry>> {
+        let cache = self.get_cache().await?;
+        Ok(cache.list_entries().await)
     }
 
     /// Add an item to the voice queue

@@ -570,7 +570,7 @@ pub struct SynthesisQueue {
     state: Arc<RwLock<QueueState>>,
     /// Command channel sender
     command_tx: mpsc::Sender<QueueCommand>,
-    /// Command channel receiver (for worker). Stored for potential worker spawning.
+    /// Command channel receiver (for worker)
     #[allow(dead_code)]
     command_rx: Arc<Mutex<mpsc::Receiver<QueueCommand>>>,
     /// Shutdown signal

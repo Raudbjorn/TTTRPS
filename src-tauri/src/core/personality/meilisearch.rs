@@ -103,8 +103,8 @@ pub fn blend_rules_settings() -> Settings {
 /// Manages Meilisearch indexes for the personality system.
 pub struct PersonalityIndexManager {
     client: Client,
+    #[allow(dead_code)]
     host: String,
-    /// API key stored for potential reconnection scenarios
     #[allow(dead_code)]
     api_key: Option<String>,
 }

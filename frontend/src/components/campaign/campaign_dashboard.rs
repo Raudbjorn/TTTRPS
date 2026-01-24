@@ -11,6 +11,7 @@ use crate::bindings::{
 use super::version_history::VersionHistory;
 use super::world_state_editor::WorldStateEditor;
 use super::entity_browser::EntityBrowser;
+#[allow(unused_imports)]
 use super::relationship_graph::RelationshipGraph;
 
 /// Dashboard tab

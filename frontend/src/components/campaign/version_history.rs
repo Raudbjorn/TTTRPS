@@ -425,9 +425,10 @@ pub fn VersionHistory(
                                             </div>
                                         </div>
                                         <div class="mt-6 flex gap-2">
-                                            <button class="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white rounded-lg transition-colors text-sm">
-                                                "Rollback to This"
-                                            </button>
+                                            // TODO: Re-implement rollback when backend command is available
+                                            // <button class="px-4 py-2 bg-amber-600 hover:bg-amber-500 text-white rounded-lg transition-colors text-sm">
+                                            //     "Rollback to This"
+                                            // </button>
                                             <button class="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg transition-colors text-sm">
                                                 "Export"
                                             </button>

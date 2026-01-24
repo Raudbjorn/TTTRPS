@@ -568,8 +568,8 @@ impl HybridSearchEngine {
             .map(|(rank, r)| RankedResult {
                 document: r.document,
                 score: r.score,
-                _keyword_rank: None,
-                _semantic_rank: Some(rank),
+                keyword_rank: None,
+                semantic_rank: Some(rank),
                 index: r.index,
             })
             .collect())
@@ -604,8 +604,8 @@ impl HybridSearchEngine {
             .map(|(rank, r)| RankedResult {
                 document: r.document,
                 score: r.score,
-                _keyword_rank: Some(rank),
-                _semantic_rank: None,
+                keyword_rank: Some(rank),
+                semantic_rank: None,
                 index: r.index,
             })
             .collect())
@@ -648,8 +648,8 @@ impl HybridSearchEngine {
             .map(|(rank, r)| RankedResult {
                 document: r.document,
                 score: r.score,
-                _keyword_rank: None,
-                _semantic_rank: Some(rank),
+                keyword_rank: None,
+                semantic_rank: Some(rank),
                 index: r.index,
             })
             .collect())
@@ -702,8 +702,10 @@ impl HybridSearchEngine {
 struct RankedResult {
     document: SearchDocument,
     score: f32,
-    _keyword_rank: Option<usize>,
-    _semantic_rank: Option<usize>,
+    #[allow(dead_code)]
+    keyword_rank: Option<usize>,
+    #[allow(dead_code)]
+    semantic_rank: Option<usize>,
     index: String,
 }
 

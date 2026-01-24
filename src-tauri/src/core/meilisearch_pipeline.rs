@@ -1270,7 +1270,7 @@ impl MeilisearchPipeline {
         source_type: &str,
     ) -> Result<ExtractionResult, SearchError> {
         // Check if Claude extraction supports this format
-        if !ClaudeDocumentExtractor::<crate::claude_gate::FileTokenStorage>::is_supported(path) {
+        if !ClaudeDocumentExtractor::<crate::gate::claude::FileTokenStorage>::is_supported(path) {
             log::warn!(
                 "Claude extraction does not support '{}', falling back to kreuzberg",
                 source_type
@@ -2071,18 +2071,6 @@ impl MeilisearchPipeline {
 
         Ok(all_chunks)
     }
-
-    /// Process a text file.
-    /// Retained for direct text file processing outside the main extraction pipeline.
-    #[allow(dead_code)]
-    fn process_text_file(&self, path: &Path, source_name: &str) -> Result<Vec<(String, Option<u32>)>, SearchError> {
-        let content = std::fs::read_to_string(path)
-            .map_err(|e| SearchError::ConfigError(format!("Failed to read file: {}", e)))?;
-
-        Ok(self.chunk_text(&content, source_name, None))
-    }
-
-
 
     /// Chunk text content with overlap
     fn chunk_text(&self, text: &str, _source: &str, page_number: Option<u32>) -> Vec<(String, Option<u32>)> {

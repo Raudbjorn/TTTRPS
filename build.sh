@@ -409,7 +409,10 @@ install_frontend_tools() {
         needs_install=true
     else
         local current_version="0.0.0"
-        current_version=$(./tailwindcss --help 2>&1 | head -1 | grep -oP 'v\K[0-9.]+') || current_version="0.0.0"
+        # Use POSIX-compatible version extraction (grep -P not available on macOS)
+        current_version=$(./tailwindcss --help 2>&1 | head -1 | sed -n 's/.*v\([0-9][0-9.]*\).*/\1/p') || current_version="0.0.0"
+        # Fallback to 0.0.0 if extraction failed
+        [ -z "$current_version" ] && current_version="0.0.0"
         if [ "$current_version" != "$tailwind_version" ]; then
             print_warning "Tailwind CSS version mismatch (current: $current_version, expected: $tailwind_version)"
             needs_install=true
@@ -525,20 +528,16 @@ build_desktop() {
 
     print_info "Creating application bundle..."
 
-    if [ "$RELEASE" = true ]; then
-        if cargo tauri build; then
-            print_success "Desktop app built successfully"
-        else
-            print_error "Desktop build failed"
-            exit 1
-        fi
+    local build_args=()
+    if [ "$RELEASE" != true ]; then
+        build_args+=(--debug)
+    fi
+
+    if cargo tauri build "${build_args[@]}"; then
+        print_success "Desktop app built successfully"
     else
-        if cargo tauri build --debug; then
-            print_success "Desktop app built successfully"
-        else
-            print_error "Desktop build failed"
-            exit 1
-        fi
+        print_error "Desktop build failed"
+        exit 1
     fi
 
     cd "$PROJECT_ROOT"
@@ -765,7 +764,7 @@ check_port_usage() {
     local seize=$2
 
     # Check if port is in use
-    local pid
+    local pid=""
     pid=$(lsof -t -i:"$port" 2>/dev/null | head -1) || pid=""
 
     if [ -z "$pid" ]; then

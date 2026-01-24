@@ -22,6 +22,7 @@ pub enum SessionStatus {
     Completed,
 }
 
+#[allow(dead_code)]
 impl SessionStatus {
     #[allow(dead_code)]
     pub fn from_str(status: &str) -> Self {
@@ -506,4 +507,6 @@ fn MoreIcon() -> impl IntoView {
     }
 }
 
-// Note: ContextSidebar alias moved to campaign_details/session_list.rs
+/// Also export as ContextSidebar for the new naming convention
+#[allow(unused_imports)]
+pub use SessionList as ContextSidebar;

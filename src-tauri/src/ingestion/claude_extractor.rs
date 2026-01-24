@@ -9,7 +9,7 @@ use std::path::Path;
 use thiserror::Error;
 
 use super::kreuzberg_extractor::{ExtractedContent, Page};
-use crate::claude_gate::{ClaudeClient, FileTokenStorage, TokenStorage};
+use crate::gate::claude::{ClaudeClient, FileTokenStorage, TokenStorage};
 
 // ============================================================================
 // Error Types
@@ -68,7 +68,7 @@ Guidelines:
 const PDF_EXTRACTION_PROMPT: &str = "Extract all text from this PDF document. Preserve the document structure including headers, paragraphs, lists, and tables.";
 
 /// User prompt template for page-by-page extraction
-const PAGE_EXTRACTION_PROMPT: &str = "Extract all text from this page. This is page {page_num} of {total_pages}. Preserve the document structure.";
+const PAGE_EXTRACTION_PROMPT: &str = "Extract all text from page {page_num} of {total_pages}. Preserve the document structure including headers, paragraphs, lists, and tables.";
 
 /// Claude-based document extractor configuration
 #[derive(Debug, Clone)]

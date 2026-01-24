@@ -6,7 +6,9 @@
 mod ollama;
 mod claude;
 mod openai;
+mod google;
 mod gemini;
+mod copilot;
 mod openrouter;
 mod mistral;
 mod groq;
@@ -18,7 +20,9 @@ mod meilisearch;
 pub use ollama::OllamaProvider;
 pub use claude::{ClaudeProvider, ClaudeStatus, StorageBackend};
 pub use openai::OpenAIProvider;
-pub use gemini::GeminiProvider;
+pub use google::GoogleProvider;
+pub use gemini::{GeminiProvider, GeminiStatus, GeminiStorageBackend};
+pub use copilot::{CopilotLLMProvider, CopilotStatus, CopilotStorageBackend};
 pub use openrouter::OpenRouterProvider;
 pub use mistral::MistralProvider;
 pub use groq::GroqProvider;
@@ -44,9 +48,16 @@ pub enum ProviderConfig {
         organization_id: Option<String>,
         base_url: Option<String>,
     },
-    Gemini {
+    /// Google Gemini (API key-based)
+    Google {
         api_key: String,
         model: String,
+    },
+    /// Gemini (OAuth-based via Cloud Code API, no API key needed)
+    Gemini {
+        storage_backend: String,  // Storage backend: "file", "keyring", "memory", "auto"
+        model: String,            // Model to use (e.g., "gemini-2.0-flash")
+        max_tokens: u32,          // Max tokens for responses (default 8192)
     },
     OpenRouter {
         api_key: String,
@@ -78,6 +89,12 @@ pub enum ProviderConfig {
         model: String,            // Model to use (e.g., "claude-sonnet-4-20250514")
         max_tokens: u32,          // Max tokens for responses (default 8192)
     },
+    /// Copilot (Device Code OAuth-based, no API key needed)
+    Copilot {
+        storage_backend: String,  // Storage backend: "file", "keyring", "memory", "auto"
+        model: String,            // Model to use (e.g., "gpt-4o")
+        max_tokens: u32,          // Max tokens for responses (default 8192)
+    },
     Meilisearch {
         host: String,
         api_key: Option<String>,
@@ -102,8 +119,8 @@ impl ProviderConfig {
                     base_url.clone(),
                 ))
             }
-            ProviderConfig::Gemini { api_key, model } => {
-                Arc::new(GeminiProvider::new(api_key.clone(), model.clone()))
+            ProviderConfig::Google { api_key, model } => {
+                Arc::new(GoogleProvider::new(api_key.clone(), model.clone()))
             }
             ProviderConfig::OpenRouter { api_key, model } => {
                 Arc::new(OpenRouterProvider::new(api_key.clone(), model.clone()))
@@ -135,7 +152,26 @@ impl ProviderConfig {
                     }
                 }
             }
-
+            ProviderConfig::Gemini { storage_backend, model, max_tokens } => {
+                // Attempt to create the OAuth-based Gemini provider; fall back to memory storage on failure
+                match GeminiProvider::from_storage_name(storage_backend, model.clone(), *max_tokens) {
+                    Ok(provider) => Arc::new(provider),
+                    Err(e) => {
+                        tracing::warn!("Failed to create Gemini provider with {} storage: {}. Falling back to memory.", storage_backend, e);
+                        Arc::new(GeminiProvider::with_memory().expect("Memory storage should always work"))
+                    }
+                }
+            }
+            ProviderConfig::Copilot { storage_backend, model, max_tokens } => {
+                // Attempt to create the Device Code OAuth-based Copilot provider; fall back to memory storage on failure
+                match CopilotLLMProvider::from_storage_name(storage_backend, model.clone(), *max_tokens) {
+                    Ok(provider) => Arc::new(provider),
+                    Err(e) => {
+                        tracing::warn!("Failed to create Copilot provider with {} storage: {}. Falling back to memory.", storage_backend, e);
+                        Arc::new(CopilotLLMProvider::with_memory().expect("Memory storage should always work"))
+                    }
+                }
+            }
             ProviderConfig::Meilisearch { host, api_key, workspace_id, model } => {
                 Arc::new(MeilisearchProvider::new(host.clone(), api_key.clone(), workspace_id.clone(), model.clone()))
             }
@@ -148,7 +184,9 @@ impl ProviderConfig {
             ProviderConfig::Ollama { .. } => "ollama",
             ProviderConfig::Claude { .. } => "claude",
             ProviderConfig::OpenAI { .. } => "openai",
+            ProviderConfig::Google { .. } => "google",
             ProviderConfig::Gemini { .. } => "gemini",
+            ProviderConfig::Copilot { .. } => "copilot",
             ProviderConfig::OpenRouter { .. } => "openrouter",
             ProviderConfig::Mistral { .. } => "mistral",
             ProviderConfig::Groq { .. } => "groq",
@@ -164,12 +202,14 @@ impl ProviderConfig {
         match self {
             // Natively supported by Meilisearch
             ProviderConfig::OpenAI { .. } => false,
-            ProviderConfig::Gemini { .. } => false, // Meilisearch likely supports Gemini natively now
+            ProviderConfig::Google { .. } => false, // Meilisearch supports Google/Gemini natively
             ProviderConfig::Mistral { .. } => false,
             ProviderConfig::Ollama { .. } => false, // Uses vLLM source which is supported
 
             // Others need proxy to look like OpenAI
             ProviderConfig::Claude { .. } => true,
+            ProviderConfig::Gemini { .. } => true, // OAuth-based Gemini needs proxy
+            ProviderConfig::Copilot { .. } => true, // Copilot uses OpenAI format but needs auth proxy
 
             // OpenAI-compatible but might need header tweaking or proxy for consistency
             ProviderConfig::OpenRouter { .. } => true,
@@ -189,7 +229,9 @@ impl ProviderConfig {
             ProviderConfig::Ollama { model, .. } => model.clone(),
             ProviderConfig::Claude { model, .. } => model.clone(),
             ProviderConfig::OpenAI { model, .. } => model.clone(),
+            ProviderConfig::Google { model, .. } => model.clone(),
             ProviderConfig::Gemini { model, .. } => model.clone(),
+            ProviderConfig::Copilot { model, .. } => model.clone(),
             ProviderConfig::OpenRouter { model, .. } => model.clone(),
             ProviderConfig::Mistral { model, .. } => model.clone(),
             ProviderConfig::Groq { model, .. } => model.clone(),
