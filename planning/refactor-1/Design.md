@@ -409,6 +409,25 @@ mod tests {
 
 ---
 
+## Quality Assurance & Inspections
+
+### Code Inspection Standards
+
+| Inspection ID | Category | Strategy | Rationale |
+|---------------|----------|----------|-----------|
+| `RsFunctionNaming` | Naming | **Suppress/Ignore** for Components | Leptos components use PascalCase by design; Rust conventions expect snake_case. |
+| `DuplicatedCode` | Maintenance | **Consolidate** | CSS animations and logic must be deduplicated to single source of truth. |
+| `HtmlRequiredLangAttribute` | Accessibility | **Fix** | Ensure `<html>` tags have `lang="en"`. |
+| `CssUnusedSymbol` | Cleanup | **Investigate** | Remove unused CSS classes if confirmed unused in dynamic calls. |
+| `Markdown*` | Documentation | **Fix** | Ensure table formatting and link references are valid. |
+
+### Deduplication Strategy
+
+- **CSS:** Extract common animations (e.g., `@keyframes grain`) to `frontend/public/base.css` or similar shared file.
+- **Rust Logic:** Extract duplicated business logic into `core/` helper functions.
+
+---
+
 ## Migration Strategy
 
 ### Phase 0: Infrastructure Setup

@@ -341,11 +341,22 @@ This task list implements the refactoring plan from Design.md. The work is organ
   - Test URL opening works
   - _Requirements: 2.5_
 
-- [ ] **7.3 Verify bindings generation**
+- [ ] **7.4 Consolidate Duplicated CSS**
+  - Analyze `frontend/public/effects.css` and `frontend/public/themes.css` for duplicate `@keyframes grain`
+  - Extract common rules to `frontend/public/main.css` or new `shared.css`
+  - Verify styles still apply correctly
+  - _Requirements: NFR-2_
+
+- [ ] **7.5 Verify bindings generation**
   - Confirm `bindings.rs` regenerates correctly
   - No manual edits needed to bindings
   - Frontend compiles and works
   - _Requirements: 6.3, 6.4_
+
+- [ ] **7.6 General Inspection Cleanup**
+  - Fix `HtmlRequiredLangAttribute` in `index.html`
+  - Fix valid Markdown table/link issues from inspection results
+  - _Requirements: NFR-2_
 
 ---
 
