@@ -474,7 +474,7 @@ Copilot-Integration-Id: vscode-chat
 Editor-Version: vscode/1.95.0
 Editor-Plugin-Version: copilot-chat/0.26.7
 OpenAI-Intent: conversation-panel
-X-GitHub-API-Version: 2025-04-01
+X-GitHub-Api-Version: 2022-11-28
 X-Request-Id: {uuid}
 ```
 

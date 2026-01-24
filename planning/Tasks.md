@@ -4,7 +4,7 @@
 
 This implementation follows a **foundation-first** strategy, building from core infrastructure (storage, auth) up through the API surface (client, provider) and finally integration points (commands, router). Each task produces working, testable code before proceeding to dependent tasks.
 
-The implementation is organized into 6 phases:
+The implementation is organized into 7 phases:
 1. **Embed Library** - Copy copilot-api-rs into gate module
 2. **Storage Integration** - Connect to shared TokenStorage infrastructure
 3. **OAuth Provider** - Implement CopilotProvider for auth flow
