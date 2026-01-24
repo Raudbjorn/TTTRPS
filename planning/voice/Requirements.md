@@ -6,7 +6,7 @@ The TTRPG Assistant (Sidecar DM) application provides comprehensive voice synthe
 
 This extraction effort aims to complete the migration of all voice-related commands from the monolithic `commands_legacy.rs` into the organized domain module structure at `commands/voice/`. The extraction will improve code maintainability, reduce cognitive load when navigating the codebase, enable independent testing of voice functionality, and establish clear boundaries between voice subsystems.
 
-The voice system comprises six major functional areas:
+The voice system comprises eight major functional areas:
 1. **Synthesis** - Core TTS operations and audio generation
 2. **Configuration** - Provider setup and voice settings management
 3. **Providers** - Multi-provider support (ElevenLabs, OpenAI, Piper, Coqui, etc.)

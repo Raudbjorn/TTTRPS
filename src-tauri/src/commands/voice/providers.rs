@@ -9,10 +9,13 @@ use crate::core::voice::{
     AvailablePiperVoice, get_recommended_piper_voices,
 };
 
-/// Get the voice models directory path
+/// Get the voice models directory path.
+/// Fallback chain: data_local_dir -> data_dir -> temp_dir (last resort, non-persistent)
+/// Note: temp_dir fallback may result in models being lost on system restart.
 fn get_models_dir() -> PathBuf {
     dirs::data_local_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
+        .or_else(dirs::data_dir)
+        .unwrap_or_else(std::env::temp_dir)
         .join("ttrpg-assistant/voice/piper")
 }
 

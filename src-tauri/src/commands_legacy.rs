@@ -1418,7 +1418,7 @@ pub async fn chat(
         .ok_or("LLM not configured. Please configure in Settings.")?;
 
     // Determine effective system prompt
-    let _system_prompt = if let Some(pid) = &payload.personality_id {
+    let system_prompt = if let Some(pid) = &payload.personality_id {
         match state.personality_store.get(pid) {
             Ok(profile) => profile.to_system_prompt(),
             Err(_) => payload.system_prompt.clone().unwrap_or_else(|| {
@@ -1441,8 +1441,17 @@ pub async fn chat(
         manager_guard.set_chat_client(state.search_client.host(), Some(&state.sidecar_manager.config().master_key)).await;
     }
 
-    // Prepare messages
-    let mut messages = vec![];
+    // Prepare messages - start with system prompt as first message
+    let mut messages = vec![
+        ChatMessage {
+            role: MessageRole::System,
+            content: system_prompt,
+            images: None,
+            name: None,
+            tool_calls: None,
+            tool_call_id: None,
+        },
+    ];
     if let Some(context) = &payload.context {
         for ctx in context {
             messages.push(ChatMessage {
@@ -2164,11 +2173,20 @@ pub async fn search(
         index: None,
     });
 
-    // Build filter if needed
+    // Helper to escape Meilisearch filter values (prevent injection)
+    fn escape_filter_value(s: &str) -> String {
+        s.replace('\\', "\\\\").replace('\'', "\\'")
+    }
+
+    // Build filter if needed (with proper escaping)
     let filter = match (&opts.source_type, &opts.campaign_id) {
-        (Some(st), Some(cid)) => Some(format!("source_type = '{}' AND campaign_id = '{}'", st, cid)),
-        (Some(st), None) => Some(format!("source_type = '{}'", st)),
-        (None, Some(cid)) => Some(format!("campaign_id = '{}'", cid)),
+        (Some(st), Some(cid)) => Some(format!(
+            "source_type = '{}' AND campaign_id = '{}'",
+            escape_filter_value(st),
+            escape_filter_value(cid)
+        )),
+        (Some(st), None) => Some(format!("source_type = '{}'", escape_filter_value(st))),
+        (None, Some(cid)) => Some(format!("campaign_id = '{}'", escape_filter_value(cid))),
         (None, None) => None,
     };
 
@@ -4582,21 +4600,15 @@ pub async fn transcribe_audio(
         return Err("LLM not configured".to_string());
     };
 
-    if api_key.is_empty() || api_key.starts_with('*') {
+    // Determine effective API key: use credential store if config key is masked or empty
+    let effective_key = if api_key.is_empty() || api_key.starts_with('*') {
         // Try getting from credentials if masked/empty
-        // (Assuming standard key name 'openai_api_key')
         let creds = state.credentials.get_secret("openai_api_key")
             .map_err(|_| "OpenAI API Key not found/configured".to_string())?;
         if creds.is_empty() {
              return Err("OpenAI API Key is empty".to_string());
         }
-    }
-
-    // Unmasking logic is a bit duplicated here, ideally use a helper.
-    // For now, let's rely on stored secret if the config one is masked.
-    let effective_key = if api_key.starts_with('*') {
-         state.credentials.get_secret("openai_api_key")
-            .map_err(|_| "Invalid API Key state".to_string())?
+        creds
     } else {
         api_key
     };
@@ -4710,9 +4722,9 @@ pub async fn list_npc_summaries(
         let (last_message, unread_count, last_active) = if let Some(c) = conv {
              let msgs: Vec<ConversationMessage> = serde_json::from_str(&c.messages_json).unwrap_or_default();
              let last_text = msgs.last().map(|m| m.content.clone()).unwrap_or_default();
-             // Truncate
-             let truncated = if last_text.len() > 50 {
-                 format!("{}...", &last_text[0..50])
+             // Truncate safely on char boundary (avoid panic on multibyte UTF-8)
+             let truncated = if last_text.chars().count() > 50 {
+                 format!("{}...", last_text.chars().take(50).collect::<String>())
              } else {
                  last_text
              };
@@ -7527,18 +7539,41 @@ pub fn list_location_types() -> Vec<String> {
 pub fn add_location_connection(
     source_location_id: String,
     target_location_id: String,
-    _connection_type: String,
-    _description: Option<String>,
+    connection_type: String,
+    description: Option<String>,
     travel_time: Option<String>,
     bidirectional: Option<bool>,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
+    use crate::core::location_gen::ConnectionType;
+
+    // Parse connection_type string to enum with strict validation
+    let conn_type = match connection_type.to_lowercase().as_str() {
+        "door" => ConnectionType::Door,
+        "path" => ConnectionType::Path,
+        "road" => ConnectionType::Road,
+        "stairs" => ConnectionType::Stairs,
+        "ladder" => ConnectionType::Ladder,
+        "portal" => ConnectionType::Portal,
+        "secret" => ConnectionType::Secret,
+        "water" => ConnectionType::Water,
+        "climb" => ConnectionType::Climb,
+        "flight" => ConnectionType::Flight,
+        unknown => return Err(format!(
+            "Unknown connection type: '{}'. Valid types: door, path, road, stairs, ladder, portal, secret, water, climb, flight",
+            unknown
+        )),
+    };
+
+    // Include description in hazards if provided (workaround until LocationConnection has description field)
+    let hazards = description.map_or_else(Vec::new, |d| vec![format!("Note: {}", d)]);
+
     let connection = LocationConnection {
         target_id: Some(target_location_id.clone()),
         target_name: "Unknown".to_string(), // Placeholder
-        connection_type: crate::core::location_gen::ConnectionType::Path, // Placeholder/Default
+        connection_type: conn_type,
         travel_time,
-        hazards: vec![],
+        hazards,
     };
 
     state.location_manager.add_connection(&source_location_id, connection.clone())
@@ -7550,8 +7585,8 @@ pub fn add_location_connection(
             target_id: Some(source_location_id),
             target_name: "Unknown".to_string(),
             connection_type: connection.connection_type.clone(),
-            travel_time: connection.travel_time,
-            hazards: vec![],
+            travel_time: connection.travel_time.clone(),
+            hazards: connection.hazards.clone(),
         };
         state.location_manager.add_connection(&target_location_id, reverse)
             .map_err(|e| e.to_string())?;

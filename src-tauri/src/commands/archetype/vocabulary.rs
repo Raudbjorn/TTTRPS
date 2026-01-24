@@ -99,7 +99,7 @@ pub async fn get_vocabulary_bank(
                 text: p.text.clone(),
                 category: category.clone(),
                 formality: p.formality,
-                tone: p.tone_markers.first().cloned(),
+                tones: p.tone_markers.clone(),
                 tags: p.context_tags.clone(),
             })
         })
@@ -254,8 +254,9 @@ pub async fn get_phrases(
         }
     }
 
-    // Use provided session_id or generate a temporary one
-    let session = session_id.unwrap_or_else(|| "default".to_string());
+    // Use provided session_id or generate a unique temporary one
+    // NOTE: Using UUID instead of "default" to prevent phrase usage collision
+    let session = session_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
 
     let phrases = manager.get_phrases(&bank_id, opts, &session).await
         .map_err(|e| e.to_string())?;
