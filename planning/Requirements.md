@@ -35,7 +35,7 @@ The integration follows the established tri-gate architecture pattern, where `co
 
 1. WHEN Copilot provider initializes THEN system SHALL use the configured TokenStorage backend (File, Memory, Keyring, or Callback)
 2. WHEN storing tokens to file THEN system SHALL set file permissions to 0600 (Unix) or equivalent
-3. WHEN loading tokens from environment THEN system SHALL support `COPILOT_GITHUB_TOKEN` variable (expects GitHub OAuth access token string; refresh token optional via `COPILOT_REFRESH_TOKEN`)
+3. WHEN loading tokens from environment THEN system SHALL support `COPILOT_GITHUB_TOKEN` variable for dev/CI/testing only (expects GitHub OAuth access token; optional `COPILOT_REFRESH_TOKEN` for refresh token)
 4. IF keyring feature is enabled THEN system SHALL store tokens in system credential store
 5. WHEN token storage fails THEN system SHALL propagate storage-specific error with path context
 6. WHEN application starts THEN system SHALL load cached tokens without requiring network calls
@@ -146,7 +146,7 @@ The integration follows the established tri-gate architecture pattern, where `co
 
 - The integration must use the existing `TokenStorage` trait from the gate module
 - The `LLMProvider` trait interface cannot be modified
-- Device Code OAuth is the only supported authentication method (no API keys)
+- Device Code OAuth is the primary authentication method for production (env vars allowed for dev/CI/testing only)
 - The Copilot client ID uses GitHub's public OAuth Device Code flow (same approach as VS Code Copilot; no client secret required per RFC 8628)
 
 ### Assumptions
