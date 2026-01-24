@@ -4499,9 +4499,10 @@ pub async fn list_npc_summaries(
         let (last_message, unread_count, last_active) = if let Some(c) = conv {
              let msgs: Vec<ConversationMessage> = serde_json::from_str(&c.messages_json).unwrap_or_default();
              let last_text = msgs.last().map(|m| m.content.clone()).unwrap_or_default();
-             // Truncate safely on char boundary (avoid panic on multibyte UTF-8)
-             let truncated = if last_text.chars().count() > 50 {
-                 format!("{}...", last_text.chars().take(50).collect::<String>())
+             // Truncate safely on char boundary (single-pass for efficiency)
+             let chars: Vec<char> = last_text.chars().take(51).collect();
+             let truncated = if chars.len() > 50 {
+                 format!("{}...", chars.into_iter().take(50).collect::<String>())
              } else {
                  last_text
              };

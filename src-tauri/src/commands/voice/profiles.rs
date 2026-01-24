@@ -53,10 +53,11 @@ pub async fn link_voice_profile_to_npc(
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     if let Some(mut record) = state.database.get_npc(&npc_id).await.map_err(|e| e.to_string())? {
-        // Update the structured voice_profile_id field
+        // Update the structured voice_profile_id field (source of truth)
         record.voice_profile_id = Some(profile_id.clone());
 
-        // Also update data_json for backwards compatibility if it exists
+        // Also update data_json for backwards compatibility with legacy code that reads from JSON
+        // TODO: Remove this once all consumers migrate to using the structured field
         if let Some(json) = &record.data_json {
             let mut npc: serde_json::Value = serde_json::from_str(json)
                 .map_err(|e| e.to_string())?;

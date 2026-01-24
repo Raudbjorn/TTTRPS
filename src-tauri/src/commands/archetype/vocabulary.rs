@@ -254,9 +254,10 @@ pub async fn get_phrases(
         }
     }
 
-    // Use provided session_id or generate a unique temporary one
-    // NOTE: Using UUID instead of "default" to prevent phrase usage collision
-    let session = session_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+    // Use provided session_id or a sentinel value for ephemeral/one-off requests.
+    // NOTE: "ephemeral" indicates no session tracking - phrase usage won't be tracked
+    // across requests. Use a real session_id for consistent phrase avoidance.
+    let session = session_id.unwrap_or_else(|| "ephemeral".to_string());
 
     let phrases = manager.get_phrases(&bank_id, opts, &session).await
         .map_err(|e| e.to_string())?;

@@ -11,7 +11,10 @@ use crate::core::voice::{
 };
 use crate::commands::AppState;
 
-/// Global flag to prevent multiple concurrent queue processors
+/// Global flag to prevent multiple concurrent queue processors.
+/// NOTE: Intentional singleton pattern - the app has a single voice queue shared
+/// across all sessions. If multiple independent queues are needed in the future,
+/// this should be moved into VoiceManager state with per-instance tracking.
 static IS_QUEUE_PROCESSING: AtomicBool = AtomicBool::new(false);
 
 /// RAII guard to reset IS_QUEUE_PROCESSING on drop (even if task panics)
