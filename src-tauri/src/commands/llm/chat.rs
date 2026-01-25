@@ -5,7 +5,7 @@
 use tauri::State;
 
 use crate::commands::state::AppState;
-use crate::core::llm::{LLMConfig, ChatMessage, MessageRole};
+use crate::core::llm::{ChatMessage, MessageRole};
 
 use super::types::{ChatRequestPayload, ChatResponsePayload};
 
@@ -82,21 +82,7 @@ pub async fn chat(
     });
 
     // Determine model name
-    let model = match &config {
-        LLMConfig::OpenAI { model, .. } => model.clone(),
-        LLMConfig::Claude { model, .. } => model.clone(),
-        LLMConfig::Google { model, .. } => model.clone(),
-        LLMConfig::Gemini { model, .. } => model.clone(),
-        LLMConfig::Copilot { model, .. } => model.clone(),
-        LLMConfig::OpenRouter { model, .. } => model.clone(),
-        LLMConfig::Mistral { model, .. } => model.clone(),
-        LLMConfig::Groq { model, .. } => model.clone(),
-        LLMConfig::Together { model, .. } => model.clone(),
-        LLMConfig::Cohere { model, .. } => model.clone(),
-        LLMConfig::DeepSeek { model, .. } => model.clone(),
-        LLMConfig::Ollama { model, .. } => model.clone(),
-        LLMConfig::Meilisearch { model, .. } => model.clone(),
-    };
+    let model = config.model_name();
 
     // Send chat request
     let manager_guard = manager.read().await;

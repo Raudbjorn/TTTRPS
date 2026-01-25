@@ -60,14 +60,22 @@ pub fn generate_campaign_cover(
     campaign_id: String,
     title: String,
 ) -> String {
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
     use base64::Engine;
 
-    // Deterministic colors based on ID
-    let mut hasher = DefaultHasher::new();
-    campaign_id.hash(&mut hasher);
-    let h1 = hasher.finish();
+    // Deterministic colors based on ID using FNV-1a hash (stable across Rust versions)
+    // FNV-1a is simple, fast, and has good distribution for short strings
+    fn fnv1a_hash(data: &[u8]) -> u64 {
+        const FNV_OFFSET_BASIS: u64 = 0xcbf29ce484222325;
+        const FNV_PRIME: u64 = 0x100000001b3;
+        let mut hash = FNV_OFFSET_BASIS;
+        for byte in data {
+            hash ^= *byte as u64;
+            hash = hash.wrapping_mul(FNV_PRIME);
+        }
+        hash
+    }
+
+    let h1 = fnv1a_hash(campaign_id.as_bytes());
     let h2 = !h1;
 
     let c1 = format!("#{:06x}", h1 & 0xFFFFFF);

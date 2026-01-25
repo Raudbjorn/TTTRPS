@@ -9,8 +9,7 @@ use tauri::State;
 use crate::commands::AppState;
 use crate::core::llm::LLMConfig;
 use crate::core::voice::{
-    VoiceConfig, VoiceManager, VoiceProviderType,
-    SynthesisRequest, OutputFormat,
+    VoiceProviderType, SynthesisRequest, OutputFormat,
 };
 
 // ============================================================================
@@ -31,33 +30,32 @@ pub struct SpeakResult {
 // ============================================================================
 
 /// Speak text using configured voice provider
+///
+/// Uses the VoiceManager from AppState for efficient reuse of the provider connection.
 #[tauri::command]
-pub async fn speak(text: String, app_handle: tauri::AppHandle) -> Result<Option<SpeakResult>, String> {
+pub async fn speak(
+    text: String,
+    state: State<'_, AppState>,
+) -> Result<Option<SpeakResult>, String> {
     use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 
-    // 1. Load voice config from disk (saved by the settings UI)
-    let config = crate::commands::llm::config::load_voice_config_disk(&app_handle)
-        .unwrap_or_else(|| {
-            log::warn!("No voice config found on disk, using default");
-            VoiceConfig::default()
-        });
+    // Use VoiceManager from state
+    let manager = state.voice_manager.read().await;
 
     // Check if voice is disabled
-    if matches!(config.provider, VoiceProviderType::Disabled) {
+    if matches!(manager.get_config().provider, VoiceProviderType::Disabled) {
         log::info!("Voice synthesis disabled, skipping speak request");
         return Ok(None);
     }
 
     // Get the default voice ID from config
-    let voice_id = config.default_voice_id.clone()
+    let voice_id = manager.get_config().default_voice_id.clone()
         .unwrap_or_else(|| "default".to_string());
 
     log::info!("Speaking with provider {:?}, voice_id: '{}', piper_config: {:?}",
-        config.provider, voice_id, config.piper);
+        manager.get_config().provider, voice_id, manager.get_config().piper);
 
-    let manager = VoiceManager::new(config);
-
-    // 2. Synthesize (async)
+    // Synthesize (async)
     let request = SynthesisRequest {
         text,
         voice_id,

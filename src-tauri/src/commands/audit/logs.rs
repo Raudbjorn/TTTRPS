@@ -10,6 +10,22 @@ use crate::core::security::{
 };
 
 // ============================================================================
+// Helper Functions
+// ============================================================================
+
+/// Parse a severity string into an AuditSeverity enum
+fn parse_severity(severity_str: &str) -> AuditSeverity {
+    match severity_str.to_lowercase().as_str() {
+        "debug" => AuditSeverity::Debug,
+        "info" => AuditSeverity::Info,
+        "warning" => AuditSeverity::Warning,
+        "security" => AuditSeverity::Security,
+        "critical" => AuditSeverity::Critical,
+        _ => AuditSeverity::Info,
+    }
+}
+
+// ============================================================================
 // State Types
 // ============================================================================
 
@@ -55,14 +71,7 @@ pub fn get_audit_logs(
     let count = count.unwrap_or(100);
 
     if let Some(severity_str) = min_severity {
-        let severity = match severity_str.to_lowercase().as_str() {
-            "debug" => AuditSeverity::Debug,
-            "info" => AuditSeverity::Info,
-            "warning" => AuditSeverity::Warning,
-            "security" => AuditSeverity::Security,
-            "critical" => AuditSeverity::Critical,
-            _ => AuditSeverity::Info,
-        };
+        let severity = parse_severity(&severity_str);
         state.logger.get_by_severity(severity).into_iter().take(count).collect()
     } else {
         state.logger.get_recent(count)
@@ -80,14 +89,7 @@ pub fn query_audit_logs(
     state: State<'_, AuditLoggerState>,
 ) -> Vec<SecurityAuditEvent> {
     let from = from_hours.map(|h| chrono::Utc::now() - chrono::Duration::hours(h));
-    let min_sev = min_severity.map(|s| match s.to_lowercase().as_str() {
-        "debug" => AuditSeverity::Debug,
-        "info" => AuditSeverity::Info,
-        "warning" => AuditSeverity::Warning,
-        "security" => AuditSeverity::Security,
-        "critical" => AuditSeverity::Critical,
-        _ => AuditSeverity::Info,
-    });
+    let min_sev = min_severity.map(|s| parse_severity(&s));
 
     state.logger.query(AuditLogQuery {
         from,
