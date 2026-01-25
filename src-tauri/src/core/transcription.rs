@@ -1,17 +1,447 @@
-use serde::{Deserialize, Serialize};
-use reqwest::multipart;
-use std::path::Path;
+//! Transcription Module
+//!
+//! Multi-provider transcription abstraction supporting audio-to-text conversion
+//! via various backends (OpenAI Whisper, future providers).
 
-#[derive(Debug, Serialize, Deserialize)]
+use async_trait::async_trait;
+use reqwest::multipart;
+use serde::{Deserialize, Serialize};
+use std::path::Path;
+use std::sync::Arc;
+use thiserror::Error;
+
+// ============================================================================
+// Error Types
+// ============================================================================
+
+#[derive(Error, Debug)]
+pub enum TranscriptionError {
+    #[error("Provider not available: {0}")]
+    ProviderNotAvailable(String),
+
+    #[error("Invalid audio file: {0}")]
+    InvalidAudioFile(String),
+
+    #[error("API error: {0}")]
+    ApiError(String),
+
+    #[error("Network error: {0}")]
+    NetworkError(String),
+
+    #[error("IO error: {0}")]
+    IoError(#[from] std::io::Error),
+
+    #[error("Configuration error: {0}")]
+    ConfigError(String),
+}
+
+pub type Result<T> = std::result::Result<T, TranscriptionError>;
+
+// ============================================================================
+// Types
+// ============================================================================
+
+/// Result from transcription
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TranscriptionResult {
     pub text: String,
     pub language: Option<String>,
     pub duration_seconds: Option<f64>,
+    pub provider: String,
 }
 
-pub struct TranscriptionService {
-    client: reqwest::Client,
+/// Configuration for a transcription provider
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TranscriptionConfig {
+    pub provider: TranscriptionProviderType,
+    pub api_key: Option<String>,
+    pub model: Option<String>,
+    pub language_hint: Option<String>,
 }
+
+/// Supported transcription providers
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum TranscriptionProviderType {
+    #[default]
+    OpenAI,
+    Groq,
+    // Future: Local (Whisper.cpp), AssemblyAI, Deepgram, etc.
+}
+
+impl std::str::FromStr for TranscriptionProviderType {
+    type Err = String;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "openai" | "whisper" => Ok(Self::OpenAI),
+            "groq" => Ok(Self::Groq),
+            _ => Err(format!("Unknown transcription provider: {}", s)),
+        }
+    }
+}
+
+impl std::fmt::Display for TranscriptionProviderType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::OpenAI => write!(f, "openai"),
+            Self::Groq => write!(f, "groq"),
+        }
+    }
+}
+
+// ============================================================================
+// Provider Trait
+// ============================================================================
+
+/// Trait for transcription providers
+#[async_trait]
+pub trait TranscriptionProvider: Send + Sync {
+    /// Provider identifier
+    fn id(&self) -> &'static str;
+
+    /// Display name
+    fn name(&self) -> &'static str;
+
+    /// Check if provider is available (has credentials, etc.)
+    fn is_available(&self) -> bool;
+
+    /// Transcribe an audio file
+    async fn transcribe(&self, audio_path: &Path) -> Result<TranscriptionResult>;
+}
+
+// ============================================================================
+// OpenAI Provider
+// ============================================================================
+
+pub struct OpenAITranscriptionProvider {
+    client: reqwest::Client,
+    api_key: String,
+    model: String,
+}
+
+impl OpenAITranscriptionProvider {
+    pub fn new(api_key: String) -> Self {
+        Self {
+            client: reqwest::Client::new(),
+            api_key,
+            model: "whisper-1".to_string(),
+        }
+    }
+
+    pub fn with_model(api_key: String, model: &str) -> Self {
+        Self {
+            client: reqwest::Client::new(),
+            api_key,
+            model: model.to_string(),
+        }
+    }
+}
+
+#[async_trait]
+impl TranscriptionProvider for OpenAITranscriptionProvider {
+    fn id(&self) -> &'static str {
+        "openai"
+    }
+
+    fn name(&self) -> &'static str {
+        "OpenAI Whisper"
+    }
+
+    fn is_available(&self) -> bool {
+        !self.api_key.is_empty() && !self.api_key.starts_with('*')
+    }
+
+    async fn transcribe(&self, audio_path: &Path) -> Result<TranscriptionResult> {
+        let file_name = audio_path
+            .file_name()
+            .ok_or_else(|| TranscriptionError::InvalidAudioFile("Invalid path".to_string()))?
+            .to_string_lossy()
+            .to_string();
+
+        let file_content = tokio::fs::read(audio_path).await?;
+
+        let part = multipart::Part::bytes(file_content).file_name(file_name);
+
+        let form = multipart::Form::new()
+            .part("file", part)
+            .text("model", self.model.clone());
+
+        let response = self
+            .client
+            .post("https://api.openai.com/v1/audio/transcriptions")
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .multipart(form)
+            .send()
+            .await
+            .map_err(|e| TranscriptionError::NetworkError(e.to_string()))?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            return Err(TranscriptionError::ApiError(format!(
+                "OpenAI API error {}: {}",
+                status, body
+            )));
+        }
+
+        let json: serde_json::Value = response
+            .json()
+            .await
+            .map_err(|e| TranscriptionError::ApiError(format!("Invalid JSON: {}", e)))?;
+
+        let text = json["text"].as_str().unwrap_or("").to_string();
+
+        Ok(TranscriptionResult {
+            text,
+            language: json["language"].as_str().map(String::from),
+            duration_seconds: json["duration"].as_f64(),
+            provider: self.name().to_string(),
+        })
+    }
+}
+
+// ============================================================================
+// Groq Provider (Whisper via Groq API)
+// ============================================================================
+
+pub struct GroqTranscriptionProvider {
+    client: reqwest::Client,
+    api_key: String,
+    model: String,
+}
+
+impl GroqTranscriptionProvider {
+    pub fn new(api_key: String) -> Self {
+        Self {
+            client: reqwest::Client::new(),
+            api_key,
+            model: "whisper-large-v3".to_string(),
+        }
+    }
+
+    pub fn with_model(api_key: String, model: &str) -> Self {
+        Self {
+            client: reqwest::Client::new(),
+            api_key,
+            model: model.to_string(),
+        }
+    }
+}
+
+#[async_trait]
+impl TranscriptionProvider for GroqTranscriptionProvider {
+    fn id(&self) -> &'static str {
+        "groq"
+    }
+
+    fn name(&self) -> &'static str {
+        "Groq Whisper"
+    }
+
+    fn is_available(&self) -> bool {
+        !self.api_key.is_empty() && !self.api_key.starts_with('*')
+    }
+
+    async fn transcribe(&self, audio_path: &Path) -> Result<TranscriptionResult> {
+        let file_name = audio_path
+            .file_name()
+            .ok_or_else(|| TranscriptionError::InvalidAudioFile("Invalid path".to_string()))?
+            .to_string_lossy()
+            .to_string();
+
+        let file_content = tokio::fs::read(audio_path).await?;
+
+        let part = multipart::Part::bytes(file_content).file_name(file_name);
+
+        let form = multipart::Form::new()
+            .part("file", part)
+            .text("model", self.model.clone());
+
+        let response = self
+            .client
+            .post("https://api.groq.com/openai/v1/audio/transcriptions")
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .multipart(form)
+            .send()
+            .await
+            .map_err(|e| TranscriptionError::NetworkError(e.to_string()))?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            return Err(TranscriptionError::ApiError(format!(
+                "Groq API error {}: {}",
+                status, body
+            )));
+        }
+
+        let json: serde_json::Value = response
+            .json()
+            .await
+            .map_err(|e| TranscriptionError::ApiError(format!("Invalid JSON: {}", e)))?;
+
+        let text = json["text"].as_str().unwrap_or("").to_string();
+
+        Ok(TranscriptionResult {
+            text,
+            language: json["language"].as_str().map(String::from),
+            duration_seconds: json["duration"].as_f64(),
+            provider: self.name().to_string(),
+        })
+    }
+}
+
+// ============================================================================
+// Transcription Manager
+// ============================================================================
+
+/// Manages transcription providers with fallback support
+pub struct TranscriptionManager {
+    providers: Vec<Arc<dyn TranscriptionProvider>>,
+    default_provider: Option<TranscriptionProviderType>,
+}
+
+impl Default for TranscriptionManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl TranscriptionManager {
+    pub fn new() -> Self {
+        Self {
+            providers: Vec::new(),
+            default_provider: None,
+        }
+    }
+
+    /// Add a provider to the manager
+    pub fn add_provider(&mut self, provider: Arc<dyn TranscriptionProvider>) {
+        self.providers.push(provider);
+    }
+
+    /// Set the default provider type
+    pub fn set_default(&mut self, provider_type: TranscriptionProviderType) {
+        self.default_provider = Some(provider_type);
+    }
+
+    /// Get all available providers
+    pub fn available_providers(&self) -> Vec<&'static str> {
+        self.providers
+            .iter()
+            .filter(|p| p.is_available())
+            .map(|p| p.id())
+            .collect()
+    }
+
+    /// Transcribe using the default or first available provider
+    pub async fn transcribe(&self, audio_path: &Path) -> Result<TranscriptionResult> {
+        // Try default provider first
+        if let Some(default_type) = &self.default_provider {
+            let default_id = default_type.to_string();
+            if let Some(provider) = self.providers.iter().find(|p| p.id() == default_id) {
+                if provider.is_available() {
+                    return provider.transcribe(audio_path).await;
+                }
+            }
+        }
+
+        // Fall back to first available
+        for provider in &self.providers {
+            if provider.is_available() {
+                return provider.transcribe(audio_path).await;
+            }
+        }
+
+        Err(TranscriptionError::ProviderNotAvailable(
+            "No transcription providers available".to_string(),
+        ))
+    }
+
+    /// Transcribe using a specific provider
+    pub async fn transcribe_with(
+        &self,
+        provider_id: &str,
+        audio_path: &Path,
+    ) -> Result<TranscriptionResult> {
+        let provider = self
+            .providers
+            .iter()
+            .find(|p| p.id() == provider_id)
+            .ok_or_else(|| {
+                TranscriptionError::ProviderNotAvailable(format!(
+                    "Provider '{}' not found",
+                    provider_id
+                ))
+            })?;
+
+        if !provider.is_available() {
+            return Err(TranscriptionError::ProviderNotAvailable(format!(
+                "Provider '{}' is not available (missing credentials?)",
+                provider_id
+            )));
+        }
+
+        provider.transcribe(audio_path).await
+    }
+}
+
+// ============================================================================
+// Builder for TranscriptionManager
+// ============================================================================
+
+/// Builder for creating a TranscriptionManager with configured providers
+pub struct TranscriptionManagerBuilder {
+    manager: TranscriptionManager,
+}
+
+impl Default for TranscriptionManagerBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl TranscriptionManagerBuilder {
+    pub fn new() -> Self {
+        Self {
+            manager: TranscriptionManager::new(),
+        }
+    }
+
+    /// Add OpenAI provider
+    pub fn with_openai(mut self, api_key: String) -> Self {
+        self.manager
+            .add_provider(Arc::new(OpenAITranscriptionProvider::new(api_key)));
+        self
+    }
+
+    /// Add Groq provider
+    pub fn with_groq(mut self, api_key: String) -> Self {
+        self.manager
+            .add_provider(Arc::new(GroqTranscriptionProvider::new(api_key)));
+        self
+    }
+
+    /// Set default provider
+    pub fn default_provider(mut self, provider_type: TranscriptionProviderType) -> Self {
+        self.manager.set_default(provider_type);
+        self
+    }
+
+    /// Build the manager
+    pub fn build(self) -> TranscriptionManager {
+        self.manager
+    }
+}
+
+// ============================================================================
+// Legacy Compatibility
+// ============================================================================
+
+/// Legacy TranscriptionService for backward compatibility
+#[deprecated(note = "Use TranscriptionManager instead")]
+pub struct TranscriptionService;
 
 impl Default for TranscriptionService {
     fn default() -> Self {
@@ -19,54 +449,72 @@ impl Default for TranscriptionService {
     }
 }
 
+#[allow(deprecated)]
 impl TranscriptionService {
     pub fn new() -> Self {
-        Self {
-            client: reqwest::Client::new(),
-        }
+        Self
     }
 
     pub async fn transcribe_openai(
         &self,
         api_key: &str,
         audio_path: &Path,
-    ) -> Result<TranscriptionResult, String> {
-        let file_name = audio_path.file_name()
-            .ok_or("Invalid path")?
-            .to_string_lossy()
-            .to_string();
-
-        let file_content = tokio::fs::read(audio_path).await
-            .map_err(|e| format!("Failed to read file: {}", e))?;
-
-        let part = multipart::Part::bytes(file_content)
-            .file_name(file_name);
-
-        let form = multipart::Form::new()
-            .part("file", part)
-            .text("model", "whisper-1");
-
-        let response = self.client
-            .post("https://api.openai.com/v1/audio/transcriptions")
-            .header("Authorization", format!("Bearer {}", api_key))
-            .multipart(form)
-            .send()
+    ) -> std::result::Result<TranscriptionResult, String> {
+        let provider = OpenAITranscriptionProvider::new(api_key.to_string());
+        provider
+            .transcribe(audio_path)
             .await
-            .map_err(|e| format!("Request failed: {}", e))?;
+            .map_err(|e| e.to_string())
+    }
+}
 
-        if !response.status().is_success() {
-            return Err(format!("OpenAI API error: {}", response.status()));
-        }
+// ============================================================================
+// Tests
+// ============================================================================
 
-        let json: serde_json::Value = response.json().await
-            .map_err(|e| format!("Invalid JSON: {}", e))?;
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-        let text = json["text"].as_str().unwrap_or("").to_string();
+    #[test]
+    fn test_provider_type_from_str() {
+        assert_eq!(
+            "openai".parse::<TranscriptionProviderType>().unwrap(),
+            TranscriptionProviderType::OpenAI
+        );
+        assert_eq!(
+            "whisper".parse::<TranscriptionProviderType>().unwrap(),
+            TranscriptionProviderType::OpenAI
+        );
+        assert_eq!(
+            "groq".parse::<TranscriptionProviderType>().unwrap(),
+            TranscriptionProviderType::Groq
+        );
+        assert!("unknown".parse::<TranscriptionProviderType>().is_err());
+    }
 
-        Ok(TranscriptionResult {
-            text,
-            language: None,
-            duration_seconds: None,
-        })
+    #[test]
+    fn test_provider_type_display() {
+        assert_eq!(TranscriptionProviderType::OpenAI.to_string(), "openai");
+        assert_eq!(TranscriptionProviderType::Groq.to_string(), "groq");
+    }
+
+    #[test]
+    fn test_manager_builder() {
+        let manager = TranscriptionManagerBuilder::new()
+            .with_openai("test-key".to_string())
+            .default_provider(TranscriptionProviderType::OpenAI)
+            .build();
+
+        assert_eq!(manager.available_providers(), vec!["openai"]);
+    }
+
+    #[test]
+    fn test_empty_key_not_available() {
+        let provider = OpenAITranscriptionProvider::new("".to_string());
+        assert!(!provider.is_available());
+
+        let provider = OpenAITranscriptionProvider::new("********".to_string());
+        assert!(!provider.is_available());
     }
 }

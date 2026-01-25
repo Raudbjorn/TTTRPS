@@ -54,6 +54,106 @@ impl std::fmt::Debug for LLMSettings {
     }
 }
 
+impl From<&crate::core::llm::LLMConfig> for LLMSettings {
+    fn from(config: &crate::core::llm::LLMConfig) -> Self {
+        use crate::core::llm::LLMConfig;
+
+        match config {
+            LLMConfig::Ollama { host, model } => LLMSettings {
+                provider: "ollama".to_string(),
+                api_key: None,
+                host: Some(host.clone()),
+                model: model.clone(),
+                embedding_model: None,
+            },
+            LLMConfig::Claude { model, .. } => LLMSettings {
+                provider: "claude".to_string(),
+                api_key: Some("********".to_string()),
+                host: None,
+                model: model.clone(),
+                embedding_model: None,
+            },
+            LLMConfig::Google { model, .. } => LLMSettings {
+                provider: "google".to_string(),
+                api_key: Some("********".to_string()),
+                host: None,
+                model: model.clone(),
+                embedding_model: None,
+            },
+            LLMConfig::OpenAI { model, .. } => LLMSettings {
+                provider: "openai".to_string(),
+                api_key: Some("********".to_string()),
+                host: None,
+                model: model.clone(),
+                embedding_model: None,
+            },
+            LLMConfig::OpenRouter { model, .. } => LLMSettings {
+                provider: "openrouter".to_string(),
+                api_key: Some("********".to_string()),
+                host: None,
+                model: model.clone(),
+                embedding_model: None,
+            },
+            LLMConfig::Mistral { model, .. } => LLMSettings {
+                provider: "mistral".to_string(),
+                api_key: Some("********".to_string()),
+                host: None,
+                model: model.clone(),
+                embedding_model: None,
+            },
+            LLMConfig::Groq { model, .. } => LLMSettings {
+                provider: "groq".to_string(),
+                api_key: Some("********".to_string()),
+                host: None,
+                model: model.clone(),
+                embedding_model: None,
+            },
+            LLMConfig::Together { model, .. } => LLMSettings {
+                provider: "together".to_string(),
+                api_key: Some("********".to_string()),
+                host: None,
+                model: model.clone(),
+                embedding_model: None,
+            },
+            LLMConfig::Cohere { model, .. } => LLMSettings {
+                provider: "cohere".to_string(),
+                api_key: Some("********".to_string()),
+                host: None,
+                model: model.clone(),
+                embedding_model: None,
+            },
+            LLMConfig::DeepSeek { model, .. } => LLMSettings {
+                provider: "deepseek".to_string(),
+                api_key: Some("********".to_string()),
+                host: None,
+                model: model.clone(),
+                embedding_model: None,
+            },
+            LLMConfig::Gemini { model, .. } => LLMSettings {
+                provider: "gemini".to_string(),
+                api_key: None, // No API key needed - uses OAuth
+                host: None,
+                model: model.clone(),
+                embedding_model: None,
+            },
+            LLMConfig::Meilisearch { host, model, .. } => LLMSettings {
+                provider: "meilisearch".to_string(),
+                api_key: None,
+                host: Some(host.clone()),
+                model: model.clone(),
+                embedding_model: None,
+            },
+            LLMConfig::Copilot { model, .. } => LLMSettings {
+                provider: "copilot".to_string(),
+                api_key: None, // No API key needed - uses OAuth Device Code flow
+                host: None,
+                model: model.clone(),
+                embedding_model: None,
+            },
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct HealthStatus {
     pub provider: String,

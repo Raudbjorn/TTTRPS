@@ -17,6 +17,8 @@ pub mod router;
 pub mod model_selector;
 
 // Re-export all commands and types using glob pattern for Tauri __cmd__ macros
+// Note: config/chat module names conflict at top-level, but this is handled
+// via #[allow(ambiguous_glob_reexports)] in commands/mod.rs
 pub use types::*;
 pub use config::*;
 pub use chat::*;
