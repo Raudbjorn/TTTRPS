@@ -8,7 +8,11 @@ use reqwest::multipart;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::sync::Arc;
+use std::time::Duration;
 use thiserror::Error;
+
+/// Default timeout for transcription API requests (2 minutes for large audio files)
+const DEFAULT_TRANSCRIPTION_TIMEOUT: Duration = Duration::from_secs(120);
 
 // ============================================================================
 // Error Types
@@ -111,6 +115,86 @@ pub trait TranscriptionProvider: Send + Sync {
 }
 
 // ============================================================================
+// OpenAI-Compatible Transcription Helper
+// ============================================================================
+
+/// Helper for OpenAI-compatible transcription APIs (OpenAI, Groq, etc.)
+/// Extracts common logic to reduce code duplication.
+async fn transcribe_openai_compatible(
+    client: &reqwest::Client,
+    api_url: &str,
+    api_key: &str,
+    model: &str,
+    audio_path: &Path,
+    provider_name: &str,
+) -> Result<TranscriptionResult> {
+    let file_name = audio_path
+        .file_name()
+        .ok_or_else(|| TranscriptionError::InvalidAudioFile("Invalid path".to_string()))?
+        .to_string_lossy()
+        .to_string();
+
+    let file_content = tokio::fs::read(audio_path).await?;
+
+    let part = multipart::Part::bytes(file_content).file_name(file_name);
+
+    let form = multipart::Form::new()
+        .part("file", part)
+        .text("model", model.to_string());
+
+    let response = client
+        .post(api_url)
+        .header("Authorization", format!("Bearer {}", api_key))
+        .multipart(form)
+        .timeout(DEFAULT_TRANSCRIPTION_TIMEOUT)
+        .send()
+        .await
+        .map_err(|e| {
+            if e.is_timeout() {
+                TranscriptionError::NetworkError(format!(
+                    "{} request timed out after {:?}",
+                    provider_name, DEFAULT_TRANSCRIPTION_TIMEOUT
+                ))
+            } else {
+                TranscriptionError::NetworkError(e.to_string())
+            }
+        })?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        // Security: Don't include full response body in error message
+        // to avoid leaking sensitive data from upstream API
+        return Err(TranscriptionError::ApiError(format!(
+            "{} API error: HTTP {}",
+            provider_name, status.as_u16()
+        )));
+    }
+
+    let json: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|e| TranscriptionError::ApiError(format!("Invalid response format: {}", e)))?;
+
+    let text = json
+        .get("text")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| {
+            TranscriptionError::ApiError(format!(
+                "{} response missing 'text' field or invalid format",
+                provider_name
+            ))
+        })?
+        .to_string();
+
+    Ok(TranscriptionResult {
+        text,
+        language: json["language"].as_str().map(String::from),
+        duration_seconds: json["duration"].as_f64(),
+        provider: provider_name.to_string(),
+    })
+}
+
+// ============================================================================
 // OpenAI Provider
 // ============================================================================
 
@@ -121,6 +205,8 @@ pub struct OpenAITranscriptionProvider {
 }
 
 impl OpenAITranscriptionProvider {
+    const API_URL: &'static str = "https://api.openai.com/v1/audio/transcriptions";
+
     pub fn new(api_key: String) -> Self {
         Self {
             client: reqwest::Client::new(),
@@ -153,51 +239,15 @@ impl TranscriptionProvider for OpenAITranscriptionProvider {
     }
 
     async fn transcribe(&self, audio_path: &Path) -> Result<TranscriptionResult> {
-        let file_name = audio_path
-            .file_name()
-            .ok_or_else(|| TranscriptionError::InvalidAudioFile("Invalid path".to_string()))?
-            .to_string_lossy()
-            .to_string();
-
-        let file_content = tokio::fs::read(audio_path).await?;
-
-        let part = multipart::Part::bytes(file_content).file_name(file_name);
-
-        let form = multipart::Form::new()
-            .part("file", part)
-            .text("model", self.model.clone());
-
-        let response = self
-            .client
-            .post("https://api.openai.com/v1/audio/transcriptions")
-            .header("Authorization", format!("Bearer {}", self.api_key))
-            .multipart(form)
-            .send()
-            .await
-            .map_err(|e| TranscriptionError::NetworkError(e.to_string()))?;
-
-        if !response.status().is_success() {
-            let status = response.status();
-            let body = response.text().await.unwrap_or_default();
-            return Err(TranscriptionError::ApiError(format!(
-                "OpenAI API error {}: {}",
-                status, body
-            )));
-        }
-
-        let json: serde_json::Value = response
-            .json()
-            .await
-            .map_err(|e| TranscriptionError::ApiError(format!("Invalid JSON: {}", e)))?;
-
-        let text = json["text"].as_str().unwrap_or("").to_string();
-
-        Ok(TranscriptionResult {
-            text,
-            language: json["language"].as_str().map(String::from),
-            duration_seconds: json["duration"].as_f64(),
-            provider: self.name().to_string(),
-        })
+        transcribe_openai_compatible(
+            &self.client,
+            Self::API_URL,
+            &self.api_key,
+            &self.model,
+            audio_path,
+            self.name(),
+        )
+        .await
     }
 }
 
@@ -212,6 +262,8 @@ pub struct GroqTranscriptionProvider {
 }
 
 impl GroqTranscriptionProvider {
+    const API_URL: &'static str = "https://api.groq.com/openai/v1/audio/transcriptions";
+
     pub fn new(api_key: String) -> Self {
         Self {
             client: reqwest::Client::new(),
@@ -244,51 +296,15 @@ impl TranscriptionProvider for GroqTranscriptionProvider {
     }
 
     async fn transcribe(&self, audio_path: &Path) -> Result<TranscriptionResult> {
-        let file_name = audio_path
-            .file_name()
-            .ok_or_else(|| TranscriptionError::InvalidAudioFile("Invalid path".to_string()))?
-            .to_string_lossy()
-            .to_string();
-
-        let file_content = tokio::fs::read(audio_path).await?;
-
-        let part = multipart::Part::bytes(file_content).file_name(file_name);
-
-        let form = multipart::Form::new()
-            .part("file", part)
-            .text("model", self.model.clone());
-
-        let response = self
-            .client
-            .post("https://api.groq.com/openai/v1/audio/transcriptions")
-            .header("Authorization", format!("Bearer {}", self.api_key))
-            .multipart(form)
-            .send()
-            .await
-            .map_err(|e| TranscriptionError::NetworkError(e.to_string()))?;
-
-        if !response.status().is_success() {
-            let status = response.status();
-            let body = response.text().await.unwrap_or_default();
-            return Err(TranscriptionError::ApiError(format!(
-                "Groq API error {}: {}",
-                status, body
-            )));
-        }
-
-        let json: serde_json::Value = response
-            .json()
-            .await
-            .map_err(|e| TranscriptionError::ApiError(format!("Invalid JSON: {}", e)))?;
-
-        let text = json["text"].as_str().unwrap_or("").to_string();
-
-        Ok(TranscriptionResult {
-            text,
-            language: json["language"].as_str().map(String::from),
-            duration_seconds: json["duration"].as_f64(),
-            provider: self.name().to_string(),
-        })
+        transcribe_openai_compatible(
+            &self.client,
+            Self::API_URL,
+            &self.api_key,
+            &self.model,
+            audio_path,
+            self.name(),
+        )
+        .await
     }
 }
 

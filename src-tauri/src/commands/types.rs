@@ -54,102 +54,35 @@ impl std::fmt::Debug for LLMSettings {
     }
 }
 
+/// Helper to create LLMSettings with common defaults
+fn make_llm_settings(provider: &str, model: &str, has_api_key: bool, host: Option<&str>) -> LLMSettings {
+    LLMSettings {
+        provider: provider.to_string(),
+        api_key: if has_api_key { Some("********".to_string()) } else { None },
+        host: host.map(String::from),
+        model: model.to_string(),
+        embedding_model: None,
+    }
+}
+
 impl From<&crate::core::llm::LLMConfig> for LLMSettings {
     fn from(config: &crate::core::llm::LLMConfig) -> Self {
         use crate::core::llm::LLMConfig;
 
         match config {
-            LLMConfig::Ollama { host, model } => LLMSettings {
-                provider: "ollama".to_string(),
-                api_key: None,
-                host: Some(host.clone()),
-                model: model.clone(),
-                embedding_model: None,
-            },
-            LLMConfig::Claude { model, .. } => LLMSettings {
-                provider: "claude".to_string(),
-                api_key: Some("********".to_string()),
-                host: None,
-                model: model.clone(),
-                embedding_model: None,
-            },
-            LLMConfig::Google { model, .. } => LLMSettings {
-                provider: "google".to_string(),
-                api_key: Some("********".to_string()),
-                host: None,
-                model: model.clone(),
-                embedding_model: None,
-            },
-            LLMConfig::OpenAI { model, .. } => LLMSettings {
-                provider: "openai".to_string(),
-                api_key: Some("********".to_string()),
-                host: None,
-                model: model.clone(),
-                embedding_model: None,
-            },
-            LLMConfig::OpenRouter { model, .. } => LLMSettings {
-                provider: "openrouter".to_string(),
-                api_key: Some("********".to_string()),
-                host: None,
-                model: model.clone(),
-                embedding_model: None,
-            },
-            LLMConfig::Mistral { model, .. } => LLMSettings {
-                provider: "mistral".to_string(),
-                api_key: Some("********".to_string()),
-                host: None,
-                model: model.clone(),
-                embedding_model: None,
-            },
-            LLMConfig::Groq { model, .. } => LLMSettings {
-                provider: "groq".to_string(),
-                api_key: Some("********".to_string()),
-                host: None,
-                model: model.clone(),
-                embedding_model: None,
-            },
-            LLMConfig::Together { model, .. } => LLMSettings {
-                provider: "together".to_string(),
-                api_key: Some("********".to_string()),
-                host: None,
-                model: model.clone(),
-                embedding_model: None,
-            },
-            LLMConfig::Cohere { model, .. } => LLMSettings {
-                provider: "cohere".to_string(),
-                api_key: Some("********".to_string()),
-                host: None,
-                model: model.clone(),
-                embedding_model: None,
-            },
-            LLMConfig::DeepSeek { model, .. } => LLMSettings {
-                provider: "deepseek".to_string(),
-                api_key: Some("********".to_string()),
-                host: None,
-                model: model.clone(),
-                embedding_model: None,
-            },
-            LLMConfig::Gemini { model, .. } => LLMSettings {
-                provider: "gemini".to_string(),
-                api_key: None, // No API key needed - uses OAuth
-                host: None,
-                model: model.clone(),
-                embedding_model: None,
-            },
-            LLMConfig::Meilisearch { host, model, .. } => LLMSettings {
-                provider: "meilisearch".to_string(),
-                api_key: None,
-                host: Some(host.clone()),
-                model: model.clone(),
-                embedding_model: None,
-            },
-            LLMConfig::Copilot { model, .. } => LLMSettings {
-                provider: "copilot".to_string(),
-                api_key: None, // No API key needed - uses OAuth Device Code flow
-                host: None,
-                model: model.clone(),
-                embedding_model: None,
-            },
+            LLMConfig::Ollama { host, model } => make_llm_settings("ollama", model, false, Some(host)),
+            LLMConfig::Claude { model, .. } => make_llm_settings("claude", model, true, None),
+            LLMConfig::Google { model, .. } => make_llm_settings("google", model, true, None),
+            LLMConfig::OpenAI { model, .. } => make_llm_settings("openai", model, true, None),
+            LLMConfig::OpenRouter { model, .. } => make_llm_settings("openrouter", model, true, None),
+            LLMConfig::Mistral { model, .. } => make_llm_settings("mistral", model, true, None),
+            LLMConfig::Groq { model, .. } => make_llm_settings("groq", model, true, None),
+            LLMConfig::Together { model, .. } => make_llm_settings("together", model, true, None),
+            LLMConfig::Cohere { model, .. } => make_llm_settings("cohere", model, true, None),
+            LLMConfig::DeepSeek { model, .. } => make_llm_settings("deepseek", model, true, None),
+            LLMConfig::Gemini { model, .. } => make_llm_settings("gemini", model, false, None),
+            LLMConfig::Meilisearch { host, model, .. } => make_llm_settings("meilisearch", model, false, Some(host)),
+            LLMConfig::Copilot { model, .. } => make_llm_settings("copilot", model, false, None),
         }
     }
 }
