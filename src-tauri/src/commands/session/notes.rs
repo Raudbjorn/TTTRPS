@@ -258,7 +258,9 @@ pub async fn categorize_note_ai(
     let prompt = build_categorization_prompt(&request);
 
     // Call LLM
-    let config = state.llm_config.read().unwrap().clone()
+    let config = state.llm_config.read()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .clone()
         .ok_or("LLM not configured")?;
     let client = crate::core::llm::LLMClient::new(config);
 

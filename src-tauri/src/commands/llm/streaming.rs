@@ -38,7 +38,8 @@ pub async fn stream_chat(
 ) -> Result<String, String> {
     log::info!("[stream_chat] Starting with {} messages", messages.len());
 
-    let config = state.llm_config.read().unwrap()
+    let config = state.llm_config.read()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
         .clone()
         .ok_or("LLM not configured. Please configure in Settings.")?;
 

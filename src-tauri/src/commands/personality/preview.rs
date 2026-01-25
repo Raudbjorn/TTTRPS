@@ -38,7 +38,8 @@ pub async fn generate_personality_preview(
     personality_id: String,
     state: State<'_, AppState>,
 ) -> Result<PreviewResponse, String> {
-    let config = state.llm_config.read().unwrap()
+    let config = state.llm_config.read()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
         .clone()
         .ok_or("LLM not configured")?;
     let client = LLMClient::new(config);
@@ -55,7 +56,8 @@ pub async fn test_personality(
     test_prompt: String,
     state: State<'_, AppState>,
 ) -> Result<String, String> {
-    let config = state.llm_config.read().unwrap()
+    let config = state.llm_config.read()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
         .clone()
         .ok_or("LLM not configured")?;
     let client = LLMClient::new(config);

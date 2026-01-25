@@ -20,7 +20,8 @@ pub async fn chat(
     state: State<'_, AppState>,
 ) -> Result<ChatResponsePayload, String> {
     // Get configuration
-    let config = state.llm_config.read().unwrap()
+    let config = state.llm_config.read()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
         .clone()
         .ok_or("LLM not configured. Please configure in Settings.")?;
 

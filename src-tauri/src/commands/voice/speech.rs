@@ -93,7 +93,9 @@ pub async fn transcribe_audio(
     state: State<'_, AppState>,
 ) -> Result<crate::core::transcription::TranscriptionResult, String> {
     // 1. Check Config for OpenAI API Key
-    let api_key = if let Some(config) = state.llm_config.read().unwrap().clone() {
+    let api_key = if let Some(config) = state.llm_config.read()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .clone() {
         match config {
             LLMConfig::OpenAI { api_key, .. } => api_key,
             _ => return Err("Transcription requires OpenAI configuration (for now)".to_string()),

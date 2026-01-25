@@ -2,19 +2,58 @@
 //!
 //! Commands for loading and applying dialect transformations.
 
+use std::path::PathBuf;
+
 use crate::core::npc_gen::{
     DialectDefinition, DialectTransformer, DialectTransformResult, Intensity,
     load_yaml_file, get_dialects_dir,
 };
 
 // ============================================================================
+// Path Validation
+// ============================================================================
+
+/// Validate that a path is within the dialects directory (prevents path traversal)
+fn validate_dialect_path(path: &str) -> Result<PathBuf, String> {
+    let dialects_dir = get_dialects_dir();
+    let canonical_base = dialects_dir.canonicalize()
+        .map_err(|e| format!("Failed to canonicalize dialects directory: {}", e))?;
+
+    let requested_path = PathBuf::from(path);
+
+    // If path is relative, resolve it against the dialects directory
+    let full_path = if requested_path.is_relative() {
+        dialects_dir.join(&requested_path)
+    } else {
+        requested_path
+    };
+
+    // Canonicalize to resolve any .. or symlinks
+    let canonical_path = full_path.canonicalize()
+        .map_err(|e| format!("Invalid dialect path '{}': {}", path, e))?;
+
+    // Verify the canonical path is within the dialects directory
+    if !canonical_path.starts_with(&canonical_base) {
+        return Err(format!(
+            "Path traversal denied: '{}' is outside dialects directory",
+            path
+        ));
+    }
+
+    Ok(canonical_path)
+}
+
+// ============================================================================
 // NPC Dialect Commands
 // ============================================================================
 
 /// Load a dialect definition from YAML file
+///
+/// The path must be within the dialects directory to prevent path traversal attacks.
 #[tauri::command]
 pub async fn load_dialect(path: String) -> Result<DialectDefinition, String> {
-    load_yaml_file(&std::path::PathBuf::from(path))
+    let validated_path = validate_dialect_path(&path)?;
+    load_yaml_file(&validated_path)
         .await
         .map_err(|e| e.to_string())
 }

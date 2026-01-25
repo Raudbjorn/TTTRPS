@@ -146,11 +146,13 @@ pub async fn configure_llm(
     let provider_name = client.provider_name().to_string();
 
     // Get the previous provider name before overwriting config
-    let prev_provider = state.llm_config.read().unwrap()
+    let prev_provider = state.llm_config.read()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
         .as_ref()
         .map(|c| LLMClient::new(c.clone()).provider_name().to_string());
 
-    *state.llm_config.write().unwrap() = Some(config.clone());
+    *state.llm_config.write()
+        .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(config.clone());
 
     // Persist to disk
     save_llm_config_disk(&app_handle, &config);
@@ -176,7 +178,8 @@ pub async fn configure_llm(
 /// Get current LLM configuration
 #[tauri::command]
 pub fn get_llm_config(state: State<'_, AppState>) -> Result<Option<LLMSettings>, String> {
-    let config = state.llm_config.read().unwrap();
+    let config = state.llm_config.read()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
 
     Ok(config.as_ref().map(|c| match c {
         LLMConfig::Ollama { host, model } => LLMSettings {
@@ -277,7 +280,9 @@ pub fn get_llm_config(state: State<'_, AppState>) -> Result<Option<LLMSettings>,
 #[tauri::command]
 pub async fn check_llm_health(state: State<'_, AppState>) -> Result<HealthStatus, String> {
     println!("DEBUG: check_llm_health called");
-    let config_opt = state.llm_config.read().unwrap().clone();
+    let config_opt = state.llm_config.read()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .clone();
 
     match config_opt {
         Some(config) => {

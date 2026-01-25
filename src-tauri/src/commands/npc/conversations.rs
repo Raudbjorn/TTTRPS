@@ -191,7 +191,10 @@ pub async fn reply_as_npc(
     }
 
     // 5. Call LLM
-    let config = state.llm_config.read().unwrap().clone().ok_or("LLM not configured")?;
+    let config = state.llm_config.read()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .clone()
+        .ok_or("LLM not configured")?;
     let client = crate::core::llm::LLMClient::new(config);
 
     let req = crate::core::llm::ChatRequest {

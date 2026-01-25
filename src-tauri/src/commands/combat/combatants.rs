@@ -24,7 +24,10 @@ pub fn add_combatant(
         "npc" => CombatantType::NPC,
         "monster" => CombatantType::Monster,
         "ally" => CombatantType::Ally,
-        _ => CombatantType::Monster,
+        _ => return Err(format!(
+            "Unknown combatant type: '{}'. Valid types: player, npc, monster, ally",
+            combatant_type
+        )),
     };
 
     // Create full combatant with optional HP/AC
@@ -83,6 +86,9 @@ pub fn damage_combatant(
     amount: i32,
     state: State<'_, AppState>,
 ) -> Result<i32, String> {
+    if amount < 0 {
+        return Err("Damage amount cannot be negative. Use heal_combatant for healing.".to_string());
+    }
     state.session_manager.damage_combatant(&session_id, &combatant_id, amount)
         .map_err(|e| e.to_string())
 }
@@ -95,6 +101,9 @@ pub fn heal_combatant(
     amount: i32,
     state: State<'_, AppState>,
 ) -> Result<i32, String> {
+    if amount < 0 {
+        return Err("Heal amount cannot be negative. Use damage_combatant for damage.".to_string());
+    }
     state.session_manager.heal_combatant(&session_id, &combatant_id, amount)
         .map_err(|e| e.to_string())
 }

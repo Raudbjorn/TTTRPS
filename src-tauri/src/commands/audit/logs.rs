@@ -123,9 +123,15 @@ pub fn export_audit_logs(
 }
 
 /// Clear old audit logs (older than specified days)
+///
+/// # Arguments
+/// * `days` - Number of days to keep. Must be positive. Logs older than this will be deleted.
 #[tauri::command]
-pub fn clear_old_logs(days: i64, state: State<'_, AuditLoggerState>) -> usize {
-    state.logger.cleanup(days)
+pub fn clear_old_logs(days: i64, state: State<'_, AuditLoggerState>) -> Result<usize, String> {
+    if days <= 0 {
+        return Err("Days must be a positive number".to_string());
+    }
+    Ok(state.logger.cleanup(days))
 }
 
 /// Get security event counts by severity

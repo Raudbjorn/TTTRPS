@@ -26,7 +26,8 @@ pub async fn apply_personality_to_text(
     personality_id: String,
     state: State<'_, AppState>,
 ) -> Result<String, String> {
-    let config = state.llm_config.read().unwrap()
+    let config = state.llm_config.read()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
         .clone()
         .ok_or("LLM not configured")?;
     let client = LLMClient::new(config);
