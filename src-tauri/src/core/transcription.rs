@@ -115,6 +115,17 @@ pub trait TranscriptionProvider: Send + Sync {
 }
 
 // ============================================================================
+// Helper Functions
+// ============================================================================
+
+/// Check if an API key is valid (non-empty and not a placeholder)
+///
+/// Used by transcription providers to determine availability.
+fn is_api_key_valid(key: &str) -> bool {
+    !key.is_empty() && !key.starts_with('*')
+}
+
+// ============================================================================
 // OpenAI-Compatible Transcription Helper
 // ============================================================================
 
@@ -235,7 +246,7 @@ impl TranscriptionProvider for OpenAITranscriptionProvider {
     }
 
     fn is_available(&self) -> bool {
-        !self.api_key.is_empty() && !self.api_key.starts_with('*')
+        is_api_key_valid(&self.api_key)
     }
 
     async fn transcribe(&self, audio_path: &Path) -> Result<TranscriptionResult> {
@@ -292,7 +303,7 @@ impl TranscriptionProvider for GroqTranscriptionProvider {
     }
 
     fn is_available(&self) -> bool {
-        !self.api_key.is_empty() && !self.api_key.starts_with('*')
+        is_api_key_valid(&self.api_key)
     }
 
     async fn transcribe(&self, audio_path: &Path) -> Result<TranscriptionResult> {

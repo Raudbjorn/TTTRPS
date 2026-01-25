@@ -84,40 +84,62 @@ pub async fn speak(
     }
 }
 
-/// Transcribe audio file using OpenAI Whisper
+/// Transcribe audio file using available transcription provider
+///
+/// Supports OpenAI Whisper and Groq Whisper. Will use the first available provider
+/// based on configured API keys.
 #[tauri::command]
 pub async fn transcribe_audio(
     path: String,
     state: State<'_, AppState>,
 ) -> Result<crate::core::transcription::TranscriptionResult, String> {
-    // 1. Check Config for OpenAI API Key
-    let api_key = if let Some(config) = state.llm_config.read()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .clone() {
-        match config {
-            LLMConfig::OpenAI { api_key, .. } => api_key,
-            _ => return Err("Transcription requires OpenAI configuration (for now)".to_string()),
-        }
-    } else {
-        return Err("LLM not configured".to_string());
-    };
+    use crate::core::transcription::{TranscriptionManagerBuilder, TranscriptionProviderType};
 
-    // Determine effective API key: use credential store if config key is masked or empty
-    let effective_key = if api_key.is_empty() || api_key.starts_with('*') {
-        // Try getting from credentials if masked/empty
-        let creds = state.credentials.get_secret("openai_api_key")
-            .map_err(|_| "OpenAI API Key not found/configured".to_string())?;
-        if creds.is_empty() {
-             return Err("OpenAI API Key is empty".to_string());
-        }
-        creds
-    } else {
-        api_key
-    };
+    // Try to get API keys from credentials store
+    let openai_key = state.credentials.get_secret("openai_api_key").ok();
+    let groq_key = state.credentials.get_secret("groq_api_key").ok();
 
-    // 2. Call Service
-    let service = crate::core::transcription::TranscriptionService::new();
-    service.transcribe_openai(&effective_key, Path::new(&path))
+    // Fall back to LLM config if credentials not available
+    let openai_key = openai_key.or_else(|| {
+        state.llm_config.read()
+            .ok()
+            .and_then(|guard| guard.clone())
+            .and_then(|config| match config {
+                LLMConfig::OpenAI { api_key, .. } if !api_key.is_empty() && !api_key.starts_with('*') => Some(api_key),
+                _ => None,
+            })
+    });
+
+    let groq_key = groq_key.or_else(|| {
+        state.llm_config.read()
+            .ok()
+            .and_then(|guard| guard.clone())
+            .and_then(|config| match config {
+                LLMConfig::Groq { api_key, .. } if !api_key.is_empty() && !api_key.starts_with('*') => Some(api_key),
+                _ => None,
+            })
+    });
+
+    // Build transcription manager with available providers
+    let mut builder = TranscriptionManagerBuilder::new();
+
+    if let Some(key) = openai_key {
+        builder = builder.with_openai(key);
+    }
+    if let Some(key) = groq_key {
+        builder = builder.with_groq(key);
+    }
+
+    // Default to OpenAI if available, otherwise Groq
+    builder = builder.default_provider(TranscriptionProviderType::OpenAI);
+
+    let manager = builder.build();
+
+    if manager.available_providers().is_empty() {
+        return Err("No transcription providers available. Configure OpenAI or Groq API keys.".to_string());
+    }
+
+    manager.transcribe(Path::new(&path))
         .await
         .map_err(|e| e.to_string())
 }
