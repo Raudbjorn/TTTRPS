@@ -11,6 +11,7 @@ pub mod presets;
 pub mod profiles;
 pub mod cache;
 pub mod synthesis_queue;
+pub mod speech;
 
 // Re-export all commands using glob to include Tauri __cmd__ macros
 pub use config::*;
@@ -21,3 +22,4 @@ pub use presets::*;
 pub use profiles::*;
 pub use cache::*;
 pub use synthesis_queue::*;
+pub use speech::*;
