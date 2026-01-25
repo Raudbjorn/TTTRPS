@@ -3,6 +3,12 @@
 //! All Tauri IPC commands organized by domain.
 //! This module replaces the original monolithic commands.rs.
 
+// Allow ambiguous glob re-exports for Tauri command modules.
+// Multiple domain modules have submodules with common names (config, chat, events, crud, notes)
+// which conflict at the namespace level but not at the function level. The actual commands
+// have unique names, and Tauri's __cmd__ macro exports must be re-exported via globs.
+#![allow(ambiguous_glob_reexports)]
+
 pub mod error;
 pub mod macros;
 #[macro_use]

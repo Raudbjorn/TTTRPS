@@ -22,23 +22,9 @@ pub fn add_location_connection(
     bidirectional: Option<bool>,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    // Parse connection_type string to enum with strict validation
-    let conn_type = match connection_type.to_lowercase().as_str() {
-        "door" => ConnectionType::Door,
-        "path" => ConnectionType::Path,
-        "road" => ConnectionType::Road,
-        "stairs" => ConnectionType::Stairs,
-        "ladder" => ConnectionType::Ladder,
-        "portal" => ConnectionType::Portal,
-        "secret" => ConnectionType::Secret,
-        "water" => ConnectionType::Water,
-        "climb" => ConnectionType::Climb,
-        "flight" => ConnectionType::Flight,
-        unknown => return Err(format!(
-            "Unknown connection type: '{}'. Valid types: door, path, road, stairs, ladder, portal, secret, water, climb, flight",
-            unknown
-        )),
-    };
+    // Parse connection_type string to enum using FromStr
+    let conn_type: ConnectionType = connection_type.parse()
+        .map_err(|e: String| e)?;
 
     let connection = LocationConnection {
         target_id: Some(target_location_id.clone()),

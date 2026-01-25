@@ -306,6 +306,44 @@ pub enum LocationCondition {
     Custom(String),
 }
 
+impl std::str::FromStr for LocationCondition {
+    type Err = String;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "pristine" => Ok(Self::Pristine),
+            "normal" => Ok(Self::Normal),
+            "damaged" => Ok(Self::Damaged),
+            "ruined" => Ok(Self::Ruined),
+            "destroyed" => Ok(Self::Destroyed),
+            "occupied" => Ok(Self::Occupied),
+            "abandoned" => Ok(Self::Abandoned),
+            "under_siege" | "undersiege" => Ok(Self::UnderSiege),
+            "cursed" => Ok(Self::Cursed),
+            "blessed" => Ok(Self::Blessed),
+            other => Ok(Self::Custom(other.to_string())),
+        }
+    }
+}
+
+impl std::fmt::Display for LocationCondition {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Pristine => write!(f, "pristine"),
+            Self::Normal => write!(f, "normal"),
+            Self::Damaged => write!(f, "damaged"),
+            Self::Ruined => write!(f, "ruined"),
+            Self::Destroyed => write!(f, "destroyed"),
+            Self::Occupied => write!(f, "occupied"),
+            Self::Abandoned => write!(f, "abandoned"),
+            Self::UnderSiege => write!(f, "under_siege"),
+            Self::Cursed => write!(f, "cursed"),
+            Self::Blessed => write!(f, "blessed"),
+            Self::Custom(s) => write!(f, "{}", s),
+        }
+    }
+}
+
 
 /// State of a location at a point in time
 #[derive(Debug, Clone, Serialize, Deserialize)]
