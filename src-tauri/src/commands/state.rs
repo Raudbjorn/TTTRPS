@@ -6,7 +6,6 @@
 use std::sync::{Arc, RwLock};
 use std::path::PathBuf;
 use tokio::sync::RwLock as AsyncRwLock;
-use serde::{Deserialize, Serialize};
 
 // Core imports
 use crate::core::voice::{VoiceManager, VoiceConfig};
@@ -29,27 +28,6 @@ use crate::core::personality::{
 };
 use crate::core::archetype::{ArchetypeRegistry, VocabularyBankManager, SettingPackLoader};
 use crate::database::Database;
-
-// Gate OAuth imports
-use crate::gate::{OAuthFlowState as GateOAuthFlowState, TokenInfo as GateTokenInfo};
-use crate::gate::claude::{ClaudeClient, FileTokenStorage};
-#[cfg(feature = "keyring")]
-use crate::gate::claude::KeyringTokenStorage;
-#[allow(deprecated)]
-use crate::gate::gemini::{
-    CloudCodeClient as GeminiCloudCodeClient,
-    FileTokenStorage as GeminiFileTokenStorage,
-};
-#[cfg(feature = "keyring")]
-#[allow(deprecated)]
-use crate::gate::gemini::KeyringTokenStorage as GeminiKeyringTokenStorage;
-use crate::gate::copilot::{
-    CopilotClient, DeviceFlowPending, PollResult as CopilotPollResult,
-    GateStorageAdapter as CopilotGateStorageAdapter,
-    ModelsResponse as CopilotModelsResponse,
-    UsageResponse as CopilotUsageResponse,
-};
-use crate::gate::storage::FileTokenStorage as GateFileTokenStorage;
 
 // Re-export OAuth state types
 pub use super::oauth::{
