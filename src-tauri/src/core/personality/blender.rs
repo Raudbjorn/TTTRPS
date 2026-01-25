@@ -6,7 +6,7 @@
 //! ## Blending Rules
 //!
 //! - **Numeric fields**: Weighted average (formality, trait intensities)
-//! - **Categorical fields**: Select from highest weight component
+//! - **Categorical fields**: Select from the highest weight component
 //! - **List fields**: Proportional selection based on weights
 //! - **Tone scores**: Normalized to sum=1.0
 //! - **Formality**: Clamped to [1, 10]
@@ -518,7 +518,7 @@ impl PersonalityBlender {
         Ok(traits)
     }
 
-    /// Blend behavioral tendencies by selecting from highest weight.
+    /// Blend behavioral tendencies by selecting from the highest weight.
     fn blend_behavioral_tendencies(
         &self,
         profiles: &[(&PersonalityProfile, f32)],

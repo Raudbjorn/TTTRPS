@@ -493,13 +493,13 @@ fn normalize_check_type(check_type: &str) -> String {
                 .unwrap_or_default()
                 + chars.as_str();
 
-            if normalized.contains("save") || normalized.contains("saving") {
-                return format!("{} save", capitalized);
+            return if normalized.contains("save") || normalized.contains("saving") {
+                format!("{} save", capitalized)
             } else if normalized.contains("check") {
-                return format!("{} check", capitalized);
+                format!("{} check", capitalized)
             } else {
-                return capitalized;
-            }
+                capitalized
+            };
         }
     }
 

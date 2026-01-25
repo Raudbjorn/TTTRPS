@@ -544,7 +544,7 @@ impl CostTracker {
         self.daily_budget = budget;
     }
 
-    /// Get cheapest provider for a request
+    /// Get the cheapest provider for a request
     pub fn cheapest_provider(&self, providers: &[&str], input_tokens: u32, output_tokens: u32) -> Option<String> {
         providers
             .iter()

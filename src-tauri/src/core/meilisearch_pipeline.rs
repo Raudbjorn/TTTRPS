@@ -132,7 +132,7 @@ pub fn generate_source_slug(path: &Path, title_override: Option<&str>) -> String
 
 /// Convert any string to a clean slug.
 ///
-/// Handles unicode by attempting transliteration of common characters,
+/// Handles Unicode by attempting transliteration of common characters,
 /// then falling back to stripping non-ASCII.
 pub fn slugify(input: &str) -> String {
     let mut slug = String::with_capacity(input.len());
@@ -157,7 +157,7 @@ pub fn slugify(input: &str) -> String {
                     last_was_hyphen = true;
                 }
             }
-            // Transliterate common unicode characters (lowercase and uppercase)
+            // Transliterate common Unicode characters (lowercase and uppercase)
             'á' | 'à' | 'ä' | 'â' | 'ã' | 'å' | 'Á' | 'À' | 'Ä' | 'Â' | 'Ã' | 'Å' => {
                 slug.push('a');
                 last_was_hyphen = false;
@@ -1340,6 +1340,160 @@ impl MeilisearchPipeline {
             source_type,
             extracted,
         ).await
+    }
+
+    /// Import pre-extracted layout JSON (Anthropic format) into the raw index.
+    ///
+    /// This is useful for documents that have already been extracted using
+    /// external tools or the Anthropic PDF extraction API. The JSON schema
+    /// follows the Anthropic layout format with version, metadata, and pages.
+    ///
+    /// # Arguments
+    /// * `search_client` - Meilisearch client for indexing
+    /// * `path` - Path to the layout JSON file
+    /// * `title_override` - Optional custom title (otherwise derived from filename or metadata)
+    ///
+    /// # Returns
+    /// `ExtractionResult` with slug, page count, and detected metadata
+    pub async fn import_layout_json(
+        &self,
+        search_client: &SearchClient,
+        path: &Path,
+        title_override: Option<&str>,
+    ) -> Result<ExtractionResult, SearchError> {
+        use crate::ingestion::layout_json::LayoutDocument;
+
+        // Load and parse the layout JSON
+        let layout_doc = LayoutDocument::from_file(path)
+            .map_err(|e| SearchError::ConfigError(format!("Failed to parse layout JSON: {}", e)))?;
+
+        // Use title from metadata or override
+        let doc_title = title_override
+            .map(|s| s.to_string())
+            .or_else(|| layout_doc.title().map(|s| s.to_string()))
+            .unwrap_or_else(|| {
+                path.file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("unknown")
+                    .to_string()
+            });
+
+        // Generate deterministic slug
+        let slug = generate_source_slug(path, Some(&doc_title));
+        let raw_index = raw_index_name(&slug);
+        let chunks_index = chunks_index_name(&slug);
+
+        let source_name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("unknown")
+            .to_string();
+
+        log::info!(
+            "Layout JSON import: '{}' ({} pages) → raw='{}', chunks='{}'",
+            doc_title, layout_doc.page_count(), raw_index, chunks_index
+        );
+
+        // Create indexes
+        search_client.ensure_raw_index(&raw_index).await
+            .map_err(|e| SearchError::ConfigError(format!(
+                "Failed to create raw index '{}': {}",
+                raw_index, e
+            )))?;
+
+        search_client.ensure_chunks_index(&chunks_index).await
+            .map_err(|e| SearchError::ConfigError(format!(
+                "Failed to create chunks index '{}': {}",
+                chunks_index, e
+            )))?;
+
+        // Convert layout pages to raw documents
+        let metadata_page_count = layout_doc.page_count();
+        let pages = layout_doc.to_pages();
+        let page_count = pages.len();
+
+        if metadata_page_count != page_count {
+            log::warn!(
+                "Layout page count mismatch for document '{}': metadata page_count = {}, derived pages.len() = {}. Using derived pages.len() as canonical for indexing.",
+                slug,
+                metadata_page_count,
+                page_count
+            );
+        }
+
+        let mut total_chars = 0;
+        let mut raw_documents = Vec::new();
+
+        for page in &pages {
+            total_chars += page.content.len();
+            let raw_doc = RawDocument::new(&slug, page.page_number as u32, page.content.clone());
+            raw_documents.push(raw_doc);
+        }
+
+        // Combine content sample for metadata detection
+        let content_sample: String = pages
+            .iter()
+            .take(20)
+            .map(|p| p.content.as_str())
+            .collect::<Vec<_>>()
+            .join(" ");
+
+        // Detect TTRPG metadata
+        let ttrpg_metadata = TTRPGMetadata::extract(path, &content_sample, "document");
+
+        log::info!(
+            "Layout JSON parsed: {} pages, {} chars, game_system={:?}",
+            page_count, total_chars, ttrpg_metadata.game_system
+        );
+
+        // Store raw documents in Meilisearch
+        let index = search_client.get_client().index(&raw_index);
+        let task = index.add_documents(&raw_documents, Some("id")).await
+            .map_err(|e| SearchError::MeilisearchError(format!(
+                "Failed to add raw documents: {}", e
+            )))?;
+
+        // Wait for indexing to complete
+        task.wait_for_completion(
+            &index.client,
+            None,
+            Some(std::time::Duration::from_secs(60))
+        ).await
+            .map_err(|e| SearchError::MeilisearchError(format!(
+                "Failed to complete indexing: {}", e
+            )))?;
+
+        // Update library_metadata
+        let final_metadata = LibraryDocumentMetadata {
+            id: slug.clone(),
+            name: doc_title.clone(),
+            source_type: "layout_json".to_string(),
+            file_path: Some(path.to_string_lossy().to_string()),
+            page_count: page_count as u32,
+            chunk_count: 0,
+            character_count: total_chars as u64,
+            content_index: chunks_index.clone(),
+            status: "ready".to_string(),
+            error_message: None,
+            ingested_at: Utc::now().to_rfc3339(),
+            game_system: None,
+            setting: None,
+            content_type: None,
+            publisher: None,
+        };
+
+        if let Err(e) = search_client.save_library_document(&final_metadata).await {
+            log::warn!("Failed to save library_metadata for '{}': {}", slug, e);
+        }
+
+        Ok(ExtractionResult {
+            slug,
+            source_name,
+            raw_index,
+            page_count,
+            total_chars,
+            ttrpg_metadata,
+        })
     }
 
     /// Store extracted content into the raw index.

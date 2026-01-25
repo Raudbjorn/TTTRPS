@@ -108,20 +108,17 @@ pub use crate::commands::oauth::{
 /// Storage backend type for Claude Gate
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum ClaudeGateStorageBackend {
     /// File-based storage (~/.config/cld/auth.json)
     File,
     /// System keyring storage
     Keyring,
     /// Auto-select (keyring if available, else file)
+    #[default]
     Auto,
 }
 
-impl Default for ClaudeGateStorageBackend {
-    fn default() -> Self {
-        Self::Auto
-    }
-}
 
 impl std::fmt::Display for ClaudeGateStorageBackend {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -2098,6 +2095,105 @@ pub async fn ingest_document_two_phase(
         progress: 1.0,
         message: format!(
             "Ingested {} pages → {} chunks (indexes: {}, {})",
+            extraction.page_count,
+            chunking.chunk_count,
+            extraction.raw_index,
+            chunking.chunks_index
+        ),
+        source_name: source_name.clone(),
+    });
+
+    Ok(TwoPhaseIngestResult {
+        slug: extraction.slug,
+        source_name: extraction.source_name,
+        raw_index: extraction.raw_index,
+        chunks_index: chunking.chunks_index,
+        page_count: extraction.page_count,
+        chunk_count: chunking.chunk_count,
+        total_chars: extraction.total_chars,
+        game_system: extraction.ttrpg_metadata.game_system,
+        content_category: extraction.ttrpg_metadata.content_category,
+    })
+}
+
+/// Import a pre-extracted layout JSON file (Anthropic format).
+///
+/// This command imports JSON files that contain pre-extracted document layout
+/// with pages and elements, bypassing the extraction step.
+#[tauri::command]
+pub async fn import_layout_json(
+    app: tauri::AppHandle,
+    path: String,
+    title_override: Option<String>,
+    state: State<'_, AppState>,
+) -> Result<TwoPhaseIngestResult, String> {
+    use tauri::Emitter;
+    use crate::ingestion::layout_json::LayoutDocument;
+
+    let path_buf = std::path::PathBuf::from(&path);
+    if !path_buf.exists() {
+        return Err(format!("File not found: {}", path));
+    }
+
+    // Verify it's a valid layout JSON
+    if !LayoutDocument::is_layout_json(&path_buf) {
+        return Err("File does not appear to be a valid layout JSON file".to_string());
+    }
+
+    let source_name = path_buf
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("unknown")
+        .to_string();
+
+    log::info!("Importing layout JSON: {}", source_name);
+
+    // Emit initial progress
+    let _ = app.emit("ingest-progress", IngestProgress {
+        stage: "importing".to_string(),
+        progress: 0.1,
+        message: format!("Importing layout JSON: {}...", source_name),
+        source_name: source_name.clone(),
+    });
+
+    // Import using the pipeline method
+    let extraction = state.ingestion_pipeline
+        .import_layout_json(
+            &state.search_client,
+            &path_buf,
+            title_override.as_deref(),
+        )
+        .await
+        .map_err(|e| format!("Layout JSON import failed: {}", e))?;
+
+    // Emit progress for chunking
+    let _ = app.emit("ingest-progress", IngestProgress {
+        stage: "chunking".to_string(),
+        progress: 0.5,
+        message: format!("Chunking {} pages...", extraction.page_count),
+        source_name: source_name.clone(),
+    });
+
+    // Process raw pages into semantic chunks (same as two-phase)
+    let chunking = state.ingestion_pipeline
+        .chunk_from_raw(
+            &state.search_client,
+            &extraction,
+        )
+        .await
+        .map_err(|e| format!("Chunking failed: {}", e))?;
+
+    log::info!(
+        "Layout JSON import complete: {} → {} pages → {} chunks",
+        source_name, extraction.page_count, chunking.chunk_count
+    );
+
+    // Emit completion
+    let _ = app.emit("ingest-progress", IngestProgress {
+        stage: "complete".to_string(),
+        progress: 1.0,
+        message: format!(
+            "Imported {} pages → {} chunks (indexes: {}, {})",
             extraction.page_count,
             chunking.chunk_count,
             extraction.raw_index,
@@ -5618,7 +5714,6 @@ impl AuditLoggerState {
 // moved to commands/voice/{presets,profiles,cache,synthesis_queue}.rs
 
 
-
 // ============================================================================
 // TASK-014: Session Timeline Commands
 // ============================================================================
@@ -7797,15 +7892,15 @@ pub struct GameplayContextInfo {
 
 /// Open a URL in the system's default browser
 ///
-/// Uses Tauri's shell plugin to open URLs properly on all platforms.
+/// Uses Tauri's opener plugin to open URLs properly on all platforms.
 #[tauri::command]
 pub async fn open_url_in_browser(
     url: String,
     app_handle: tauri::AppHandle,
 ) -> Result<(), String> {
-    use tauri_plugin_shell::ShellExt;
+    use tauri_plugin_opener::OpenerExt;
 
-    app_handle.shell().open(&url, None)
+    app_handle.opener().open_url(&url, None::<&str>)
         .map_err(|e| format!("Failed to open URL: {}", e))
 }
 

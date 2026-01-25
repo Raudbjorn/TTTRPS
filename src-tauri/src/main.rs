@@ -23,6 +23,7 @@ fn main() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .setup(|app| {
@@ -429,6 +430,7 @@ fn main() {
             // Document Ingestion & Search (Meilisearch)
             commands::ingest_document,
             commands::ingest_document_two_phase,
+            commands::import_layout_json,
             commands::list_library_documents,
             commands::delete_library_document,
             commands::update_library_document,

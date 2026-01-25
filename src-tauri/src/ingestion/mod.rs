@@ -2,6 +2,8 @@ pub mod adaptive_learning;
 pub mod kreuzberg_extractor;
 pub mod claude_extractor;
 pub mod extraction_settings;
+pub mod markdown_parser;
+pub mod layout_json;
 pub mod personality;
 pub mod flavor;
 pub mod character_gen;
@@ -21,6 +23,12 @@ pub use kreuzberg_extractor::{
 pub use extraction_settings::{
     ExtractionSettings, TokenReductionLevel, OcrBackend,
     SupportedFormats, FormatInfo, TextExtractionProvider,
+    MarkdownSettings, ClaudeParallelSettings,
+};
+pub use markdown_parser::MarkdownPageParser;
+pub use layout_json::{
+    LayoutDocument, LayoutPage, LayoutElement, LayoutMetadata,
+    LayoutJsonError, BoundingBox, PageRegions, PageMetrics,
 };
 pub use claude_extractor::{
     ClaudeDocumentExtractor, ClaudeExtractorConfig, ClaudeExtractionError,

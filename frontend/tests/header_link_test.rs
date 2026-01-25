@@ -1,9 +1,8 @@
 use wasm_bindgen_test::*;
 use leptos::prelude::*;
 use ttrpg_assistant_frontend::components::chat::HeaderLink;
-use ttrpg_assistant_frontend::services::layout_service::{LayoutState, provide_layout_state};
+use ttrpg_assistant_frontend::services::layout_service::provide_layout_state;
 use leptos_router::components::Router;
-use leptos_router::path;
 
 wasm_bindgen_test_configure!(run_in_browser);
 

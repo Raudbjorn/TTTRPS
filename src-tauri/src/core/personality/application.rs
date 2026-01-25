@@ -767,12 +767,12 @@ impl PersonalityApplicationManager {
         &self,
         content: &str,
         _patterns: &SpeechPatterns,
-        _content_type: &ContentType,
+        content_type: &ContentType,
     ) -> String {
         let result = content.to_string();
 
         // Only apply to dialogue
-        if *_content_type != ContentType::Dialogue {
+        if *content_type != ContentType::Dialogue {
             return result;
         }
 

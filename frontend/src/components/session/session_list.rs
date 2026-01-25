@@ -24,6 +24,7 @@ pub enum SessionStatus {
 
 #[allow(dead_code)]
 impl SessionStatus {
+    #[allow(dead_code)]
     pub fn from_str(status: &str) -> Self {
         match status.to_lowercase().as_str() {
             "active" | "in_progress" => SessionStatus::Active,

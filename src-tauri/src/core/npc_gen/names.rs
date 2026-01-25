@@ -832,7 +832,7 @@ mod tests {
             .with_phonetic_tags(vec!["vowel_start".to_string(), "soft".to_string()]);
 
         assert!(component.has_phonetic_tag("vowel_start"));
-        assert!(component.has_phonetic_tag("SOFT")); // Case insensitive
+        assert!(component.has_phonetic_tag("SOFT")); // Case-insensitive
         assert!(!component.has_phonetic_tag("consonant_start"));
     }
 

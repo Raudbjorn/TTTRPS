@@ -10,7 +10,7 @@ The single most influential layout principle in modern TTRPG design is **confini
 
 This approach emerged from indie publishers but influences the entire field. Clayton Notestine of Explorers Design describes grid systems as the designer's "workbench," with columns as the most important element. The standard convention uses **two columns for US Letter/A4 formats** and single columns for digest-sized books (5.5×8.5", 6×9", A5). The rationale is typographic: optimal line length for readability is **45-75 characters**, and full-page width creates lines too long to track comfortably.
 
-The tension between print and screen optimization remains unresolved. Two-column layouts require awkward scrolling on digital devices, leading some designers to advocate separate layouts for PDF and print versions. Others accept compromise, noting that "type of a reasonable size will give you lines about 60-75 characters long across A5/digest size, which will read easily on their native leadings."
+The tension between print and screen optimization remains unresolved. Two-column layouts require awkward scrolling on digital devices, leading some designers to advocate separate layouts for PDF and print versions. Others accept compromise, noting that "type of reasonable size will give you lines about 60-75 characters long across A5/digest size, which will read easily on their native leadings."
 
 ## Typography choices encode information hierarchy
 
@@ -42,7 +42,7 @@ Best practice keeps entries to **one sentence for at-table use**, ensures every 
 
 ## Character sheets reflect rules complexity through form design
 
-Character sheet design directly mirrors system complexity. Simple systems produce single-page sheets with large write-in spaces; complex systems spawn multi-page booklets with calculated fields. D&D sheets evolved from simple grids in OD&D to the modern multi-page character booklets tracking spells, equipment, features, and backstory.
+Character sheet design directly mirrors system complexity. Simple systems produce single-page sheets with large write-in spaces; complex systems spawn multipage booklets with calculated fields. D&D sheets evolved from simple grids in OD&D to the modern multipage character booklets tracking spells, equipment, features, and backstory.
 
 **Mothership's flowchart character sheet** represents significant innovation—guiding character creation through visual decision paths that embody the horror genre's procedural tension. Blades in the Dark creates "toy-like" sheets with fillable boxes, meters, and progress tracks integrated into the design. These sheets function as both record and gameplay interface.
 
@@ -74,7 +74,7 @@ Comparing TTRPG books to adjacent genres illuminates what makes them distinctive
 
 **Legal documents** prioritize precision through hierarchical numbering and dense text because courts require exact interpretation. TTRPGs trade precision for readability because a human GM will resolve ambiguities—they accept some vagueness in exchange for narrative flow. **Board game rulebooks** are shorter because board games have finite state spaces, no GM adjudicator, and physical components that embody rules. TTRPG rules must encode everything in text alone.
 
-**Video game strategy guides** share the walkthrough/reference hybrid structure and data-heavy tables, but are companions to separate products; TTRPG books ARE the product. The natural fit between TTRPG content and markdown/structured document formats reflects this: hierarchical headings match section organization, lists and tables are native content types, and plain text enables cross-platform use across virtual tabletops, wikis, and e-readers. Tools like The Homebrewery use markdown to generate D&D-styled content, while the 5e SRD has been converted paragraph-by-paragraph for portability.
+**Video game strategy guides** share the walkthrough/reference hybrid structure and data-heavy tables, but are companions to separate products; TTRPG books ARE the product. The natural fit between TTRPG content and Markdown/structured document formats reflects this: hierarchical headings match section organization, lists and tables are native content types, and plain text enables cross-platform use across virtual tabletops, wikis, and e-readers. Tools like The Homebrewery use Markdown to generate D&D-styled content, while the 5e SRD has been converted paragraph-by-paragraph for portability.
 
 ## Physical production choices signal design values
 

@@ -61,8 +61,10 @@ impl OllamaEmbeddings {
         }
     }
 
-    /// Get dimensions for common Ollama embedding models
-    fn model_dimensions(model: &str) -> usize {
+    /// Get dimensions for common Ollama embedding models.
+    /// Useful for validating model configurations and pre-allocating vectors.
+    #[allow(dead_code)]
+    pub fn model_dimensions(model: &str) -> usize {
         match model {
             "nomic-embed-text" => 768,
             "mxbai-embed-large" => 1024,

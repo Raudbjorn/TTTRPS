@@ -414,7 +414,7 @@ impl HealthTracker {
     }
 
     /// Check if a provider is available (healthy + circuit allows)
-    pub fn is_available(&mut self, provider_id: &str) -> bool {
+    pub fn check_availability(&mut self, provider_id: &str) -> bool {
         let healthy = self.is_healthy(provider_id);
         let circuit_ok = self.can_execute(provider_id);
         healthy || circuit_ok // Allow execution if circuit is in half-open state
@@ -443,7 +443,7 @@ impl HealthTracker {
     pub fn available_providers(&mut self) -> Vec<String> {
         let mut available = Vec::new();
         for provider_id in self.providers.keys().cloned().collect::<Vec<_>>() {
-            if self.is_available(&provider_id) {
+            if self.check_availability(&provider_id) {
                 available.push(provider_id);
             }
         }
@@ -566,8 +566,8 @@ impl SharedHealthTracker {
     }
 
     /// Check if a provider is available
-    pub async fn is_available(&self, provider_id: &str) -> bool {
-        self.inner.write().await.is_available(provider_id)
+    pub async fn check_availability(&self, provider_id: &str) -> bool {
+        self.inner.write().await.check_availability(provider_id)
     }
 
     /// Get health for a provider

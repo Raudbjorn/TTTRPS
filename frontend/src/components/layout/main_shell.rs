@@ -267,6 +267,8 @@ pub fn MainShell(
 
             // Area: Main
             <div
+                id="main-content"
+                role="main"
                 style:grid-area="main"
                 class="overflow-y-auto relative scrollbar-none"
             >

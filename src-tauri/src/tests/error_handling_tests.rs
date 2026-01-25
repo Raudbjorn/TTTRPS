@@ -7,12 +7,12 @@ mod tests {
     fn test_native_feature_error_display() {
         let file_dialog_error = NativeFeatureError::FileDialog {
             operation: "open".to_string(),
-            reason: "user cancelled".to_string(),
+            reason: "user canceled".to_string(),
             recoverable: true,
         };
         let display = format!("{}", file_dialog_error);
         assert!(display.contains("File dialog error during open"));
-        assert!(display.contains("user cancelled"));
+        assert!(display.contains("user canceled"));
 
         let system_tray_error = NativeFeatureError::SystemTray {
             operation: "create".to_string(),
@@ -249,7 +249,7 @@ mod tests {
         let errors = vec![
             NativeFeatureError::FileDialog {
                 operation: "open".to_string(),
-                reason: "cancelled".to_string(),
+                reason: "canceled".to_string(),
                 recoverable: true,
             },
             NativeFeatureError::SystemTray {
@@ -428,12 +428,12 @@ mod tests {
 
     #[test]
     fn test_native_error_macro_file_dialog() {
-        let error = native_error!(file_dialog, "open", "user cancelled");
+        let error = native_error!(file_dialog, "open", "user canceled");
         
         match error {
             NativeFeatureError::FileDialog { operation, reason, recoverable } => {
                 assert_eq!(operation, "open");
-                assert_eq!(reason, "user cancelled");
+                assert_eq!(reason, "user canceled");
                 assert!(recoverable);
             },
             _ => panic!("Wrong error type"),

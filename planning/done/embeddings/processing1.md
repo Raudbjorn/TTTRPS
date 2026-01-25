@@ -2,7 +2,7 @@ This is a classic problem in vector search known as the **"Lexical Gap"** or the
 
 Dense embeddings (like those from CLIP, BERT, or E5) represent concepts. To an embedding model, "White Sand" and "Black Sand" are 95% identical vectors because they share the concepts: *Beach, Sand, Shore, Texture, Nature*. The color is a minor dimension in that high-dimensional space.
 
-To solve this in Rust, you generally do **not** want to fine-tune the model immediately (which is hard and expensive). Instead, you use a **Hybrid Search** approach (Dense Vector + Sparse Keyword) and specific pre/post-processing hooks.
+To solve this in Rust, you generally do **not** want to fine-tune the model immediately (which is hard and expensive). Instead, you use a **Hybrid Search** approach (Dense Vector + Sparse Keyword) and specific pre-/post-processing hooks.
 
 Here is a breakdown of how to handle this in Rust.
 
@@ -71,6 +71,14 @@ This is the industry standard solution. You combine:
 
 If you only use vectors, "White sand" scores 0.85 and "Black sand" scores 0.86.
 If you add BM25, "Black sand" gets a massive boost because of the exact term match, while "White sand" gets penalized.
+
+3. **Post-Processing**: Re-ranking with Cross-Encoders
+
+If you cannot change your indexing strategy (Strategy 2), you can use **Re-ranking**.
+
+1.  Retrieve the top 50 candidates using your Embedding (which might include white beaches).
+2.  Pass those 50 pairs (Query + Doc) into a **Cross-Encoder**.
+3.  A Cross-Encoder (like a BERT classifier) looks at both texts *simultaneously* and outputs a similarity score. It is much smarter than embeddings at understanding negation and adjectives.
 
 Here is a conceptual implementation of Hybrid Scoring in Rust:
 

@@ -19,26 +19,27 @@ struct OpenAIEmbeddingRequest {
     dimensions: Option<usize>,
 }
 
+
 #[derive(Debug, Deserialize)]
 #[allow(dead_code)]
 struct OpenAIEmbeddingResponse {
     data: Vec<EmbeddingData>,
-    model: String,
-    usage: Usage,
+    _model: String,
+    _usage: Usage,
 }
 
 #[derive(Debug, Deserialize)]
 #[allow(dead_code)]
 struct EmbeddingData {
     embedding: Vec<f32>,
-    index: usize,
+    _index: usize,
 }
 
 #[derive(Debug, Deserialize)]
 #[allow(dead_code)]
 struct Usage {
-    prompt_tokens: u32,
-    total_tokens: u32,
+    _prompt_tokens: u32,
+    _total_tokens: u32,
 }
 
 #[derive(Debug, Deserialize)]
@@ -180,7 +181,7 @@ impl EmbeddingProvider for OpenAIEmbeddings {
 
         // Sort by index to ensure correct order
         let mut embeddings: Vec<_> = result.data.into_iter().collect();
-        embeddings.sort_by_key(|e| e.index);
+        embeddings.sort_by_key(|e| e._index);
 
         Ok(embeddings.into_iter().map(|e| e.embedding).collect())
     }

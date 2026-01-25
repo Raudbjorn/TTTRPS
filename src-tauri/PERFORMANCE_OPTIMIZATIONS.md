@@ -56,7 +56,7 @@ This document outlines the high-severity performance optimizations implemented i
 #### Issues Found:
 - **Default connection pool settings**: No optimization for concurrency
 - **Synchronous encryption in async context**: Blocking operations
-- **No prepared statement caching**: Queries re-parsed each time
+- **No prepared statement caching**: Queries reparsed each time
 - **Suboptimal SQLite settings**: Default PRAGMA settings
 
 #### Optimizations Implemented:
@@ -74,6 +74,7 @@ This document outlines the high-severity performance optimizations implemented i
   - `PRAGMA mmap_size = 268435456` (256MB memory-mapped I/O)
 
 - **Async Encryption**: All encryption operations moved to blocking thread pool
+
 
 #### Performance Improvements:
 - ~30% faster database operations

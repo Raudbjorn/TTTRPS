@@ -95,10 +95,12 @@ impl MockProvider {
         *self.usage.write().await = TokenUsage::new(input, output);
     }
 
+
     fn chat_count(&self) -> u32 {
         self.chat_call_count.load(Ordering::SeqCst)
     }
 
+    #[allow(dead_code)]
     fn stream_count(&self) -> u32 {
         self.stream_call_count.load(Ordering::SeqCst)
     }
@@ -462,7 +464,7 @@ async fn test_stream_cancellation() {
         router.cancel_stream(&stream_id).await;
     }
 
-    // Wait a bit and check no more chunks (or cancelled error)
+    // Wait a bit and check no more chunks (or canceled error)
     tokio::time::sleep(Duration::from_millis(50)).await;
     // Note: Due to async nature, some chunks may still be in flight
 }
@@ -649,7 +651,7 @@ async fn test_router_with_cost_tracking() {
 
     // Make request
     let request = ChatRequest::new(vec![ChatMessage::user("Hello")]);
-    let response = router.chat(request).await.expect("Should succeed");
+    let _response = router.chat(request).await.expect("Should succeed");
 
     // Check cost was tracked
     let summary = router.get_cost_summary().await;
@@ -757,7 +759,7 @@ async fn test_health_tracker_with_circuit_breaker() {
 
     // Both healthy initially
     assert!(tracker.is_healthy("openai"));
-    assert!(tracker.is_available("openai"));
+    assert!(tracker.check_availability("openai"));
 
     // Fail OpenAI
     tracker.record_failure("openai", "API error");
@@ -765,13 +767,13 @@ async fn test_health_tracker_with_circuit_breaker() {
     tracker.record_failure("openai", "API error");
 
     assert!(!tracker.is_healthy("openai"));
-    assert!(!tracker.is_available("openai")); // Circuit is open
+    assert!(!tracker.check_availability("openai")); // Circuit is open
     assert!(tracker.is_healthy("claude"));
 
     // Reset circuit
     tracker.reset_circuit("openai");
     assert!(tracker.is_healthy("openai"));
-    assert!(tracker.is_available("openai"));
+    assert!(tracker.check_availability("openai"));
 }
 
 #[tokio::test]
@@ -927,7 +929,7 @@ async fn test_provider_stats_with_failures() {
 #[tokio::test]
 async fn test_request_timeout() {
     let provider = Arc::new(MockProvider::new("slow", "Slow Provider", "slow-model"));
-    provider.set_delay(5000); // 5 second delay
+    provider.set_delay(5000); // 5-second delay
 
     let router = LLMRouterBuilder::new()
         .with_timeout(Duration::from_millis(100)) // 100ms timeout

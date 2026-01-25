@@ -71,8 +71,9 @@ impl NotificationState {
 
         self.notifications.update(|list| list.push(notification));
 
-        // Auto-dismiss after 5 seconds if no action
-        // In a real app we'd want to handle cleanup of timers, but for now simple set_timeout is okayish if we don't care about leaks on unmount (which is rare for a global service)
+        // Auto-dismiss after 5 seconds if no action.
+        // In a real app we'd want to handle cleanup of timers.
+        // For now, simple set_timeout is acceptable since unmount leaks are rare for a global service.
     }
 
     pub fn remove(&self, id: Uuid) {

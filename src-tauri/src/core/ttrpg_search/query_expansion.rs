@@ -562,7 +562,7 @@ mod tests {
         let expander = QueryExpander::new();
 
         assert!(expander.is_known_term("fireball"));
-        assert!(expander.is_known_term("FIREBALL")); // Case insensitive
+        assert!(expander.is_known_term("FIREBALL")); // Case-insensitive
         assert!(expander.is_known_term("armor class"));
         assert!(!expander.is_known_term("xyznotaword"));
     }

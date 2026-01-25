@@ -849,7 +849,7 @@ mod tests {
 
     #[test]
     fn test_blend_rule_normalize_weights() {
-        let mut rule = BlendRule::new("Test", "test")
+        let rule = BlendRule::new("Test", "test")
             .with_component(PersonalityId::new("a"), 0.3)
             .with_component(PersonalityId::new("b"), 0.3)
             .with_component(PersonalityId::new("c"), 0.4);
