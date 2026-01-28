@@ -206,10 +206,8 @@ fn SectionHeader(
             </div>
 
             <svg
-                class=format!(
-                    "w-4 h-4 text-zinc-400 transition-transform {}",
-                    if is_collapsed.get() { "" } else { "rotate-180" }
-                )
+                class="w-4 h-4 text-zinc-400 transition-transform"
+                class:rotate-180=move || !is_collapsed.get()
                 fill="none" stroke="currentColor" viewBox="0 0 24 24"
             >
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -330,7 +328,7 @@ pub fn CheatSheetViewer(
     let is_print_mode = RwSignal::new(print_mode);
 
     view! {
-        <div class=format!(
+        <div class=move || format!(
             "h-full flex flex-col {}",
             if is_print_mode.get() { "bg-white text-black" } else { "" }
         )>
@@ -350,7 +348,7 @@ pub fn CheatSheetViewer(
                             // Print mode toggle
                             <button
                                 type="button"
-                                class=format!(
+                                class=move || format!(
                                     "p-2 rounded transition-colors {}",
                                     if is_print_mode.get() { "bg-purple-600 text-white" } else { "bg-zinc-800 text-zinc-400 hover:text-white" }
                                 )

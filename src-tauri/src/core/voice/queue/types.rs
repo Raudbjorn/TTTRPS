@@ -190,9 +190,15 @@ impl SynthesisJob {
             result_path: None,
             error: None,
             retry_count: 0,
-            max_retries: 2,
+            max_retries: 0, // Default to 0; queue applies config.default_max_retries
             char_count: text.chars().count(),
         }
+    }
+
+    /// Set maximum retry attempts
+    pub fn with_max_retries(mut self, max_retries: u32) -> Self {
+        self.max_retries = max_retries;
+        self
     }
 
     /// Set job priority

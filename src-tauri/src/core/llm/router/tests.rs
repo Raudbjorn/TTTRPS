@@ -998,12 +998,10 @@ async fn test_streaming_cancellation() {
     let mut router = LLMRouter::new(RouterConfig::default());
 
     let provider = create_mock_provider("test");
-    provider.set_latency(500).await;
-    // Use a longer response to ensure the stream is still active when we check
+    // Use longer latency and more chunks to ensure stream stays active
+    provider.set_latency(1000).await;
     provider
-        .set_response("This is a very long response that will take quite some time to stream. \
-                       We need enough content here so the stream is still active when we check \
-                       for active streams. Each word adds more time due to the latency setting.")
+        .set_response("word1 word2 word3 word4 word5 word6 word7 word8 word9 word10 word11 word12 word13 word14 word15 word16 word17 word18 word19 word20")
         .await;
 
     router.add_provider(provider.clone()).await;
@@ -1012,16 +1010,43 @@ async fn test_streaming_cancellation() {
     let result = router.stream_chat(request).await;
 
     assert!(result.is_ok());
-    let _rx = result.unwrap();
+    let mut rx = result.unwrap();
 
-    // Give the stream time to register as active
-    tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+    // Wait for stream to actually start by polling for active streams
+    let mut attempts = 0;
+    let stream_id = loop {
+        let stream_ids = router.active_stream_ids().await;
+        if !stream_ids.is_empty() {
+            break stream_ids[0].clone();
+        }
+        attempts += 1;
+        if attempts > 50 {
+            panic!("Stream never became active");
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    };
 
-    let stream_ids = router.active_stream_ids().await;
-    assert!(!stream_ids.is_empty(), "Expected active streams after starting stream");
+    // Optionally receive a chunk to confirm streaming is in progress
+    let first_chunk = tokio::time::timeout(Duration::from_millis(500), rx.recv()).await;
+    assert!(first_chunk.is_ok(), "Should receive at least one chunk before cancellation");
 
-    let canceled = router.cancel_stream(&stream_ids[0]).await;
+    // Now cancel the stream
+    let canceled = router.cancel_stream(&stream_id).await;
     assert!(canceled);
+
+    // Verify stream was interrupted: receiver should close without receiving all chunks
+    // (the response has 20 words, so we should NOT get all 20+ chunks if canceled properly)
+    let mut chunk_count = 1; // We already received one
+    while let Ok(Some(_)) = tokio::time::timeout(Duration::from_millis(100), rx.recv()).await {
+        chunk_count += 1;
+        if chunk_count > 25 {
+            break; // Safety limit
+        }
+    }
+
+    // We should have received fewer chunks than the full response would produce
+    // (20 words = 20 content chunks + 1 final chunk = 21 total)
+    assert!(chunk_count < 21, "Stream should have been interrupted before completion, got {} chunks", chunk_count);
 }
 
 #[tokio::test]

@@ -212,7 +212,13 @@ impl<'a> LibraryRepositoryImpl<'a> {
         let mut discovered_sources: HashMap<String, (String, u32, u64, u32)> = HashMap::new();
 
         // Get existing library documents to avoid duplicates
-        let existing = self.list().await.unwrap_or_default();
+        let existing = match self.list().await {
+            Ok(docs) => docs,
+            Err(e) => {
+                log::error!("Failed to list existing library documents during rebuild: {}", e);
+                return Err(e);
+            }
+        };
         let existing_names: HashSet<String> = existing.iter().map(|d| d.name.clone()).collect();
 
         log::info!(
