@@ -11,7 +11,7 @@ use super::trust::{TrustAssigner, TrustAssignment};
 use crate::core::campaign::grounding::{FlavourSearcher, RulebookLinker, UsageTracker};
 use crate::core::campaign::pipeline::{CampaignIntent, PipelineError};
 use crate::core::llm::{ChatMessage, ChatRequest, ChatResponse, LLMRouter};
-use crate::core::search::SearchClient;
+use crate::core::search_client::SearchClient;
 use crate::database::{CampaignOps, Citation, Database};
 
 use serde::{Deserialize, Serialize};
@@ -430,7 +430,7 @@ impl GenerationOrchestrator {
         if let Some(max) = request.config.max_tokens.or(template.max_tokens) {
             chat_request = chat_request.with_max_tokens(max);
         }
-        if let Some(ref provider) = request.config.provider.clone().or_else(|| template.metadata.recommended_model.clone()) {
+        if let Some(ref provider) = request.config.provider {
             chat_request = chat_request.with_provider(provider);
         }
 
@@ -560,49 +560,20 @@ impl GenerationOrchestrator {
         content: &str,
         gen_type: &GenerationType,
     ) -> Option<serde_json::Value> {
-        // First priority: Try to extract from markdown code blocks
-        if let Some(start) = content.find("```json") {
-            if let Some(end) = content[start + 7..].find("```") {
-                let json_str = content[start + 7..start + 7 + end].trim();
+        // Try to extract JSON from the response
+        if let Some(json_start) = content.find('{') {
+            if let Some(json_end) = content.rfind('}') {
+                let json_str = &content[json_start..=json_end];
                 if let Ok(value) = serde_json::from_str::<serde_json::Value>(json_str) {
                     return Some(value);
                 }
             }
         }
 
-        // Second priority: Try each '{' occurrence to find valid JSON
-        // This handles cases with multiple objects or prose before JSON
-        for (idx, _) in content.match_indices('{') {
-            // Find matching closing brace by counting brace depth
-            let substring = &content[idx..];
-            let mut depth = 0;
-            let mut end_idx = None;
-            let mut in_string = false;
-            let mut escaped = false;
-
-            for (i, ch) in substring.char_indices() {
-                if escaped {
-                    escaped = false;
-                    continue;
-                }
-
-                match ch {
-                    '\\' if in_string => escaped = true,
-                    '"' => in_string = !in_string,
-                    '{' if !in_string => depth += 1,
-                    '}' if !in_string => {
-                        depth -= 1;
-                        if depth == 0 {
-                            end_idx = Some(i);
-                            break;
-                        }
-                    }
-                    _ => {}
-                }
-            }
-
-            if let Some(end) = end_idx {
-                let json_str = &substring[..=end];
+        // Try to extract from markdown code blocks
+        if let Some(start) = content.find("```json") {
+            if let Some(end) = content[start + 7..].find("```") {
+                let json_str = &content[start + 7..start + 7 + end].trim();
                 if let Ok(value) = serde_json::from_str::<serde_json::Value>(json_str) {
                     return Some(value);
                 }

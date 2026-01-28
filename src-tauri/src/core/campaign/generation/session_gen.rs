@@ -188,11 +188,7 @@ impl SessionGenerationRequest {
     pub fn to_generation_request(self) -> GenerationRequest {
         let mut vars = HashMap::new();
         vars.insert("session_duration".to_string(), self.session_duration_hours.to_string());
-        // Use serde to honor the snake_case rename attribute (e.g., CombatHeavy -> "combat_heavy")
-        let pacing_str = serde_json::to_string(&self.pacing_style)
-            .map(|s| s.trim_matches('"').to_string())
-            .unwrap_or_else(|_| format!("{:?}", self.pacing_style).to_lowercase());
-        vars.insert("pacing_style".to_string(), pacing_str);
+        vars.insert("pacing_style".to_string(), format!("{:?}", self.pacing_style).to_lowercase());
         vars.insert("objective".to_string(), self.objective);
 
         if let Some(prev) = self.previous_session {
@@ -350,26 +346,24 @@ impl SessionGenerator {
     }
 
     fn parse_beat(beat: &serde_json::Value) -> Option<SessionBeat> {
-        let encounter = beat.get("encounter")
-            .filter(|e| e.is_object() && !e.as_object().map_or(true, |o| o.is_empty()))
-            .and_then(|e| {
-                Some(EncounterDetails {
-                    encounter_type: match e.get("type").and_then(|v| v.as_str()).unwrap_or("combat") {
-                        "social" => EncounterType::Social,
-                        "exploration" => EncounterType::Exploration,
-                        "puzzle" => EncounterType::Puzzle,
-                        _ => EncounterType::Combat,
-                    },
-                    difficulty: match e.get("difficulty").and_then(|v| v.as_str()).unwrap_or("medium") {
-                        "easy" => EncounterDifficulty::Easy,
-                        "hard" => EncounterDifficulty::Hard,
-                        "deadly" => EncounterDifficulty::Deadly,
-                        _ => EncounterDifficulty::Medium,
-                    },
-                    participants: Self::parse_string_array(e.get("participants")),
-                    environment: e.get("environment").and_then(|v| v.as_str()).map(String::from),
-                })
-            });
+        let encounter = beat.get("encounter").and_then(|e| {
+            Some(EncounterDetails {
+                encounter_type: match e.get("type").and_then(|v| v.as_str()).unwrap_or("combat") {
+                    "social" => EncounterType::Social,
+                    "exploration" => EncounterType::Exploration,
+                    "puzzle" => EncounterType::Puzzle,
+                    _ => EncounterType::Combat,
+                },
+                difficulty: match e.get("difficulty").and_then(|v| v.as_str()).unwrap_or("medium") {
+                    "easy" => EncounterDifficulty::Easy,
+                    "hard" => EncounterDifficulty::Hard,
+                    "deadly" => EncounterDifficulty::Deadly,
+                    _ => EncounterDifficulty::Medium,
+                },
+                participants: Self::parse_string_array(e.get("participants")),
+                environment: e.get("environment").and_then(|v| v.as_str()).map(String::from),
+            })
+        });
 
         Some(SessionBeat {
             name: beat.get("name").and_then(|v| v.as_str())?.to_string(),

@@ -15,7 +15,7 @@ use super::types::{UpdateLibraryDocumentRequest, IngestResult, IngestProgress};
 #[tauri::command]
 pub async fn list_library_documents(
     state: State<'_, AppState>,
-) -> Result<Vec<crate::core::search::LibraryDocumentMetadata>, String> {
+) -> Result<Vec<crate::core::search_client::LibraryDocumentMetadata>, String> {
     state.search_client
         .list_library_documents()
         .await
@@ -39,7 +39,7 @@ pub async fn delete_library_document(
 pub async fn update_library_document(
     request: UpdateLibraryDocumentRequest,
     state: State<'_, AppState>,
-) -> Result<crate::core::search::LibraryDocumentMetadata, String> {
+) -> Result<crate::core::search_client::LibraryDocumentMetadata, String> {
     // Fetch existing document
     let mut doc = state.search_client
         .get_library_document(&request.id)
@@ -126,11 +126,10 @@ pub async fn clear_and_reingest_document(
     // Re-ingest using the existing ingest logic
     let source_type = Some(doc.source_type.clone());
 
-    // Call the internal ingestion logic, preserving the original document ID
+    // Call the internal ingestion logic
     ingest_document_with_progress_internal(
         file_path,
         source_type,
-        Some(id),  // Preserve original ID on re-ingestion
         app,
         state,
     ).await
@@ -139,13 +138,9 @@ pub async fn clear_and_reingest_document(
 /// Internal ingestion logic shared by ingest_document_with_progress and clear_and_reingest.
 ///
 /// Uses the two-phase pipeline (extract → raw index → chunk index) for all supported formats.
-///
-/// # Arguments
-/// * `original_id` - If provided, preserves the original document ID (useful for re-ingestion)
 pub(crate) async fn ingest_document_with_progress_internal(
     path: String,
     source_type: Option<String>,
-    original_id: Option<String>,
     app: tauri::AppHandle,
     state: State<'_, AppState>,
 ) -> Result<IngestResult, String> {
@@ -189,9 +184,9 @@ pub(crate) async fn ingest_document_with_progress_internal(
         .await
         .map_err(|e| format!("Ingestion failed: {}", e))?;
 
-    // Save document metadata (preserve original_id if provided for re-ingestion)
-    let library_doc = crate::core::search::LibraryDocumentMetadata {
-        id: original_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
+    // Save document metadata
+    let library_doc = crate::core::search_client::LibraryDocumentMetadata {
+        id: uuid::Uuid::new_v4().to_string(),
         name: source_name.clone(),
         source_type: source_type.clone(),
         file_path: Some(path.clone()),
