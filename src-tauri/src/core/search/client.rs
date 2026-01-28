@@ -376,37 +376,54 @@ impl SearchClient {
     }
 
     /// Delete documents by filter
+    ///
+    /// Paginates through all matching documents to handle cases where more than
+    /// 1000 documents match the filter.
     pub async fn delete_by_filter(&self, index_name: &str, filter: &str) -> Result<()> {
         let index = self.client.index(index_name);
+        let mut total_deleted = 0;
+        const PAGE_SIZE: usize = 1000;
 
-        // First search for documents matching the filter
-        let results: SearchResults<SearchDocument> = index
-            .search()
-            .with_filter(filter)
-            .with_limit(1000)
-            .execute()
+        loop {
+            // Search for documents matching the filter
+            let results: SearchResults<SearchDocument> = index
+                .search()
+                .with_filter(filter)
+                .with_limit(PAGE_SIZE)
+                .execute()
+                .await?;
+
+            if results.hits.is_empty() {
+                break;
+            }
+
+            // Collect IDs and delete
+            let ids: Vec<&str> = results.hits.iter().map(|h| h.result.id.as_str()).collect();
+            let batch_count = ids.len();
+
+            let task = index.delete_documents(&ids).await?;
+            task.wait_for_completion(
+                &self.client,
+                Some(std::time::Duration::from_millis(100)),
+                Some(std::time::Duration::from_secs(TASK_TIMEOUT_LONG_SECS)),
+            )
             .await?;
 
-        if results.hits.is_empty() {
-            return Ok(());
+            total_deleted += batch_count;
+
+            // If we got fewer than PAGE_SIZE results, we've processed all matching docs
+            if batch_count < PAGE_SIZE {
+                break;
+            }
         }
 
-        // Collect IDs and delete
-        let ids: Vec<&str> = results.hits.iter().map(|h| h.result.id.as_str()).collect();
-
-        let task = index.delete_documents(&ids).await?;
-        task.wait_for_completion(
-            &self.client,
-            Some(std::time::Duration::from_millis(100)),
-            Some(std::time::Duration::from_secs(TASK_TIMEOUT_LONG_SECS)),
-        )
-        .await?;
-
-        log::info!(
-            "Deleted {} documents from index '{}' matching filter",
-            ids.len(),
-            index_name
-        );
+        if total_deleted > 0 {
+            log::info!(
+                "Deleted {} documents from index '{}' matching filter",
+                total_deleted,
+                index_name
+            );
+        }
         Ok(())
     }
 
@@ -587,12 +604,10 @@ impl SearchClient {
 
     /// Search all content indexes (rules, fiction, documents)
     pub async fn search_all(&self, query: &str, limit: usize) -> Result<FederatedResults> {
-        self.federated_search(
-            query,
-            &[INDEX_RULES, INDEX_FICTION, INDEX_DOCUMENTS],
-            limit / 3 + 1,
-        )
-        .await
+        let indices = [INDEX_RULES, INDEX_FICTION, INDEX_DOCUMENTS];
+        // Ceiling division to distribute results evenly across indices
+        let per_index_limit = (limit + indices.len() - 1) / indices.len();
+        self.federated_search(query, &indices, per_index_limit).await
     }
 
     // ========================================================================
