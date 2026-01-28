@@ -625,6 +625,7 @@ impl ConversationManager {
     /// Create a new thread branched from a specific message.
     ///
     /// Copies all messages up to and including the branch point message.
+    /// The entire operation is atomic via a database transaction.
     ///
     /// # Arguments
     /// * `source_thread_id` - The thread to branch from
@@ -677,7 +678,32 @@ impl ConversationManager {
             "Creating branched conversation"
         );
 
-        self.save_thread(&new_thread).await?;
+        // Begin transaction for atomic branch operation
+        let mut tx = self.pool.begin().await?;
+
+        // Save the new thread within the transaction
+        let thread_record = new_thread.to_record();
+        sqlx::query(
+            r#"
+            INSERT INTO conversation_threads
+            (id, campaign_id, wizard_id, purpose, title, active_personality,
+             message_count, branched_from, created_at, updated_at, archived_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            "#,
+        )
+        .bind(&thread_record.id)
+        .bind(&thread_record.campaign_id)
+        .bind(&thread_record.wizard_id)
+        .bind(&thread_record.purpose)
+        .bind(&thread_record.title)
+        .bind(&thread_record.active_personality)
+        .bind(thread_record.message_count)
+        .bind(&thread_record.branched_from)
+        .bind(&thread_record.created_at)
+        .bind(&thread_record.updated_at)
+        .bind(&thread_record.archived_at)
+        .execute(&mut *tx)
+        .await?;
 
         // Copy messages up to and including the branch point
         // Use composite comparison (created_at, id) to avoid including extra messages
@@ -695,7 +721,7 @@ impl ConversationManager {
         .bind(source_thread_id)
         .bind(branch_message_id)
         .bind(branch_message_id)
-        .fetch_all(self.pool.as_ref())
+        .fetch_all(&mut *tx)
         .await?;
 
         let copied_count = messages_to_copy.len() as i32;
@@ -709,13 +735,44 @@ impl ConversationManager {
                     thread_id: new_thread_id.clone(),
                     ..msg
                 };
-                self.save_message(&new_msg).await?;
+                let msg_record = new_msg.to_record();
+
+                sqlx::query(
+                    r#"
+                    INSERT INTO conversation_messages
+                    (id, thread_id, role, content, suggestions, citations, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    "#,
+                )
+                .bind(&msg_record.id)
+                .bind(&msg_record.thread_id)
+                .bind(&msg_record.role)
+                .bind(&msg_record.content)
+                .bind(&msg_record.suggestions)
+                .bind(&msg_record.citations)
+                .bind(&msg_record.created_at)
+                .execute(&mut *tx)
+                .await?;
             }
         }
 
-        // Update message count
+        // Update message count on the thread
         new_thread.message_count = copied_count;
-        self.save_thread(&new_thread).await?;
+        sqlx::query(
+            r#"
+            UPDATE conversation_threads
+            SET message_count = ?, updated_at = ?
+            WHERE id = ?
+            "#,
+        )
+        .bind(copied_count)
+        .bind(chrono::Utc::now().to_rfc3339())
+        .bind(&new_thread_id)
+        .execute(&mut *tx)
+        .await?;
+
+        // Commit the transaction
+        tx.commit().await?;
 
         Ok(new_thread)
     }
