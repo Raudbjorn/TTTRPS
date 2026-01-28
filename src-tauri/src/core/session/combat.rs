@@ -226,12 +226,18 @@ impl CombatState {
     pub fn remove_combatant(&mut self, combatant_id: &str) -> Option<Combatant> {
         let pos = self.combatants.iter().position(|c| c.id == combatant_id)?;
 
-        // Adjust current turn if needed
-        if self.current_turn > pos && self.current_turn > 0 {
+        let removed = self.combatants.remove(pos);
+
+        // Adjust current turn after removal:
+        // - If removed before current, decrement to keep pointing at same combatant
+        // - If removed at current position, keep index (now points to next combatant)
+        // - Clamp to valid range in case we removed the last combatant
+        if pos < self.current_turn && self.current_turn > 0 {
             self.current_turn -= 1;
         }
+        self.current_turn = self.current_turn.min(self.combatants.len().saturating_sub(1));
 
-        Some(self.combatants.remove(pos))
+        Some(removed)
     }
 
     /// Get the current combatant
