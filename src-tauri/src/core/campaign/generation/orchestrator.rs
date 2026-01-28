@@ -11,7 +11,7 @@ use super::trust::{TrustAssigner, TrustAssignment};
 use crate::core::campaign::grounding::{FlavourSearcher, RulebookLinker, UsageTracker};
 use crate::core::campaign::pipeline::{CampaignIntent, PipelineError};
 use crate::core::llm::{ChatMessage, ChatRequest, ChatResponse, LLMRouter};
-use crate::core::search_client::SearchClient;
+use crate::core::search::SearchClient;
 use crate::database::{CampaignOps, Citation, Database};
 
 use serde::{Deserialize, Serialize};

@@ -10,7 +10,7 @@
 //! Tests marked with #[ignore] require a running Meilisearch instance.
 //! Run with: cargo test -- --ignored
 
-use crate::core::search_client::{
+use crate::core::search::{
     SearchClient, SearchDocument, INDEX_RULES, INDEX_FICTION, INDEX_CHAT, INDEX_DOCUMENTS,
 };
 use crate::core::search_analytics::{SearchAnalytics, SearchRecord, ResultSelection};

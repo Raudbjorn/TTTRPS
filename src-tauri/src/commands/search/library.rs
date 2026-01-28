@@ -15,7 +15,7 @@ use super::types::{UpdateLibraryDocumentRequest, IngestResult, IngestProgress};
 #[tauri::command]
 pub async fn list_library_documents(
     state: State<'_, AppState>,
-) -> Result<Vec<crate::core::search_client::LibraryDocumentMetadata>, String> {
+) -> Result<Vec<crate::core::search::LibraryDocumentMetadata>, String> {
     state.search_client
         .list_library_documents()
         .await
@@ -39,7 +39,7 @@ pub async fn delete_library_document(
 pub async fn update_library_document(
     request: UpdateLibraryDocumentRequest,
     state: State<'_, AppState>,
-) -> Result<crate::core::search_client::LibraryDocumentMetadata, String> {
+) -> Result<crate::core::search::LibraryDocumentMetadata, String> {
     // Fetch existing document
     let mut doc = state.search_client
         .get_library_document(&request.id)
@@ -185,7 +185,7 @@ pub(crate) async fn ingest_document_with_progress_internal(
         .map_err(|e| format!("Ingestion failed: {}", e))?;
 
     // Save document metadata
-    let library_doc = crate::core::search_client::LibraryDocumentMetadata {
+    let library_doc = crate::core::search::LibraryDocumentMetadata {
         id: uuid::Uuid::new_v4().to_string(),
         name: source_name.clone(),
         source_type: source_type.clone(),

@@ -5,7 +5,7 @@
 
 #[cfg(test)]
 mod tests {
-    use crate::core::search_client::{SearchClient, SearchDocument, INDEX_RULES, INDEX_DOCUMENTS};
+    use crate::core::search::{SearchClient, SearchDocument, INDEX_RULES, INDEX_DOCUMENTS};
     use crate::core::meilisearch_pipeline::MeilisearchPipeline;
     use std::collections::HashMap;
 

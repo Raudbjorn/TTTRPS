@@ -16,7 +16,7 @@ use crate::core::session_manager::SessionManager;
 use crate::core::npc_gen::NPCStore;
 use crate::core::credentials::CredentialManager;
 use crate::core::sidecar_manager::{SidecarManager, MeilisearchConfig};
-use crate::core::search_client::SearchClient;
+use crate::core::search::SearchClient;
 use crate::core::meilisearch_pipeline::MeilisearchPipeline;
 use crate::core::campaign::versioning::VersionManager;
 use crate::core::campaign::world_state::WorldStateManager;
