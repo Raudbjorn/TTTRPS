@@ -52,15 +52,9 @@ pub const DEFAULT_SEARCH_INDEX_PARAM: &str = r#"Select which index to search.
 
 AVAILABLE INDEXES:
 - 'documents': Primary index containing all uploaded PDFs, rulebooks, and source materials. USE THIS FOR MOST QUERIES.
-- 'rules': Game mechanics and rulebooks
-- 'fiction': Lore and narrative content
-- 'chat': Conversation history
 
 RULES:
 - ALWAYS use 'documents' for rules, lore, creatures, spells, items
-- Use 'rules' specifically for game mechanics queries
-- Use 'fiction' for lore, story, and narrative content
-- Use 'chat' to search conversation history
 - NEVER invent index names or use the topic as an index name
 - When in doubt, use 'documents'"#;
 

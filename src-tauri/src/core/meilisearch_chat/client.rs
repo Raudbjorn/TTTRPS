@@ -9,7 +9,6 @@ use tokio::sync::mpsc;
 use crate::core::llm::providers::ProviderConfig;
 
 use super::config::{ChatPrompts, ChatProviderConfig, ChatWorkspaceSettings};
-use super::prompts::DEFAULT_DM_SYSTEM_PROMPT;
 use super::types::{
     ChatCompletionRequest, ChatMessage, MeilisearchErrorResponse, ParsedToolCall, StreamChunk,
     get_meilisearch_chat_tools,
@@ -263,6 +262,7 @@ impl MeilisearchChatClient {
         custom_system_prompt: Option<&str>,
     ) -> Result<(), String> {
         const DEFAULT_WORKSPACE: &str = "dm-assistant";
+        const DEFAULT_DM_PROMPT: &str = "You are a knowledgeable and creative Dungeon Master assistant.";
 
         let chat_config = ChatProviderConfig::try_from(config)
             .map_err(|e| e.to_string())?;
@@ -270,7 +270,7 @@ impl MeilisearchChatClient {
         let prompts = Some(ChatPrompts {
             system: Some(
                 custom_system_prompt
-                    .unwrap_or(DEFAULT_DM_SYSTEM_PROMPT)
+                    .unwrap_or(DEFAULT_DM_PROMPT)
                     .to_string()
             ),
             ..Default::default()
@@ -365,30 +365,11 @@ async fn process_sse_data(data: &str, tx: &mpsc::Sender<Result<String, String>>)
             for choice in chunk.choices {
                 if let Some(content) = choice.delta.content {
                     // Filter out tool call JSON that models output as text
-                    // when they don't support structured tool calling.
-                    // Use JSON parsing for accurate detection instead of brittle string matching.
+                    // when they don't support structured tool calling
                     let trimmed = content.trim();
-                    let is_tool_call_json = if trimmed.starts_with('{') {
-                        // Attempt to parse as JSON and check structure
-                        if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(trimmed) {
-                            if let Some(obj) = parsed.as_object() {
-                                // Check for "name" field with tool-like naming pattern
-                                if let Some(serde_json::Value::String(name)) = obj.get("name") {
-                                    name.ends_with("_meili")
-                                        || name.contains("_search")
-                                        || name.starts_with("_meili")
-                                } else {
-                                    false
-                                }
-                            } else {
-                                false
-                            }
-                        } else {
-                            false
-                        }
-                    } else {
-                        false
-                    };
+                    let is_tool_call_json = trimmed.starts_with('{')
+                        && trimmed.contains("\"name\"")
+                        && (trimmed.contains("_meili") || trimmed.contains("_search"));
 
                     if is_tool_call_json {
                         log::debug!("Filtering tool call JSON from content: {}", content);
