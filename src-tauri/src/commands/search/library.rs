@@ -126,10 +126,11 @@ pub async fn clear_and_reingest_document(
     // Re-ingest using the existing ingest logic
     let source_type = Some(doc.source_type.clone());
 
-    // Call the internal ingestion logic
+    // Call the internal ingestion logic, preserving the original document ID
     ingest_document_with_progress_internal(
         file_path,
         source_type,
+        Some(id), // Preserve original ID on re-ingestion
         app,
         state,
     ).await
@@ -138,9 +139,14 @@ pub async fn clear_and_reingest_document(
 /// Internal ingestion logic shared by ingest_document_with_progress and clear_and_reingest.
 ///
 /// Uses the two-phase pipeline (extract → raw index → chunk index) for all supported formats.
+///
+/// # Arguments
+/// * `original_id` - If provided, reuses this ID instead of generating a new one.
+///                   Used by re-ingestion to preserve document references.
 pub(crate) async fn ingest_document_with_progress_internal(
     path: String,
     source_type: Option<String>,
+    original_id: Option<String>,
     app: tauri::AppHandle,
     state: State<'_, AppState>,
 ) -> Result<IngestResult, String> {
@@ -184,9 +190,9 @@ pub(crate) async fn ingest_document_with_progress_internal(
         .await
         .map_err(|e| format!("Ingestion failed: {}", e))?;
 
-    // Save document metadata
+    // Save document metadata (reuse original_id if provided, otherwise generate new)
     let library_doc = crate::core::search::LibraryDocumentMetadata {
-        id: uuid::Uuid::new_v4().to_string(),
+        id: original_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string()),
         name: source_name.clone(),
         source_type: source_type.clone(),
         file_path: Some(path.clone()),
