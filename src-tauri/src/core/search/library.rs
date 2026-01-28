@@ -73,22 +73,37 @@ impl<'a> LibraryRepositoryImpl<'a> {
     }
 
     /// List all library documents from Meilisearch
+    ///
+    /// Paginates through all documents to avoid truncation at any fixed limit.
     pub async fn list(&self) -> Result<Vec<LibraryDocumentMetadata>> {
         let index = self.client.index(INDEX_LIBRARY_METADATA);
+        let mut all_docs = Vec::new();
+        let mut offset = 0;
+        const PAGE_SIZE: usize = 1000;
 
-        // Use search with empty query to get all documents, sorted by ingested_at
-        let results: SearchResults<LibraryDocumentMetadata> = index
-            .search()
-            .with_query("")
-            .with_limit(1000)
-            .with_sort(&["ingested_at:desc"])
-            .execute()
-            .await?;
+        loop {
+            // Use search with empty query to get documents, sorted by ingested_at
+            let results: SearchResults<LibraryDocumentMetadata> = index
+                .search()
+                .with_query("")
+                .with_limit(PAGE_SIZE)
+                .with_offset(offset)
+                .with_sort(&["ingested_at:desc"])
+                .execute()
+                .await?;
 
-        let docs: Vec<LibraryDocumentMetadata> =
-            results.hits.into_iter().map(|hit| hit.result).collect();
+            let batch_size = results.hits.len();
+            all_docs.extend(results.hits.into_iter().map(|hit| hit.result));
 
-        Ok(docs)
+            // If we got fewer than PAGE_SIZE results, we've fetched all documents
+            if batch_size < PAGE_SIZE {
+                break;
+            }
+
+            offset += PAGE_SIZE;
+        }
+
+        Ok(all_docs)
     }
 
     /// Get a single library document by ID
