@@ -348,6 +348,78 @@ impl LLMRouter {
         selected_id.and_then(|id| self.providers.get(id).cloned())
     }
 
+    /// Get providers ordered according to the routing strategy
+    async fn get_ordered_providers(&self) -> Vec<Arc<dyn LLMProvider>> {
+        // Get available providers
+        let mut available: Vec<&String> = Vec::new();
+        for id in &self.provider_order {
+            if self.is_provider_available(id).await {
+                available.push(id);
+            }
+        }
+
+        if available.is_empty() {
+            return Vec::new();
+        }
+
+        let ordered_ids: Vec<String> = match self.config.routing_strategy {
+            RoutingStrategy::Priority => available.into_iter().cloned().collect(),
+
+            RoutingStrategy::CostOptimized => {
+                let stats = self.stats.read().await;
+                let mut ids: Vec<String> = available.into_iter().cloned().collect();
+                ids.sort_by(|a, b| {
+                    let cost_a = stats
+                        .get(a.as_str())
+                        .map(|s| s.total_cost_usd / s.successful_requests.max(1) as f64)
+                        .unwrap_or(f64::MAX);
+                    let cost_b = stats
+                        .get(b.as_str())
+                        .map(|s| s.total_cost_usd / s.successful_requests.max(1) as f64)
+                        .unwrap_or(f64::MAX);
+                    cost_a
+                        .partial_cmp(&cost_b)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                });
+                ids
+            }
+
+            RoutingStrategy::LatencyOptimized => {
+                let stats = self.stats.read().await;
+                let mut ids: Vec<String> = available.into_iter().cloned().collect();
+                ids.sort_by_key(|id| {
+                    stats
+                        .get(id.as_str())
+                        .map(|s| s.avg_latency_ms())
+                        .unwrap_or(u64::MAX)
+                });
+                ids
+            }
+
+            RoutingStrategy::RoundRobin => {
+                let mut index = self.round_robin_index.write().await;
+                let start = *index % available.len().max(1);
+                *index = (*index + 1) % available.len().max(1);
+                // Rotate the list to start from the round-robin position
+                let mut ids: Vec<String> = available.into_iter().cloned().collect();
+                ids.rotate_left(start);
+                ids
+            }
+
+            RoutingStrategy::Random => {
+                use rand::seq::SliceRandom;
+                let mut ids: Vec<String> = available.into_iter().cloned().collect();
+                ids.shuffle(&mut rand::thread_rng());
+                ids
+            }
+        };
+
+        ordered_ids
+            .into_iter()
+            .filter_map(|id| self.providers.get(&id).cloned())
+            .collect()
+    }
+
     /// Send a chat request with automatic routing and fallback
     pub async fn chat(&self, request: ChatRequest) -> Result<ChatResponse> {
         // Check budget
@@ -378,11 +450,8 @@ impl LLMRouter {
             }
             providers
         } else {
-            // Use routing strategy to get ordered list
-            self.provider_order
-                .iter()
-                .filter_map(|id| self.providers.get(id).cloned())
-                .collect()
+            // Use routing strategy to order providers
+            self.get_ordered_providers().await
         };
 
         for provider in providers_to_try {
