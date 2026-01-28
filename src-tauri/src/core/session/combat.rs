@@ -153,17 +153,18 @@ impl Combatant {
             .any(|i| i.to_lowercase() == condition_name.to_lowercase())
     }
 
-    /// Add a condition immunity
+    /// Add a condition immunity (normalized to lowercase for consistent matching)
     pub fn add_immunity(&mut self, condition_name: impl Into<String>) {
-        let name = condition_name.into();
-        if !self.condition_immunities.contains(&name) {
+        let name = condition_name.into().to_lowercase();
+        if !self.condition_immunities.iter().any(|i| i.to_lowercase() == name) {
             self.condition_immunities.push(name);
         }
     }
 
-    /// Remove a condition immunity
+    /// Remove a condition immunity (case-insensitive)
     pub fn remove_immunity(&mut self, condition_name: &str) {
-        self.condition_immunities.retain(|i| i != condition_name);
+        let target = condition_name.to_lowercase();
+        self.condition_immunities.retain(|i| i.to_lowercase() != target);
     }
 }
 

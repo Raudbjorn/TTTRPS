@@ -151,10 +151,13 @@ impl SynthesisQueue {
         }
 
         let job_id = job.id.clone();
-        let text_preview = if job.text.len() > 50 {
-            format!("{}...", &job.text[..50])
-        } else {
-            job.text.clone()
+        let text_preview = {
+            let chars: String = job.text.chars().take(50).collect();
+            if job.text.chars().count() > 50 {
+                format!("{}...", chars)
+            } else {
+                chars
+            }
         };
 
         // Add to jobs map
