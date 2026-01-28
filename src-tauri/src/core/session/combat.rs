@@ -105,13 +105,7 @@ impl Combatant {
     /// Apply damage to this combatant
     /// Damages temp HP first, then current HP
     /// Returns the new current HP value
-    /// Non-positive damage amounts are ignored
     pub fn apply_damage(&mut self, amount: i32) -> i32 {
-        // Ignore non-positive damage (prevents negative damage from healing)
-        if amount <= 0 {
-            return self.current_hp.unwrap_or(0);
-        }
-
         let mut remaining = amount;
 
         // Damage temp HP first
@@ -139,9 +133,6 @@ impl Combatant {
     /// Cannot exceed max HP
     /// Returns the new current HP value
     pub fn heal(&mut self, amount: i32) -> i32 {
-        if amount <= 0 {
-            return self.current_hp.unwrap_or(0);
-        }
         if let (Some(current), Some(max)) = (self.current_hp, self.max_hp) {
             self.current_hp = Some((current + amount).min(max));
         }
@@ -162,18 +153,17 @@ impl Combatant {
             .any(|i| i.to_lowercase() == condition_name.to_lowercase())
     }
 
-    /// Add a condition immunity (normalized to lowercase for consistent matching)
+    /// Add a condition immunity
     pub fn add_immunity(&mut self, condition_name: impl Into<String>) {
-        let name = condition_name.into().to_lowercase();
-        if !self.condition_immunities.iter().any(|i| i.to_lowercase() == name) {
+        let name = condition_name.into();
+        if !self.condition_immunities.contains(&name) {
             self.condition_immunities.push(name);
         }
     }
 
-    /// Remove a condition immunity (case-insensitive)
+    /// Remove a condition immunity
     pub fn remove_immunity(&mut self, condition_name: &str) {
-        let target = condition_name.to_lowercase();
-        self.condition_immunities.retain(|i| i.to_lowercase() != target);
+        self.condition_immunities.retain(|i| i != condition_name);
     }
 }
 
@@ -236,18 +226,12 @@ impl CombatState {
     pub fn remove_combatant(&mut self, combatant_id: &str) -> Option<Combatant> {
         let pos = self.combatants.iter().position(|c| c.id == combatant_id)?;
 
-        let removed = self.combatants.remove(pos);
-
-        // Adjust current turn after removal:
-        // - If removed before current, decrement to keep pointing at same combatant
-        // - If removed at current position, keep index (now points to next combatant)
-        // - Clamp to valid range in case we removed the last combatant
-        if pos < self.current_turn && self.current_turn > 0 {
+        // Adjust current turn if needed
+        if self.current_turn > pos && self.current_turn > 0 {
             self.current_turn -= 1;
         }
-        self.current_turn = self.current_turn.min(self.combatants.len().saturating_sub(1));
 
-        Some(removed)
+        Some(self.combatants.remove(pos))
     }
 
     /// Get the current combatant
