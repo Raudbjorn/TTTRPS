@@ -812,7 +812,7 @@ impl SearchClient {
         task.wait_for_completion(
             &self.client,
             Some(std::time::Duration::from_millis(100)),
-            Some(std::time::Duration::from_secs(30)),
+            Some(std::time::Duration::from_secs(TASK_TIMEOUT_LONG_SECS)),
         )
         .await?;
 

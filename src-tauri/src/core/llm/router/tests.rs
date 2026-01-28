@@ -999,8 +999,11 @@ async fn test_streaming_cancellation() {
 
     let provider = create_mock_provider("test");
     provider.set_latency(500).await;
+    // Use a longer response to ensure the stream is still active when we check
     provider
-        .set_response("This is a very long response that will take time to stream")
+        .set_response("This is a very long response that will take quite some time to stream. \
+                       We need enough content here so the stream is still active when we check \
+                       for active streams. Each word adds more time due to the latency setting.")
         .await;
 
     router.add_provider(provider.clone()).await;
@@ -1011,8 +1014,11 @@ async fn test_streaming_cancellation() {
     assert!(result.is_ok());
     let _rx = result.unwrap();
 
+    // Give the stream time to register as active
+    tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+
     let stream_ids = router.active_stream_ids().await;
-    assert!(!stream_ids.is_empty());
+    assert!(!stream_ids.is_empty(), "Expected active streams after starting stream");
 
     let canceled = router.cancel_stream(&stream_ids[0]).await;
     assert!(canceled);
