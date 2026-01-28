@@ -73,37 +73,22 @@ impl<'a> LibraryRepositoryImpl<'a> {
     }
 
     /// List all library documents from Meilisearch
-    ///
-    /// Paginates through all documents to avoid truncation at any fixed limit.
     pub async fn list(&self) -> Result<Vec<LibraryDocumentMetadata>> {
         let index = self.client.index(INDEX_LIBRARY_METADATA);
-        let mut all_docs = Vec::new();
-        let mut offset = 0;
-        const PAGE_SIZE: usize = 1000;
 
-        loop {
-            // Use search with empty query to get documents, sorted by ingested_at
-            let results: SearchResults<LibraryDocumentMetadata> = index
-                .search()
-                .with_query("")
-                .with_limit(PAGE_SIZE)
-                .with_offset(offset)
-                .with_sort(&["ingested_at:desc"])
-                .execute()
-                .await?;
+        // Use search with empty query to get all documents, sorted by ingested_at
+        let results: SearchResults<LibraryDocumentMetadata> = index
+            .search()
+            .with_query("")
+            .with_limit(1000)
+            .with_sort(&["ingested_at:desc"])
+            .execute()
+            .await?;
 
-            let batch_size = results.hits.len();
-            all_docs.extend(results.hits.into_iter().map(|hit| hit.result));
+        let docs: Vec<LibraryDocumentMetadata> =
+            results.hits.into_iter().map(|hit| hit.result).collect();
 
-            // If we got fewer than PAGE_SIZE results, we've fetched all documents
-            if batch_size < PAGE_SIZE {
-                break;
-            }
-
-            offset += PAGE_SIZE;
-        }
-
-        Ok(all_docs)
+        Ok(docs)
     }
 
     /// Get a single library document by ID
@@ -212,13 +197,7 @@ impl<'a> LibraryRepositoryImpl<'a> {
         let mut discovered_sources: HashMap<String, (String, u32, u64, u32)> = HashMap::new();
 
         // Get existing library documents to avoid duplicates
-        let existing = match self.list().await {
-            Ok(docs) => docs,
-            Err(e) => {
-                log::error!("Failed to list existing library documents during rebuild: {}", e);
-                return Err(e);
-            }
-        };
+        let existing = self.list().await.unwrap_or_default();
         let existing_names: HashSet<String> = existing.iter().map(|d| d.name.clone()).collect();
 
         log::info!(

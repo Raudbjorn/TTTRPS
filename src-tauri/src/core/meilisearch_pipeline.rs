@@ -12,7 +12,7 @@
 //! This enables page number attribution in search results by tracking
 //! which raw pages each chunk was derived from.
 
-use crate::core::search_client::{LibraryDocumentMetadata, SearchClient, SearchError};
+use crate::core::search::{LibraryDocumentMetadata, SearchClient, SearchError};
 use crate::ingestion::claude_extractor::ClaudeDocumentExtractor;
 use crate::ingestion::extraction_settings::TextExtractionProvider;
 use crate::ingestion::kreuzberg_extractor::DocumentExtractor;

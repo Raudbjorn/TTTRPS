@@ -5,7 +5,7 @@
 //! Searches indexed flavour sources (setting books, adventure modules, lore documents)
 //! for setting-appropriate content including names, locations, and lore.
 
-use crate::core::search_client::{SearchClient, SearchResult, INDEX_FICTION, INDEX_RULES};
+use crate::core::search::{SearchClient, SearchResult, INDEX_FICTION, INDEX_RULES};
 use crate::database::Citation;
 use std::sync::Arc;
 

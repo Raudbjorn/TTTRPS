@@ -33,12 +33,12 @@ pub struct SearchClient {
 }
 
 impl SearchClient {
-    pub fn new(host: &str, api_key: Option<&str>) -> Result<Self> {
-        Ok(Self {
-            client: Client::new(host, api_key)?,
+    pub fn new(host: &str, api_key: Option<&str>) -> Self {
+        Self {
+            client: Client::new(host, api_key).expect("Failed to create Meilisearch client"),
             host: host.to_string(),
             api_key: api_key.map(|s| s.to_string()),
-        })
+        }
     }
 
     pub fn host(&self) -> &str {
@@ -308,58 +308,6 @@ impl SearchClient {
         Ok(configured)
     }
 
-    /// Configure Copilot REST embedder on all content indexes
-    ///
-    /// This sets up AI-powered semantic search using GitHub Copilot's embedding API.
-    /// The embedder is named "copilot" and uses direct API access.
-    ///
-    /// **Note:** Copilot API tokens are short-lived (~30 minutes). If the token expires,
-    /// you will need to call this method again to refresh the configuration.
-    pub async fn setup_copilot_embeddings(
-        &self,
-        model: &str,
-        dimensions: u32,
-        api_key: &str,
-    ) -> Result<Vec<String>> {
-        let config = EmbedderConfig::CopilotRest {
-            model: model.to_string(),
-            dimensions,
-            api_key: api_key.to_string(),
-        };
-
-        let mut configured = Vec::new();
-        let content_indexes = all_indexes();
-
-        for index_name in content_indexes {
-            match self.configure_embedder(index_name, "copilot", &config).await {
-                Ok(_) => {
-                    log::info!(
-                        "Configured Copilot embedder on index '{}' with model '{}' ({} dimensions)",
-                        index_name,
-                        model,
-                        dimensions
-                    );
-                    configured.push(index_name.to_string());
-                }
-                Err(e) => {
-                    log::warn!(
-                        "Failed to configure Copilot embedder on '{}': {}",
-                        index_name,
-                        e
-                    );
-                }
-            }
-        }
-
-        if configured.is_empty() {
-            return Err(SearchError::ConfigError(
-                "Failed to configure Copilot embedder on any indexes".to_string(),
-            ));
-        }
-
-        Ok(configured)
-    }
-
     /// Get current embedder configuration for an index
     pub async fn get_embedder_settings(
         &self,
@@ -428,54 +376,37 @@ impl SearchClient {
     }
 
     /// Delete documents by filter
-    ///
-    /// Paginates through all matching documents to handle cases where more than
-    /// 1000 documents match the filter.
     pub async fn delete_by_filter(&self, index_name: &str, filter: &str) -> Result<()> {
         let index = self.client.index(index_name);
-        let mut total_deleted = 0;
-        const PAGE_SIZE: usize = 1000;
 
-        loop {
-            // Search for documents matching the filter
-            let results: SearchResults<SearchDocument> = index
-                .search()
-                .with_filter(filter)
-                .with_limit(PAGE_SIZE)
-                .execute()
-                .await?;
-
-            if results.hits.is_empty() {
-                break;
-            }
-
-            // Collect IDs and delete
-            let ids: Vec<&str> = results.hits.iter().map(|h| h.result.id.as_str()).collect();
-            let batch_count = ids.len();
-
-            let task = index.delete_documents(&ids).await?;
-            task.wait_for_completion(
-                &self.client,
-                Some(std::time::Duration::from_millis(100)),
-                Some(std::time::Duration::from_secs(TASK_TIMEOUT_LONG_SECS)),
-            )
+        // First search for documents matching the filter
+        let results: SearchResults<SearchDocument> = index
+            .search()
+            .with_filter(filter)
+            .with_limit(1000)
+            .execute()
             .await?;
 
-            total_deleted += batch_count;
-
-            // If we got fewer than PAGE_SIZE results, we've processed all matching docs
-            if batch_count < PAGE_SIZE {
-                break;
-            }
+        if results.hits.is_empty() {
+            return Ok(());
         }
 
-        if total_deleted > 0 {
-            log::info!(
-                "Deleted {} documents from index '{}' matching filter",
-                total_deleted,
-                index_name
-            );
-        }
+        // Collect IDs and delete
+        let ids: Vec<&str> = results.hits.iter().map(|h| h.result.id.as_str()).collect();
+
+        let task = index.delete_documents(&ids).await?;
+        task.wait_for_completion(
+            &self.client,
+            Some(std::time::Duration::from_millis(100)),
+            Some(std::time::Duration::from_secs(TASK_TIMEOUT_LONG_SECS)),
+        )
+        .await?;
+
+        log::info!(
+            "Deleted {} documents from index '{}' matching filter",
+            ids.len(),
+            index_name
+        );
         Ok(())
     }
 
@@ -656,10 +587,12 @@ impl SearchClient {
 
     /// Search all content indexes (rules, fiction, documents)
     pub async fn search_all(&self, query: &str, limit: usize) -> Result<FederatedResults> {
-        let indices = [INDEX_RULES, INDEX_FICTION, INDEX_DOCUMENTS];
-        // Ceiling division to distribute results evenly across indices
-        let per_index_limit = (limit + indices.len() - 1) / indices.len();
-        self.federated_search(query, &indices, per_index_limit).await
+        self.federated_search(
+            query,
+            &[INDEX_RULES, INDEX_FICTION, INDEX_DOCUMENTS],
+            limit / 3 + 1,
+        )
+        .await
     }
 
     // ========================================================================
@@ -939,7 +872,7 @@ impl SearchClient {
         task.wait_for_completion(
             &self.client,
             Some(std::time::Duration::from_millis(100)),
-            Some(std::time::Duration::from_secs(TASK_TIMEOUT_LONG_SECS)),
+            Some(std::time::Duration::from_secs(30)),
         )
         .await?;
 

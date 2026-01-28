@@ -5,7 +5,7 @@
 //! Detects rulebook references in text, searches Meilisearch for matching content,
 //! and builds citations with confidence scoring.
 
-use crate::core::search_client::{SearchClient, SearchResult};
+use crate::core::search::{SearchClient, SearchResult};
 use crate::database::Citation;
 use regex::Regex;
 use std::collections::HashSet;
