@@ -3,6 +3,12 @@
 //! All Tauri IPC commands organized by domain.
 //! This module replaces the original monolithic commands.rs.
 
+// Allow ambiguous glob re-exports for Tauri command modules.
+// Multiple domain modules have submodules with common names (config, chat, events, crud, notes)
+// which conflict at the namespace level but not at the function level. The actual commands
+// have unique names, and Tauri's __cmd__ macro exports must be re-exported via globs.
+#![allow(ambiguous_glob_reexports)]
+
 pub mod error;
 pub mod macros;
 #[macro_use]
@@ -10,9 +16,28 @@ pub mod oauth;
 #[macro_use]
 pub mod archetype;
 pub mod voice;
+pub mod generation;
+pub mod timeline;
+pub mod system;
+pub mod credentials;
+pub mod world;
+pub mod relationships;
+pub mod usage;
+pub mod audit;
+pub mod combat;
+pub mod campaign;
+pub mod npc;
+pub mod location;
+pub mod session;
+pub mod llm;
+pub mod personality;
+pub mod search;
 
-// Note: types.rs duplicates types from commands_legacy - commented out during migration
-// pub mod types;
+pub mod state;
+pub mod types;
+
+// Re-export shared state (types are re-exported explicitly to avoid conflicts with legacy)
+pub use state::AppState;
 
 // Re-export error types
 pub use error::{CommandError, CommandResult};
@@ -46,6 +71,54 @@ pub use oauth::{
 // Re-export voice commands (fully extracted) - using glob to include Tauri __cmd__ macros
 pub use voice::*;
 
+// Re-export generation commands (character, location) - using glob to include Tauri __cmd__ macros
+pub use generation::*;
+
+// Re-export timeline commands - using glob to include Tauri __cmd__ macros
+pub use timeline::*;
+
+// Re-export system commands - using glob to include Tauri __cmd__ macros
+pub use system::*;
+
+// Re-export credentials commands - using glob to include Tauri __cmd__ macros
+pub use credentials::*;
+
+// Re-export world state commands - using glob to include Tauri __cmd__ macros
+pub use world::*;
+
+// Re-export relationship commands - using glob to include Tauri __cmd__ macros
+pub use relationships::*;
+
+// Re-export usage tracking commands - using glob to include Tauri __cmd__ macros
+pub use usage::*;
+
+// Re-export audit log commands - using glob to include Tauri __cmd__ macros
+pub use audit::*;
+
+// Re-export combat commands - using glob to include Tauri __cmd__ macros
+pub use combat::*;
+
+// Re-export campaign commands - using glob to include Tauri __cmd__ macros
+pub use campaign::*;
+
+// Re-export NPC commands - using glob to include Tauri __cmd__ macros
+pub use npc::*;
+
+// Re-export location commands - using glob to include Tauri __cmd__ macros
+pub use location::*;
+
+// Re-export session commands - using glob to include Tauri __cmd__ macros
+pub use session::*;
+
+// Re-export LLM commands - using glob to include Tauri __cmd__ macros
+pub use llm::*;
+
+// Re-export personality commands - using glob to include Tauri __cmd__ macros
+pub use personality::*;
+
+// Re-export search commands - using glob to include Tauri __cmd__ macros
+pub use search::*;
+
 // Re-export extracted domain commands
 pub use archetype::{
     // Types
@@ -70,8 +143,8 @@ pub use archetype::{
     clear_archetype_cache, is_archetype_registry_ready,
 };
 
-// Temporary: Re-export everything from the original commands.rs until extraction is complete
-// This will be removed as commands are extracted to domain modules
-#[path = "../commands_legacy.rs"]
-mod commands_legacy;
-pub use commands_legacy::*;
+// LEGACY FILE DISABLED: All commands have been extracted to domain modules
+// The commands_legacy.rs file is kept for reference but no longer used
+// #[path = "../commands_legacy.rs"]
+// mod commands_legacy;
+// pub use commands_legacy::*;

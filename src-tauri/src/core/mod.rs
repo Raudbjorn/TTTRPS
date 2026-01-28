@@ -50,6 +50,6 @@ pub mod transcription;
 pub mod usage;
 pub mod security;
 
-// Session sub-modules (TASK-014, TASK-015, TASK-017)
+// Session submodules (TASK-014, TASK-015, TASK-017)
 pub mod session;
 

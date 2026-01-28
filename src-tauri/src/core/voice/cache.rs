@@ -72,7 +72,7 @@ impl CacheEntry {
         }
     }
 
-    /// Record an access to this entry
+    /// Record access to this entry
     pub fn record_access(&mut self) {
         self.last_accessed = Utc::now();
         self.access_count = self.access_count.saturating_add(1);

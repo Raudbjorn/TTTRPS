@@ -646,7 +646,7 @@ mod tests {
             // Should have at least 8 local providers
             assert!(statuses.len() >= 8);
 
-            // All should have install instructions
+            // All should have installation instructions
             for status in &statuses {
                 assert!(status.install_instructions.is_some());
             }

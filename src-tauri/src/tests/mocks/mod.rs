@@ -3,6 +3,8 @@
 //! This module provides mock traits and implementations using mockall
 //! for testing the TTRPG Assistant components in isolation.
 
+#![allow(dead_code)]
+
 use async_trait::async_trait;
 use mockall::automock;
 use std::collections::HashMap;
@@ -29,6 +31,7 @@ pub enum LlmError {
 
 /// Message role in a conversation
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[allow(dead_code)]
 pub enum MockMessageRole {
     System,
     User,
@@ -44,6 +47,7 @@ pub struct MockChatMessage {
 
 /// Response from mock LLM
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct MockChatResponse {
     pub content: String,
     pub model: String,
@@ -81,6 +85,7 @@ pub type VoiceResult<T> = Result<T, VoiceError>;
 
 /// Error type for voice operations
 #[derive(Debug, Clone, thiserror::Error)]
+#[allow(dead_code)]
 pub enum VoiceError {
     #[error("Provider not configured: {0}")]
     NotConfigured(String),
@@ -96,6 +101,7 @@ pub enum VoiceError {
 
 /// Voice information for mock provider
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct MockVoice {
     pub id: String,
     pub name: String,
@@ -105,6 +111,7 @@ pub struct MockVoice {
 
 /// Voice settings for synthesis
 #[derive(Debug, Clone, Default)]
+#[allow(dead_code)]
 pub struct MockVoiceSettings {
     pub stability: f32,
     pub similarity_boost: f32,
@@ -112,6 +119,7 @@ pub struct MockVoiceSettings {
 
 /// Synthesis request for mock provider
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct MockSynthesisRequest {
     pub text: String,
     pub voice_id: String,
@@ -120,6 +128,7 @@ pub struct MockSynthesisRequest {
 
 /// Usage info from voice provider
 #[derive(Debug, Clone, Default)]
+#[allow(dead_code)]
 pub struct MockUsageInfo {
     pub characters_used: u64,
     pub characters_limit: u64,
@@ -151,6 +160,7 @@ pub type SearchResult<T> = Result<T, SearchError>;
 
 /// Error type for search operations
 #[derive(Debug, Clone, thiserror::Error)]
+#[allow(dead_code)]
 pub enum SearchError {
     #[error("Search error: {0}")]
     SearchError(String),
@@ -164,6 +174,7 @@ pub enum SearchError {
 
 /// A searchable document for mock client
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct MockSearchDocument {
     pub id: String,
     pub content: String,
@@ -173,6 +184,7 @@ pub struct MockSearchDocument {
 }
 
 /// A search hit from mock client
+
 #[derive(Debug, Clone)]
 pub struct MockSearchHit {
     pub document: MockSearchDocument,
@@ -181,6 +193,7 @@ pub struct MockSearchHit {
 }
 
 /// Federated search results from mock client
+
 #[derive(Debug, Clone)]
 pub struct MockFederatedResults {
     pub results: Vec<MockSearchHit>,

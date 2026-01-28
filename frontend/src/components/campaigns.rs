@@ -14,9 +14,6 @@ use crate::bindings::{list_campaigns, create_campaign, delete_campaign, archive_
 use crate::components::design_system::{Button, ButtonVariant, LoadingSpinner};
 use crate::components::campaign::CampaignCreateModal;
 
-#[allow(unused_imports)]
-use crate::components::campaign::{CampaignCard as CampaignCardFull, CampaignCardCompact, CampaignGenre};
-
 /// Helper function to get system-based styling
 fn get_system_style(system: &str) -> (&'static str, &'static str) {
     let s = system.to_lowercase();
@@ -190,7 +187,8 @@ fn CampaignCard(
     }
 }
 
-/// Create Campaign Modal component
+/// Create Campaign Modal component (legacy, kept for reference)
+#[allow(dead_code)]
 #[component]
 fn CreateCampaignModal(
     is_open: RwSignal<bool>,
@@ -382,7 +380,7 @@ pub fn Campaigns() -> impl IntoView {
         Arc::new(move || {
             let campaigns = campaigns;
             let archived_campaigns = archived_campaigns;
-            let status_message = status_message;
+            let _status_message = status_message;
             let is_loading = is_loading;
 
             spawn_local(async move {

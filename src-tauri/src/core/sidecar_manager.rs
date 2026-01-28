@@ -44,6 +44,7 @@ impl Default for MeilisearchConfig {
 
 impl MeilisearchConfig {
     pub fn url(&self) -> String {
+        // HTTP is intentional for localhost (127.0.0.1) - Meilisearch runs locally without TLS
         format!("http://{}:{}", self.host, self.port)
     }
 

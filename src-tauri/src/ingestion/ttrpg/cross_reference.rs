@@ -335,7 +335,7 @@ impl CrossReferenceExtractor {
         self.extract_refs_by_type(text, results, ReferenceType::Figure, &self.patterns.figure_patterns);
     }
 
-    /// Remove duplicate and overlapping references, keeping highest confidence.
+    /// Remove duplicate and overlapping references, keeping the highest confidence.
     ///
     /// When two references overlap (e.g., "see page 47" and "page 47"), we keep
     /// the one with higher confidence. This handles cases where a more specific

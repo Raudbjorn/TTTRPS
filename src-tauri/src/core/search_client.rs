@@ -898,11 +898,10 @@ Type: {{ doc.chunk_type | default: "text" }}
         }
 
         #[derive(Deserialize)]
-        #[allow(dead_code)]
         struct HybridResponse {
             hits: Vec<SearchDocument>,
             #[serde(rename = "processingTimeMs")]
-            processing_time_ms: Option<u64>,
+            _processing_time_ms: Option<u64>,
         }
 
         let result: HybridResponse = response.json().await

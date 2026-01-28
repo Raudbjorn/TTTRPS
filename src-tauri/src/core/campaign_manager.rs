@@ -159,11 +159,13 @@ pub struct CampaignStats {
 
 const MAX_SNAPSHOTS_DEFAULT: usize = 50;
 
-#[allow(dead_code)]
+
 pub struct CampaignManager {
     campaigns: RwLock<HashMap<String, Campaign>>,
     snapshots: RwLock<HashMap<String, Vec<CampaignSnapshot>>>,
     notes: RwLock<HashMap<String, Vec<SessionNote>>>,
+    /// Data directory for campaign persistence (reserved for future file-based storage)
+    #[allow(dead_code)]
     data_dir: Option<std::path::PathBuf>,
 }
 

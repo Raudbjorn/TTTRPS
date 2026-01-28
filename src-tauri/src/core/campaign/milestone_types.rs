@@ -588,7 +588,7 @@ mod tests {
         assert_eq!(summary.achieved, 1);
         assert_eq!(summary.skipped, 1);
         assert_eq!(summary.blocking, 1); // One required still pending
-        assert!(!summary.can_complete_phase); // Not all required achieved
+        assert!(!summary.can_complete_phase); // Not all required milestones achieved
     }
 
     #[test]
@@ -609,7 +609,7 @@ mod tests {
 
         let summary = MilestoneSummary::from_milestones("p1", &milestones);
 
-        assert!(summary.can_complete_phase); // All required achieved
+        assert!(summary.can_complete_phase); // All required milestones achieved
         assert_eq!(summary.blocking, 0);
     }
 

@@ -24,8 +24,9 @@ pub enum JobStatus {
     Completed,
     /// Failed with error
     Failed,
-    /// Cancelled by user
-    Cancelled,
+    /// Canceled by user
+    #[serde(alias = "Cancelled")]
+    Canceled,
 }
 
 /// Priority level for jobs
@@ -336,7 +337,7 @@ impl VoiceQueue {
 
         if let Some(job) = jobs.get_mut(job_id) {
             if job.status == JobStatus::Pending {
-                job.status = JobStatus::Cancelled;
+                job.status = JobStatus::Canceled;
                 job.completed_at = Some(Utc::now());
 
                 // Remove from queue
@@ -634,6 +635,6 @@ mod tests {
         assert!(queue.cancel(&job_id));
 
         let job = queue.get_job(&job_id).unwrap();
-        assert_eq!(job.status, JobStatus::Cancelled);
+        assert_eq!(job.status, JobStatus::Canceled);
     }
 }

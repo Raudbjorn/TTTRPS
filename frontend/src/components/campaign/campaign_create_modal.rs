@@ -6,9 +6,7 @@
 use leptos::ev;
 use leptos::prelude::*;
 use leptos::task::spawn_local;
-use crate::bindings::{
-    create_campaign, Campaign,
-};
+use crate::bindings::{create_campaign, Campaign};
 
 /// Wizard step
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

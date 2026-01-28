@@ -1,7 +1,7 @@
 use leptos::prelude::*;
 use pulldown_cmark::{html, Options, Parser};
 
-/// CSS styles for markdown content
+/// CSS styles for Markdown content
 const MARKDOWN_STYLES: &str = r#"
     .markdown-content h1 { font-size: 1.5em; font-weight: bold; margin-top: 1em; margin-bottom: 0.5em; color: #e5e7eb; }
     .markdown-content h2 { font-size: 1.25em; font-weight: bold; margin-top: 1em; margin-bottom: 0.5em; color: #d1d5db; }
@@ -23,7 +23,7 @@ const MARKDOWN_STYLES: &str = r#"
     .markdown-content tr:nth-child(even) { background-color: #262f3d; }
 "#;
 
-/// Render markdown content to HTML using pulldown-cmark
+/// Render Markdown content to HTML using pulldown-cmark
 fn render_markdown(content: &str) -> String {
     let mut options = Options::empty();
     options.insert(Options::ENABLE_STRIKETHROUGH);
@@ -36,10 +36,10 @@ fn render_markdown(content: &str) -> String {
     html_output
 }
 
-/// A markdown renderer component using pulldown-cmark
+/// A Markdown renderer component using pulldown-cmark
 #[component]
 pub fn Markdown(
-    /// The markdown content to render
+    /// The Markdown content to render
     #[prop(into)]
     content: String,
     /// Additional CSS classes

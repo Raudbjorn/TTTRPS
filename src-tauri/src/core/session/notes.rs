@@ -146,7 +146,7 @@ pub struct SessionNote {
     pub campaign_id: String,
     /// Note title/heading
     pub title: String,
-    /// Note content (markdown supported)
+    /// Note content (Markdown supported)
     pub content: String,
     /// Primary category
     pub category: NoteCategory,

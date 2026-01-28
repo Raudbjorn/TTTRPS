@@ -12,7 +12,6 @@
 
 use proptest::prelude::*;
 use std::cmp::Ordering;
-use std::collections::HashMap;
 
 // ============================================================================
 // Simulated Search Types for Property Testing
@@ -161,6 +160,7 @@ fn arb_query() -> impl Strategy<Value = String> {
 }
 
 /// Generate a multi-word query
+#[allow(dead_code)]
 fn arb_multi_word_query() -> impl Strategy<Value = String> {
     "[a-z]{2,10}( [a-z]{2,10}){0,3}"
 }

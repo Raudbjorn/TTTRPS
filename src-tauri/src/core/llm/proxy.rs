@@ -463,6 +463,7 @@ impl LLMProxyService {
                 }
             };
 
+            // HTTP is intentional for localhost (127.0.0.1) - no TLS needed for local connections
             log::info!("LLM proxy service started on http://{}", addr);
 
             axum::serve(listener, app)

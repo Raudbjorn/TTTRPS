@@ -800,7 +800,7 @@ mod tests {
     #[tokio::test]
     async fn test_collect_inheritance_chain_circular_detection() {
         // Create a circular reference: a -> b -> c -> a
-        let mut a = create_test_archetype("a", ArchetypeCategory::Role, Some("c"));
+        let a = create_test_archetype("a", ArchetypeCategory::Role, Some("c"));
         let b = create_test_archetype("b", ArchetypeCategory::Role, Some("a"));
         let c = create_test_archetype("c", ArchetypeCategory::Role, Some("b"));
 
@@ -1145,7 +1145,7 @@ mod tests {
         let archetypes = vec![create_test_archetype("knight", ArchetypeCategory::Class, None)];
 
         let resolver = create_resolver_with_archetypes(archetypes);
-        let query = ResolutionQuery::single("knight");
+        let _query = ResolutionQuery::single("knight");
         let mut merge_count = 0;
 
         let result = resolver

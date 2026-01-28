@@ -198,51 +198,6 @@ pub fn list_backups(backup_dir: &Path) -> Result<Vec<BackupInfo>, BackupError> {
     Ok(backups)
 }
 
-/// Delete a backup file
-#[allow(dead_code)]
-pub fn delete_backup(backup_path: &Path) -> Result<(), BackupError> {
-    if !backup_path.exists() {
-        return Err(BackupError::BackupNotFound(backup_path.display().to_string()));
-    }
-
-    fs::remove_file(backup_path)
-        .map_err(|e| BackupError::IoError(format!("Failed to delete backup: {}", e)))?;
-
-    // Also remove associated files
-    let wal_path = backup_path.with_extension("db-wal");
-    let shm_path = backup_path.with_extension("db-shm");
-    let meta_path = backup_path.with_extension("meta");
-
-    fs::remove_file(&wal_path).ok();
-    fs::remove_file(&shm_path).ok();
-    fs::remove_file(&meta_path).ok();
-
-    info!(backup_path = %backup_path.display(), "Backup deleted");
-
-    Ok(())
-}
-
-/// Clean up old backups, keeping only the most recent N
-#[allow(dead_code)]
-pub fn cleanup_old_backups(backup_dir: &Path, keep_count: usize) -> Result<usize, BackupError> {
-    let backups = list_backups(backup_dir)?;
-
-    if backups.len() <= keep_count {
-        return Ok(0);
-    }
-
-    let mut deleted = 0;
-    for backup in backups.into_iter().skip(keep_count) {
-        if delete_backup(&backup.path).is_ok() {
-            deleted += 1;
-        }
-    }
-
-    info!(deleted, keep_count, "Cleaned up old backups");
-
-    Ok(deleted)
-}
-
 /// Extract timestamp from backup filename
 fn extract_timestamp_from_filename(filename: &str) -> Option<String> {
     // Format: ttrpg_backup_20241227_120000.db

@@ -50,6 +50,7 @@ fn test_doc(id: &str, content: &str, source: &str, source_type: &str) -> SearchD
 }
 
 /// Helper to create a test document with metadata
+#[allow(dead_code)]
 fn test_doc_with_metadata(
     id: &str,
     content: &str,
@@ -430,7 +431,7 @@ async fn test_hybrid_search_semantic_matching() {
     // Both sword/blade documents should be found due to semantic similarity
     // even though "melee weapon attack" doesn't appear in the text
     if !results.is_empty() {
-        let found_combat = results.iter().any(|r|
+        let _found_combat = results.iter().any(|r|
             r.document.content.contains("sword") ||
             r.document.content.contains("blade")
         );

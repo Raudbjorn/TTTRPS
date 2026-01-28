@@ -47,6 +47,7 @@ impl NpcPresence {
         }
     }
 
+    /// Returns a human-readable label for the presence status
     #[allow(dead_code)]
     pub fn label(&self) -> &'static str {
         match self {
@@ -270,7 +271,6 @@ pub fn NpcList(
                                     // In Scene Section
                                     <NpcSection
                                         title="In Scene"
-                                        icon_color="text-green-400"
                                         presence=NpcPresence::InScene
                                         npcs=in_scene
                                         collapsed=in_scene_collapsed
@@ -281,7 +281,6 @@ pub fn NpcList(
                                     // Available Section
                                     <NpcSection
                                         title="Available"
-                                        icon_color="text-blue-400"
                                         presence=NpcPresence::Available
                                         npcs=available
                                         collapsed=available_collapsed
@@ -292,7 +291,6 @@ pub fn NpcList(
                                     // Away Section
                                     <NpcSection
                                         title="Away"
-                                        icon_color="text-yellow-400"
                                         presence=NpcPresence::Away
                                         npcs=away
                                         collapsed=away_collapsed
@@ -303,7 +301,6 @@ pub fn NpcList(
                                     // Offline Section
                                     <NpcSection
                                         title="Offline"
-                                        icon_color="text-zinc-500"
                                         presence=NpcPresence::Offline
                                         npcs=offline
                                         collapsed=offline_collapsed
@@ -339,7 +336,6 @@ pub fn NpcList(
 #[component]
 fn NpcSection(
     title: &'static str,
-    icon_color: &'static str,
     presence: NpcPresence,
     npcs: Vec<NpcSummary>,
     collapsed: RwSignal<bool>,

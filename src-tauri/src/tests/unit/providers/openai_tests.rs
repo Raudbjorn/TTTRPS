@@ -107,7 +107,7 @@ fn test_organization_id_configuration() {
 
 #[test]
 fn test_max_tokens_configuration() {
-    let provider_default = OpenAIProvider::gpt4o("sk-test-key".to_string());
+    let _provider_default = OpenAIProvider::gpt4o("sk-test-key".to_string());
     // Default uses 4096 max tokens
 
     let provider_custom = OpenAIProvider::new(

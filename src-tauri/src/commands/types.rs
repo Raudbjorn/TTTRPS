@@ -54,6 +54,39 @@ impl std::fmt::Debug for LLMSettings {
     }
 }
 
+/// Helper to create LLMSettings with common defaults
+fn make_llm_settings(provider: &str, model: &str, has_api_key: bool, host: Option<&str>) -> LLMSettings {
+    LLMSettings {
+        provider: provider.to_string(),
+        api_key: if has_api_key { Some("********".to_string()) } else { None },
+        host: host.map(String::from),
+        model: model.to_string(),
+        embedding_model: None,
+    }
+}
+
+impl From<&crate::core::llm::LLMConfig> for LLMSettings {
+    fn from(config: &crate::core::llm::LLMConfig) -> Self {
+        use crate::core::llm::LLMConfig;
+
+        match config {
+            LLMConfig::Ollama { host, model } => make_llm_settings("ollama", model, false, Some(host)),
+            LLMConfig::Claude { model, .. } => make_llm_settings("claude", model, true, None),
+            LLMConfig::Google { model, .. } => make_llm_settings("google", model, true, None),
+            LLMConfig::OpenAI { model, .. } => make_llm_settings("openai", model, true, None),
+            LLMConfig::OpenRouter { model, .. } => make_llm_settings("openrouter", model, true, None),
+            LLMConfig::Mistral { model, .. } => make_llm_settings("mistral", model, true, None),
+            LLMConfig::Groq { model, .. } => make_llm_settings("groq", model, true, None),
+            LLMConfig::Together { model, .. } => make_llm_settings("together", model, true, None),
+            LLMConfig::Cohere { model, .. } => make_llm_settings("cohere", model, true, None),
+            LLMConfig::DeepSeek { model, .. } => make_llm_settings("deepseek", model, true, None),
+            LLMConfig::Gemini { model, .. } => make_llm_settings("gemini", model, false, None),
+            LLMConfig::Meilisearch { host, model, .. } => make_llm_settings("meilisearch", model, false, Some(host)),
+            LLMConfig::Copilot { model, .. } => make_llm_settings("copilot", model, false, None),
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct HealthStatus {
     pub provider: String,

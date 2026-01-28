@@ -297,6 +297,43 @@ pub enum ConnectionType {
     Flight,
 }
 
+impl std::str::FromStr for ConnectionType {
+    type Err = String;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "door" => Ok(Self::Door),
+            "path" => Ok(Self::Path),
+            "road" => Ok(Self::Road),
+            "stairs" => Ok(Self::Stairs),
+            "ladder" => Ok(Self::Ladder),
+            "portal" => Ok(Self::Portal),
+            "secret" => Ok(Self::Secret),
+            "water" => Ok(Self::Water),
+            "climb" => Ok(Self::Climb),
+            "flight" => Ok(Self::Flight),
+            _ => Err(format!("Unknown connection type: {}", s)),
+        }
+    }
+}
+
+impl std::fmt::Display for ConnectionType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Door => write!(f, "door"),
+            Self::Path => write!(f, "path"),
+            Self::Road => write!(f, "road"),
+            Self::Stairs => write!(f, "stairs"),
+            Self::Ladder => write!(f, "ladder"),
+            Self::Portal => write!(f, "portal"),
+            Self::Secret => write!(f, "secret"),
+            Self::Water => write!(f, "water"),
+            Self::Climb => write!(f, "climb"),
+            Self::Flight => write!(f, "flight"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LootPotential {
     pub treasure_level: TreasureLevel,

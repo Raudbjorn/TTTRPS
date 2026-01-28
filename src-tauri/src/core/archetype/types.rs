@@ -183,7 +183,7 @@ impl ArchetypeCategory {
     /// Get the resolution priority for this category.
     ///
     /// Higher values override lower values during hierarchical resolution.
-    /// Direct archetype ID lookups always have highest priority (handled separately).
+    /// Direct archetype ID lookups always have the highest priority (handled separately).
     ///
     /// # Priority Order (lowest to highest)
     ///

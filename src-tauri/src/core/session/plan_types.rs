@@ -25,14 +25,15 @@ pub enum SessionPlanStatus {
     InProgress,
     /// Session completed
     Completed,
-    /// Plan was cancelled/abandoned
-    Cancelled,
+    /// Plan was canceled/abandoned
+    #[serde(alias = "Cancelled")]
+    Canceled,
 }
 
 impl SessionPlanStatus {
     /// Check if the plan is in a terminal state
     pub fn is_terminal(&self) -> bool {
-        matches!(self, Self::Completed | Self::Cancelled)
+        matches!(self, Self::Completed | Self::Canceled)
     }
 
     /// Check if the plan can be edited
@@ -46,11 +47,11 @@ impl SessionPlanStatus {
         matches!(
             (self, target),
             // From Draft
-            (Draft, Ready) | (Draft, Cancelled) |
+            (Draft, Ready) | (Draft, Canceled) |
             // From Ready
-            (Ready, InProgress) | (Ready, Draft) | (Ready, Cancelled) |
+            (Ready, InProgress) | (Ready, Draft) | (Ready, Canceled) |
             // From InProgress
-            (InProgress, Completed) | (InProgress, Cancelled)
+            (InProgress, Completed) | (InProgress, Canceled)
         )
     }
 
@@ -61,7 +62,7 @@ impl SessionPlanStatus {
             Self::Ready => "Ready",
             Self::InProgress => "In Progress",
             Self::Completed => "Completed",
-            Self::Cancelled => "Cancelled",
+            Self::Canceled => "Canceled",
         }
     }
 }
@@ -698,7 +699,7 @@ impl SessionPlan {
     }
 
     /// Instantiate a new plan from this template
-    pub fn from_template(&self, session_number: u32) -> Self {
+    pub fn instantiate(&self, session_number: u32) -> Self {
         let mut plan = self.clone();
         plan.id = uuid::Uuid::new_v4().to_string();
         plan.is_template = false;
@@ -952,7 +953,7 @@ mod tests {
     fn test_session_plan_from_template() {
         let template = SessionPlan::new_template("camp-1", "Combat Template");
 
-        let plan = template.from_template(5);
+        let plan = template.instantiate(5);
 
         assert!(!plan.is_template);
         assert_eq!(plan.session_number, Some(5));

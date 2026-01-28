@@ -676,7 +676,7 @@ mod tests {
             .with_tags(vec!["nervous".to_string(), "formal".to_string()]);
 
         assert!(phrase.has_tag("nervous"));
-        assert!(phrase.has_tag("NERVOUS")); // Case insensitive
+        assert!(phrase.has_tag("NERVOUS")); // Case-insensitive
         assert!(!phrase.has_tag("casual"));
     }
 

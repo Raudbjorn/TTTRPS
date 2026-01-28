@@ -469,14 +469,14 @@ mod tests {
         async fn test_queue_cancellation() {
             let queue = SynthesisQueue::with_defaults();
 
-            let job = create_test_job("To be cancelled");
+            let job = create_test_job("To be canceled");
             let job_id = queue.submit(job, None).await.unwrap();
 
             let result = queue.cancel(&job_id, None).await;
             assert!(result.is_ok());
 
             let status = queue.get_status(&job_id).await.unwrap();
-            assert!(matches!(status, JobStatus::Cancelled));
+            assert!(matches!(status, JobStatus::Canceled));
         }
 
         #[tokio::test]
@@ -639,7 +639,7 @@ mod tests {
             assert!(!JobStatus::Processing.is_terminal());
             assert!(JobStatus::Completed.is_terminal());
             assert!(JobStatus::Failed("error".to_string()).is_terminal());
-            assert!(JobStatus::Cancelled.is_terminal());
+            assert!(JobStatus::Canceled.is_terminal());
         }
 
         #[test]
@@ -648,7 +648,7 @@ mod tests {
             assert!(JobStatus::Processing.can_cancel());
             assert!(!JobStatus::Completed.can_cancel());
             assert!(!JobStatus::Failed("error".to_string()).can_cancel());
-            assert!(!JobStatus::Cancelled.can_cancel());
+            assert!(!JobStatus::Canceled.can_cancel());
         }
 
         #[test]
@@ -1141,6 +1141,7 @@ mod tests {
 
         // Provider-specific mock errors for detailed testing
         #[derive(Debug, Clone)]
+        #[allow(dead_code)]
         enum DetailedVoiceError {
             ElevenLabsRateLimit { retry_after_secs: Option<u64> },
             ElevenLabsQuota { usage: u64, limit: u64 },

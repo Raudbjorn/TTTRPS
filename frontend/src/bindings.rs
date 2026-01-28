@@ -124,7 +124,7 @@ pub struct OpenDialogOptions {
 }
 
 /// Open a file picker dialog
-/// Returns the selected file path(s) or None if cancelled
+/// Returns the selected file path(s) or None if canceled
 pub async fn open_file_dialog(options: OpenDialogOptions) -> Option<String> {
     let options_js = serde_wasm_bindgen::to_value(&options).ok()?;
     let result = dialog_open(options_js).await;

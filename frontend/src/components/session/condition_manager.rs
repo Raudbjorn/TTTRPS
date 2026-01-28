@@ -581,7 +581,6 @@ pub fn AdvancedConditionsList(
                 each=move || conditions.get()
                 key=|c| c.id.clone()
                 children=move |condition| {
-                    let _condition_id = condition.id.clone();
                     view! {
                         <AdvancedConditionBadge
                             condition=condition

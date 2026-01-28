@@ -17,7 +17,7 @@ The current project structure contains significant clutter, including large bina
 **User Story:** As a developer, I want the `src-tauri` directory to contain only source configuration and code, so that the build environment is clean.
 
 #### Acceptance Criteria
-1. WHEN the `src-tauri` directory is checked THEN it SHALL NOT contain markdown documentation files (e.g., `IPC_IMPLEMENTATION.md`).
+1. WHEN the `src-tauri` directory is checked THEN it SHALL NOT contain Markdown documentation files (e.g., `IPC_IMPLEMENTATION.md`).
 2. WHEN temporary build artifacts (like `cargo_check_output.txt`) are present THEN they SHALL be removed and added to `.gitignore`.
 
 ### Requirement 3: Repository Size Optimization

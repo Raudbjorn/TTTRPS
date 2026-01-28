@@ -66,6 +66,31 @@ pub enum AuditSeverity {
     Critical,
 }
 
+impl std::str::FromStr for AuditSeverity {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "info" => Ok(Self::Info),
+            "warning" | "warn" => Ok(Self::Warning),
+            "security" | "sec" => Ok(Self::Security),
+            "critical" | "crit" => Ok(Self::Critical),
+            _ => Err(format!("Unknown audit severity: {}", s)),
+        }
+    }
+}
+
+impl std::fmt::Display for AuditSeverity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Info => write!(f, "info"),
+            Self::Warning => write!(f, "warning"),
+            Self::Security => write!(f, "security"),
+            Self::Critical => write!(f, "critical"),
+        }
+    }
+}
+
 /// A single audit event
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuditEvent {

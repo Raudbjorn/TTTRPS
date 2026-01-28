@@ -58,7 +58,7 @@ pub struct ContextualConfig {
     /// Whether to cache blended profiles for repeated context detections.
     /// Note: Caching is currently delegated to the PersonalityBlender component.
     /// This field is reserved for future manager-level cache control.
-    #[allow(dead_code)]
+
     pub enable_caching: bool,
 
     /// Campaign-specific default personality (if no blend rule matches).

@@ -1328,7 +1328,7 @@ async fn tauri_invoke<T: serde::de::DeserializeOwned>(
 
 ### Cross-Platform Detection
 
-```rust
+```
 // Detection flow:
 
    ┌─────────────────────────────────────────┐

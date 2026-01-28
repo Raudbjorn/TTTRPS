@@ -148,7 +148,7 @@ pub struct ArchetypeRegistry {
     meilisearch_client: Client,
 
     /// Event listeners (stub for future event system).
-    #[allow(dead_code)]
+
     event_listeners: Arc<RwLock<Vec<Box<dyn Fn(ArchetypeEvent) + Send + Sync>>>>,
 }
 
@@ -800,19 +800,19 @@ impl ArchetypeRegistry {
     ///
     /// This is used by `ArchetypeResolver` to access archetypes without
     /// going through the registry's public API.
-    #[allow(dead_code)]
+
     pub(crate) fn archetypes(&self) -> Arc<RwLock<HashMap<String, Archetype>>> {
         self.archetypes.clone()
     }
 
     /// Get a reference to the setting packs map for the resolver.
-    #[allow(dead_code)]
+
     pub(crate) fn setting_packs(&self) -> Arc<RwLock<HashMap<String, SettingPack>>> {
         self.setting_packs.clone()
     }
 
     /// Get a reference to the active packs map for the resolver.
-    #[allow(dead_code)]
+
     pub(crate) fn active_packs(&self) -> Arc<RwLock<HashMap<String, String>>> {
         self.active_packs.clone()
     }

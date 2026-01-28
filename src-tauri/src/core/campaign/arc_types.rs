@@ -100,7 +100,7 @@ pub enum ArcStatus {
     Completed,
     /// Arc ended in failure (for the party)
     Failed,
-    /// Arc was abandoned or cancelled
+    /// Arc was abandoned or canceled
     Abandoned,
 }
 
