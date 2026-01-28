@@ -274,7 +274,7 @@ pub async fn ingest_pdf(
     let path_buf = std::path::Path::new(&path);
 
     // Use two-phase pipeline for ingestion
-    let (extraction, chunking) = state.ingestion_pipeline
+    let (extraction, _chunking) = state.ingestion_pipeline
         .ingest_two_phase(
             &state.search_client,
             path_buf,
