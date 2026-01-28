@@ -177,7 +177,7 @@ impl TTRPGSearchDocument {
             sizes: filterable.sizes,
             spell_schools: filterable.spell_schools,
             challenge_rating: filterable.challenge_rating,
-            level: None,
+            level: None, // Level is not part of FilterableFields
             element_type: element_type.to_string(),
             game_system: game_system.map(|s| s.to_string()),
             section_path: chunk.metadata.get("section_path").cloned(),

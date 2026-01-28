@@ -105,7 +105,13 @@ impl Combatant {
     /// Apply damage to this combatant
     /// Damages temp HP first, then current HP
     /// Returns the new current HP value
+    /// Non-positive damage amounts are ignored
     pub fn apply_damage(&mut self, amount: i32) -> i32 {
+        // Ignore non-positive damage (prevents negative damage from healing)
+        if amount <= 0 {
+            return self.current_hp.unwrap_or(0);
+        }
+
         let mut remaining = amount;
 
         // Damage temp HP first
