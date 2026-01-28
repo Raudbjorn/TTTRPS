@@ -117,9 +117,16 @@ fn PhaseEditor(phases: RwSignal<Vec<ArcPhaseConfig>>) -> impl IntoView {
                                     prop:value=phase_name.clone()
                                     on:input={
                                         let id = phase_id_for_name.clone();
-                                        let pd = phase_desc.clone();
-                                        let ps = phase_sessions.clone();
-                                        move |ev| update_phase(id.clone(), event_target_value(&ev), pd.clone(), ps.clone())
+                                        move |ev| {
+                                            // Read current values from signal to avoid stale captures
+                                            let current = phases.get();
+                                            let phase = current.iter().find(|p| p.id == id);
+                                            let (desc, sessions) = phase.map(|p| (
+                                                p.description.clone().unwrap_or_default(),
+                                                p.estimated_sessions.map(|s| s.to_string()).unwrap_or_default()
+                                            )).unwrap_or_default();
+                                            update_phase(id.clone(), event_target_value(&ev), desc, sessions)
+                                        }
                                     }
                                 />
                                 <input
@@ -130,9 +137,16 @@ fn PhaseEditor(phases: RwSignal<Vec<ArcPhaseConfig>>) -> impl IntoView {
                                     prop:value=phase_desc.clone()
                                     on:input={
                                         let id = phase_id_for_desc.clone();
-                                        let pn = phase_name.clone();
-                                        let ps = phase_sessions.clone();
-                                        move |ev| update_phase(id.clone(), pn.clone(), event_target_value(&ev), ps.clone())
+                                        move |ev| {
+                                            // Read current values from signal to avoid stale captures
+                                            let current = phases.get();
+                                            let phase = current.iter().find(|p| p.id == id);
+                                            let (name, sessions) = phase.map(|p| (
+                                                p.name.clone(),
+                                                p.estimated_sessions.map(|s| s.to_string()).unwrap_or_default()
+                                            )).unwrap_or_default();
+                                            update_phase(id.clone(), name, event_target_value(&ev), sessions)
+                                        }
                                     }
                                 />
                             </div>
@@ -148,9 +162,16 @@ fn PhaseEditor(phases: RwSignal<Vec<ArcPhaseConfig>>) -> impl IntoView {
                                     prop:value=phase_sessions.clone()
                                     on:input={
                                         let id = phase_id_for_sessions.clone();
-                                        let pn = phase_name.clone();
-                                        let pd = phase_desc.clone();
-                                        move |ev| update_phase(id.clone(), pn.clone(), pd.clone(), event_target_value(&ev))
+                                        move |ev| {
+                                            // Read current values from signal to avoid stale captures
+                                            let current = phases.get();
+                                            let phase = current.iter().find(|p| p.id == id);
+                                            let (name, desc) = phase.map(|p| (
+                                                p.name.clone(),
+                                                p.description.clone().unwrap_or_default()
+                                            )).unwrap_or_default();
+                                            update_phase(id.clone(), name, desc, event_target_value(&ev))
+                                        }
                                     }
                                 />
                                 <div class="text-[10px] text-zinc-500 text-center mt-1">"Sessions"</div>
