@@ -395,90 +395,51 @@ impl MeilisearchPipeline {
             current_page = next_page;
         }
 
-        // Build result
-        let result: Result<usize, crate::ingestion::kreuzberg_extractor::ExtractionError> =
-            Ok(pages_written);
+        // Build final result
+        let final_page_count = existing_page_count + pages_written;
+        log::info!(
+            "Incremental OCR complete: {} new pages extracted, {} total in index",
+            pages_written,
+            final_page_count
+        );
 
-        match result {
-            Ok(pages_processed) => {
-                let final_page_count = existing_page_count + pages_processed;
-                log::info!(
-                    "Incremental OCR complete: {} new pages extracted, {} total in index",
-                    pages_processed,
-                    final_page_count
-                );
+        // Get content sample for metadata detection
+        let content_sample = self.get_content_sample(search_client, raw_index).await;
+        let ttrpg_metadata = TTRPGMetadata::extract(path, &content_sample, "document");
 
-                // Get content sample for metadata detection
-                let content_sample = self.get_content_sample(search_client, raw_index).await;
-                let ttrpg_metadata = TTRPGMetadata::extract(path, &content_sample, "document");
+        // Update library_metadata with final stats and status="ready"
+        let final_metadata = LibraryDocumentMetadata {
+            id: slug.to_string(),
+            name: source_name.to_string(),
+            source_type: source_type.to_string(),
+            file_path: Some(path.to_string_lossy().to_string()),
+            page_count: final_page_count as u32,
+            chunk_count: 0, // Will be updated after chunking phase
+            character_count: total_chars_extracted as u64,
+            content_index: chunks_index.to_string(),
+            status: "ready".to_string(),
+            error_message: None,
+            ingested_at: Utc::now().to_rfc3339(),
+            game_system: None,
+            setting: None,
+            content_type: None,
+            publisher: None,
+        };
 
-                // Update library_metadata with final stats and status="ready"
-                let final_metadata = LibraryDocumentMetadata {
-                    id: slug.to_string(),
-                    name: source_name.to_string(),
-                    source_type: source_type.to_string(),
-                    file_path: Some(path.to_string_lossy().to_string()),
-                    page_count: final_page_count as u32,
-                    chunk_count: 0, // Will be updated after chunking phase
-                    character_count: total_chars_extracted as u64,
-                    content_index: chunks_index.to_string(),
-                    status: "ready".to_string(),
-                    error_message: None,
-                    ingested_at: Utc::now().to_rfc3339(),
-                    game_system: None,
-                    setting: None,
-                    content_type: None,
-                    publisher: None,
-                };
-
-                if let Err(e) = search_client.save_library_document(&final_metadata).await {
-                    log::warn!("Failed to update library_metadata for '{}': {}", slug, e);
-                } else {
-                    log::info!("Updated library_metadata '{}' with status=ready", slug);
-                }
-
-                Ok(ExtractionResult {
-                    slug: slug.to_string(),
-                    source_name: source_name.to_string(),
-                    raw_index: raw_index.to_string(),
-                    page_count: final_page_count,
-                    total_chars: total_chars_extracted,
-                    ttrpg_metadata,
-                })
-            }
-            Err(e) => {
-                // Update library_metadata with status="error"
-                let error_metadata = LibraryDocumentMetadata {
-                    id: slug.to_string(),
-                    name: source_name.to_string(),
-                    source_type: source_type.to_string(),
-                    file_path: Some(path.to_string_lossy().to_string()),
-                    page_count: (existing_page_count + pages_written) as u32,
-                    chunk_count: 0,
-                    character_count: total_chars_extracted as u64,
-                    content_index: chunks_index.to_string(),
-                    status: "error".to_string(),
-                    error_message: Some(e.to_string()),
-                    ingested_at: Utc::now().to_rfc3339(),
-                    game_system: None,
-                    setting: None,
-                    content_type: None,
-                    publisher: None,
-                };
-
-                let _ = search_client.save_library_document(&error_metadata).await;
-
-                log::error!(
-                    "Incremental extraction failed: {}. {} pages may have been saved.",
-                    e,
-                    pages_written
-                );
-                Err(SearchError::ConfigError(format!(
-                    "Incremental extraction failed: {}",
-                    e
-                )))
-            }
+        if let Err(e) = search_client.save_library_document(&final_metadata).await {
+            log::warn!("Failed to update library_metadata for '{}': {}", slug, e);
+        } else {
+            log::info!("Updated library_metadata '{}' with status=ready", slug);
         }
+
+        Ok(ExtractionResult {
+            slug: slug.to_string(),
+            source_name: source_name.to_string(),
+            raw_index: raw_index.to_string(),
+            page_count: final_page_count,
+            total_chars: total_chars_extracted,
+            ttrpg_metadata,
+        })
     }
 
     /// Extract document using Claude API.
