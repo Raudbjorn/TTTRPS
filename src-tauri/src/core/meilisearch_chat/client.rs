@@ -9,6 +9,7 @@ use tokio::sync::mpsc;
 use crate::core::llm::providers::ProviderConfig;
 
 use super::config::{ChatPrompts, ChatProviderConfig, ChatWorkspaceSettings};
+use super::prompts::DEFAULT_DM_SYSTEM_PROMPT;
 use super::types::{
     ChatCompletionRequest, ChatMessage, MeilisearchErrorResponse, ParsedToolCall, StreamChunk,
     get_meilisearch_chat_tools,
@@ -262,7 +263,6 @@ impl MeilisearchChatClient {
         custom_system_prompt: Option<&str>,
     ) -> Result<(), String> {
         const DEFAULT_WORKSPACE: &str = "dm-assistant";
-        const DEFAULT_DM_PROMPT: &str = "You are a knowledgeable and creative Dungeon Master assistant.";
 
         let chat_config = ChatProviderConfig::try_from(config)
             .map_err(|e| e.to_string())?;
@@ -270,7 +270,7 @@ impl MeilisearchChatClient {
         let prompts = Some(ChatPrompts {
             system: Some(
                 custom_system_prompt
-                    .unwrap_or(DEFAULT_DM_PROMPT)
+                    .unwrap_or(DEFAULT_DM_SYSTEM_PROMPT)
                     .to_string()
             ),
             ..Default::default()

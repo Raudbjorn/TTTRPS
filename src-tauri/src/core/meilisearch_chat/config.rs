@@ -314,6 +314,7 @@ impl ChatProviderConfig {
             Self::OpenAI { .. }
                 | Self::Mistral { .. }
                 | Self::AzureOpenAI { .. }
+                | Self::Google { .. }  // Native Meilisearch support
                 | Self::Grok { .. }  // OpenAI-compatible
         )
     }
