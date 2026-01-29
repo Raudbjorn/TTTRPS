@@ -1,8 +1,8 @@
-//! Reusable Gemini OAuth authentication component.
+//! Reusable Gemini Gate OAuth authentication component.
 //!
-//! This component provides a complete OAuth authentication flow UI for Gemini,
+//! This component provides a complete OAuth authentication flow UI for Gemini Gate,
 //! including status display, storage backend selection, login/logout buttons, and
-//! auth code input. It can be used in any settings panel that needs Gemini auth.
+//! auth code input. It can be used in any settings panel that needs Gemini Gate auth.
 
 use leptos::prelude::*;
 use wasm_bindgen_futures::spawn_local;
@@ -10,13 +10,12 @@ use wasm_bindgen_futures::spawn_local;
 use crate::bindings::{
     gemini_gate_get_status, gemini_gate_start_oauth, gemini_gate_complete_oauth,
     gemini_gate_logout, gemini_gate_set_storage_backend, open_url_in_browser,
-    gemini_gate_oauth_with_callback,
     GeminiGateStatus, GeminiGateStorageBackend,
 };
 use crate::components::design_system::{Badge, BadgeVariant, Select, SelectOption};
 use crate::services::notification_service::{show_error, show_success};
 
-/// Reusable Gemini OAuth authentication component.
+/// Reusable Gemini Gate OAuth authentication component.
 ///
 /// Provides complete OAuth flow UI including:
 /// - Authentication status display
@@ -56,7 +55,7 @@ pub fn GeminiGateAuth(
                         callback.run(new_status);
                     }
                 }
-                Err(e) => show_error("Gemini Status", Some(&e), None),
+                Err(e) => show_error("Gemini Gate Status", Some(&e), None),
             }
             is_loading.set(false);
         });
@@ -67,39 +66,8 @@ pub fn GeminiGateAuth(
         refresh_status();
     });
 
-    // Start OAuth flow with automatic callback (preferred method)
-    let start_oauth_auto = move || {
-        spawn_local(async move {
-            is_loading.set(true);
-            show_success("Login Started", Some("Complete authentication in your browser. This window will update automatically."));
-
-            match gemini_gate_oauth_with_callback(Some(300), Some(true)).await {
-                Ok(response) => {
-                    if response.success {
-                        show_success("Login Complete", Some("Successfully authenticated with Gemini"));
-                        refresh_status();
-                    } else {
-                        // If automatic callback failed, offer manual fallback
-                        if let Some(error) = response.error {
-                            show_error("OAuth Failed", Some(&error), None);
-                        }
-                        if let Some(url) = response.auth_url {
-                            // Fall back to manual code entry
-                            oauth_url.set(Some(url));
-                            awaiting_code.set(true);
-                        }
-                    }
-                }
-                Err(e) => {
-                    show_error("OAuth Failed", Some(&e), None);
-                }
-            }
-            is_loading.set(false);
-        });
-    };
-
-    // Start OAuth flow with manual code entry (fallback method, kept for future use)
-    let _start_oauth_manual = move || {
+    // Start OAuth flow
+    let start_oauth = move || {
         spawn_local(async move {
             is_loading.set(true);
             match gemini_gate_start_oauth().await {
@@ -122,9 +90,6 @@ pub fn GeminiGateAuth(
             is_loading.set(false);
         });
     };
-
-    // Primary login method - uses automatic callback
-    let start_oauth = start_oauth_auto;
 
     // Complete OAuth with auth code
     let complete_oauth = move || {
@@ -193,7 +158,7 @@ pub fn GeminiGateAuth(
         <div class=move || format!("space-y-4 {}", if compact { "text-sm" } else { "" })>
             // Header with status
             <div class="flex items-center justify-between">
-                <h4 class="font-semibold text-blue-400">"Gemini Authentication"</h4>
+                <h4 class="font-semibold text-blue-400">"Gemini Gate Authentication"</h4>
                 {move || {
                     let s = status.get();
                     if s.authenticated {
@@ -210,13 +175,13 @@ pub fn GeminiGateAuth(
                 }}
             </div>
 
-            <p class="text-sm text-theme-muted">
-                "Gemini requires OAuth authentication with your Google Cloud account."
+            <p class="text-sm text-[var(--text-muted)]">
+                "Gemini Gate requires OAuth authentication with your Google Cloud account."
             </p>
 
             // Storage backend selector
             <div class="space-y-2">
-                <label class="text-xs text-theme-muted">"Token Storage Backend"</label>
+                <label class="text-xs text-[var(--text-muted)]">"Token Storage Backend"</label>
                 <div class="flex flex-col gap-2">
                     <Select
                         value=Signal::derive(move || status.get().storage_backend)
@@ -261,20 +226,20 @@ pub fn GeminiGateAuth(
             {move || {
                 if awaiting_code.get() {
                     view! {
-                        <div class="flex flex-col gap-2 p-3 rounded-lg bg-theme-elevated border border-theme-subtle">
+                        <div class="flex flex-col gap-2 p-3 rounded-lg bg-[var(--bg-elevated)] border border-[var(--border-subtle)]">
                             // Show OAuth URL if available (for manual copy when popup blocked)
                             {move || {
                                 if let Some(url) = oauth_url.get() {
                                     view! {
                                         <div class="flex flex-col gap-1">
-                                            <p class="text-xs text-theme-secondary">
+                                            <p class="text-xs text-[var(--text-secondary)]">
                                                 "If the browser didn't open, copy this URL:"
                                             </p>
                                             <div class="flex gap-2 items-center">
                                                 <input
                                                     type="text"
                                                     readonly=true
-                                                    class="flex-1 px-2 py-1 text-xs rounded bg-theme-deep border border-theme-subtle text-theme-muted font-mono truncate"
+                                                    class="flex-1 px-2 py-1 text-xs rounded bg-[var(--bg-deep)] border border-[var(--border-subtle)] text-[var(--text-muted)] font-mono truncate"
                                                     prop:value=url.clone()
                                                 />
                                                 <button
@@ -304,14 +269,14 @@ pub fn GeminiGateAuth(
                                     view! { <div></div> }.into_any()
                                 }
                             }}
-                            <p class="text-xs text-theme-secondary">
+                            <p class="text-xs text-[var(--text-secondary)]">
                                 "After authorizing in your browser, paste the authorization code here:"
                             </p>
                             <div class="flex gap-2">
                                 <input
                                     type="text"
                                     placeholder="Paste authorization code..."
-                                    class="flex-1 px-3 py-1.5 text-sm rounded-lg bg-theme-deep border border-theme-subtle text-theme-primary placeholder:text-theme-muted focus:outline-none focus:border-blue-400"
+                                    class="flex-1 px-3 py-1.5 text-sm rounded-lg bg-[var(--bg-deep)] border border-[var(--border-subtle)] text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:border-blue-400"
                                     prop:value=move || auth_code.get()
                                     on:input=move |ev| {
                                         auth_code.set(event_target_value(&ev));
@@ -325,7 +290,7 @@ pub fn GeminiGateAuth(
                                     "Complete Login"
                                 </button>
                                 <button
-                                    class="px-3 py-1.5 text-xs font-medium rounded-lg bg-theme-surface text-theme-muted hover:bg-theme-elevated transition-colors"
+                                    class="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--bg-surface)] text-[var(--text-muted)] hover:bg-[var(--bg-elevated)] transition-colors"
                                     on:click=move |_| cancel_auth()
                                 >
                                     "Cancel"
@@ -370,7 +335,7 @@ pub fn GeminiGateAuth(
                 }}
 
                 <button
-                    class="px-4 py-2 text-sm font-medium rounded-lg bg-theme-elevated text-theme-secondary hover:bg-theme-surface transition-colors disabled:opacity-50"
+                    class="px-4 py-2 text-sm font-medium rounded-lg bg-[var(--bg-elevated)] text-[var(--text-secondary)] hover:bg-[var(--bg-surface)] transition-colors disabled:opacity-50"
                     disabled=move || is_loading.get()
                     on:click=move |_| refresh_status()
                 >
@@ -382,7 +347,7 @@ pub fn GeminiGateAuth(
 
     if show_card {
         view! {
-            <div class="p-6 rounded-xl bg-theme-surface border border-blue-400/30 space-y-4">
+            <div class="p-6 rounded-xl bg-[var(--bg-surface)] border border-blue-400/30 space-y-4">
                 {content}
             </div>
         }.into_any()
@@ -391,7 +356,7 @@ pub fn GeminiGateAuth(
     }
 }
 
-/// Compact status indicator for Gemini authentication.
+/// Compact status indicator for Gemini Gate authentication.
 /// Shows just the authentication status badge.
 #[component]
 pub fn GeminiGateStatusBadge() -> impl IntoView {
