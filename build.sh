@@ -548,12 +548,42 @@ build_desktop() {
     cd "$PROJECT_ROOT"
 }
 
+setup_display_environment() {
+    # Detect Wayland and configure display environment for WebKitGTK compatibility
+    local is_wayland=false
+
+    if [ "$XDG_SESSION_TYPE" = "wayland" ] || [ -n "$WAYLAND_DISPLAY" ]; then
+        is_wayland=true
+    fi
+
+    if [ "$is_wayland" = true ]; then
+        print_warning "Wayland session detected - configuring display environment for WebKitGTK"
+
+        # Force X11 backend via XWayland to avoid Wayland protocol errors
+        if [ -z "$GDK_BACKEND" ]; then
+            export GDK_BACKEND=x11
+            print_info "Set GDK_BACKEND=x11 (XWayland mode)"
+        fi
+
+        # Disable GPU compositing to avoid GBM buffer creation failures
+        if [ -z "$WEBKIT_DISABLE_COMPOSITING_MODE" ]; then
+            export WEBKIT_DISABLE_COMPOSITING_MODE=1
+            print_info "Set WEBKIT_DISABLE_COMPOSITING_MODE=1 (software rendering)"
+        fi
+
+        echo -e "${CYAN}  Tip: These workarounds are needed due to WebKitGTK/Wayland compatibility issues${NC}"
+    fi
+}
+
 run_dev() {
     print_section "Starting Development Server"
     cd "$BACKEND_DIR"
 
     # Ensure node_modules exists (trunk fails on missing watch ignore paths)
     mkdir -p "$FRONTEND_DIR/node_modules"
+
+    # Setup display environment (Wayland workarounds)
+    setup_display_environment
 
     # Check for port conflicts (3030 is trunk dev server, 1420 is Tauri)
     for port in 3030 1420; do
