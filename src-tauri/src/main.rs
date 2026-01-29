@@ -323,6 +323,35 @@ fn main() {
             commands::search_campaign_notes,
             commands::delete_campaign_note,
 
+            // Campaign Wizard Commands (Phase 2 - Campaign Generation Overhaul)
+            commands::start_campaign_wizard,
+            commands::get_wizard_state,
+            commands::list_incomplete_wizards,
+            commands::delete_wizard,
+            commands::advance_wizard_step,
+            commands::wizard_go_back,
+            commands::wizard_skip_step,
+            commands::update_wizard_draft,
+            commands::complete_wizard,
+            commands::cancel_wizard,
+            commands::auto_save_wizard,
+            commands::link_wizard_conversation,
+
+            // Conversation Commands (Phase 5 - Campaign Generation Overhaul)
+            commands::create_conversation_thread,
+            commands::get_conversation_thread,
+            commands::list_conversation_threads,
+            commands::archive_conversation_thread,
+            commands::update_conversation_thread_title,
+            commands::send_conversation_message,
+            commands::get_conversation_messages,
+            commands::add_conversation_message,
+            commands::accept_suggestion,
+            commands::reject_suggestion,
+            commands::get_pending_suggestions,
+            commands::branch_conversation,
+            commands::generate_clarifying_questions,
+
             // Session Commands
             commands::start_session,
             commands::get_session,
@@ -683,6 +712,27 @@ fn main() {
             commands::archetype::resolution::get_archetype_cache_stats,
             commands::archetype::resolution::clear_archetype_cache,
             commands::archetype::resolution::is_archetype_registry_ready,
+
+            // Quick Reference Card Commands (Phase 9 - Campaign Generation Overhaul)
+            commands::get_entity_card,
+            commands::get_hover_preview,
+            commands::get_pinned_cards,
+            commands::pin_card,
+            commands::unpin_card,
+            commands::reorder_pinned_cards,
+            commands::update_card_disclosure,
+            commands::get_max_pinned_cards,
+            commands::build_cheat_sheet,
+            commands::build_custom_cheat_sheet,
+            commands::export_cheat_sheet_html,
+            commands::save_cheat_sheet_preference,
+            commands::get_cheat_sheet_preferences,
+            commands::delete_cheat_sheet_preference,
+            commands::invalidate_card_cache,
+            commands::cleanup_card_cache,
+            commands::list_card_entity_types,
+            commands::list_disclosure_levels,
+            commands::list_cheat_sheet_sections,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
