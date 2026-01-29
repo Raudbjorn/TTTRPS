@@ -115,7 +115,10 @@ fn main() {
                 relationship_manager,
                 location_manager,
                 llm_manager: llm_manager.clone(), // Clone for auto-configure block
-                extraction_settings: tokio::sync::RwLock::new(ingestion::ExtractionSettings::default()),
+                extraction_settings: tokio::sync::RwLock::new(
+                    commands::load_extraction_config_disk(app.handle())
+                        .unwrap_or_else(ingestion::ExtractionSettings::default)
+                ),
                 claude_gate,
                 gemini_gate,
                 copilot_gate,

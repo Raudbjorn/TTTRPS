@@ -13,6 +13,8 @@ use crate::bindings::{
     save_api_key, HealthStatus, LLMSettings, ModelInfo, OllamaModel,
     // Claude Gate OAuth
     claude_gate_get_status, claude_gate_list_models, ClaudeGateStatus,
+    // Gemini Gate OAuth
+    GeminiGateStatus,
     // Copilot OAuth
     check_copilot_auth, get_copilot_models, CopilotAuthStatus,
     // Embedding configuration
@@ -22,13 +24,14 @@ use crate::bindings::{
 };
 use crate::components::design_system::{Badge, BadgeVariant, Button, ButtonVariant, Card, Input};
 use crate::services::notification_service::{show_error, show_success};
-use super::{ClaudeGateAuth, CopilotAuth};
+use super::{ClaudeGateAuth, CopilotAuth, GeminiGateAuth};
 
 #[derive(Clone, PartialEq, Debug)]
 pub enum LLMProvider {
     Ollama,
     AnthropicAPI,
-    Gemini,
+    Google,      // Google AI Studio API key
+    GeminiGate,  // Gemini via OAuth (Google Cloud Code)
     OpenAI,
     OpenRouter,
     Mistral,
@@ -45,7 +48,8 @@ impl std::fmt::Display for LLMProvider {
         match self {
             LLMProvider::Ollama => write!(f, "Ollama"),
             LLMProvider::AnthropicAPI => write!(f, "Anthropic API"),
-            LLMProvider::Gemini => write!(f, "Gemini"),
+            LLMProvider::Google => write!(f, "Google AI"),
+            LLMProvider::GeminiGate => write!(f, "Gemini"),
             LLMProvider::OpenAI => write!(f, "OpenAI"),
             LLMProvider::OpenRouter => write!(f, "OpenRouter"),
             LLMProvider::Mistral => write!(f, "Mistral"),
@@ -64,7 +68,8 @@ impl LLMProvider {
         match self {
             LLMProvider::Ollama => "ollama".to_string(),
             LLMProvider::AnthropicAPI => "anthropic".to_string(),
-            LLMProvider::Gemini => "gemini".to_string(),
+            LLMProvider::Google => "google".to_string(),
+            LLMProvider::GeminiGate => "gemini".to_string(), // Uses gemini backend
             LLMProvider::OpenAI => "openai".to_string(),
             LLMProvider::OpenRouter => "openrouter".to_string(),
             LLMProvider::Mistral => "mistral".to_string(),
@@ -80,7 +85,8 @@ impl LLMProvider {
     fn from_string(s: &str) -> Self {
         match s {
             "Anthropic API" | "anthropic" => LLMProvider::AnthropicAPI,
-            "Gemini" | "gemini" => LLMProvider::Gemini,
+            "Google AI" | "google" => LLMProvider::Google,
+            "Gemini" | "gemini" | "gemini-gate" => LLMProvider::GeminiGate,
             "OpenAI" | "openai" => LLMProvider::OpenAI,
             "OpenRouter" | "openrouter" => LLMProvider::OpenRouter,
             "Mistral" | "mistral" => LLMProvider::Mistral,
@@ -98,7 +104,8 @@ impl LLMProvider {
         match self {
             LLMProvider::Ollama => "http://localhost:11434",
             LLMProvider::AnthropicAPI => "sk-ant-...",
-            LLMProvider::Gemini => "AIza...",
+            LLMProvider::Google => "AIza...",
+            LLMProvider::GeminiGate => "Uses OAuth authentication",
             LLMProvider::OpenAI => "sk-...",
             LLMProvider::OpenRouter => "sk-or-...",
             LLMProvider::Mistral => "API Key",
@@ -114,7 +121,7 @@ impl LLMProvider {
     fn label_text(&self) -> &'static str {
         match self {
             LLMProvider::Ollama => "Ollama Host",
-            LLMProvider::Claude | LLMProvider::Copilot => "Status",
+            LLMProvider::Claude | LLMProvider::Copilot | LLMProvider::GeminiGate => "Status",
             _ => "API Key",
         }
     }
@@ -123,7 +130,7 @@ impl LLMProvider {
         match self {
             LLMProvider::Ollama => "llama3.2",
             LLMProvider::AnthropicAPI => "claude-3-5-sonnet-20241022",
-            LLMProvider::Gemini => "gemini-1.5-pro",
+            LLMProvider::Google | LLMProvider::GeminiGate => "gemini-1.5-pro",
             LLMProvider::OpenAI => "gpt-4o",
             LLMProvider::OpenRouter => "openai/gpt-4o",
             LLMProvider::Mistral => "mistral-large-latest",
@@ -139,7 +146,8 @@ impl LLMProvider {
     fn api_url(&self) -> Option<&'static str> {
         match self {
             LLMProvider::AnthropicAPI => Some("https://console.anthropic.com/settings/keys"),
-            LLMProvider::Gemini => Some("https://aistudio.google.com/app/apikey"),
+            LLMProvider::Google => Some("https://aistudio.google.com/app/apikey"),
+            LLMProvider::GeminiGate => None, // Uses OAuth authentication
             LLMProvider::OpenAI => Some("https://platform.openai.com/api-keys"),
             LLMProvider::OpenRouter => Some("https://openrouter.ai/keys"),
             LLMProvider::Mistral => Some("https://console.mistral.ai/api-keys/"),
@@ -157,7 +165,7 @@ impl LLMProvider {
         match self {
             // Both AnthropicAPI (API key) and Claude (OAuth) are Anthropic providers, sharing brand color
             LLMProvider::AnthropicAPI | LLMProvider::Claude => "text-orange-400", // Anthropic Sienna
-            LLMProvider::Gemini => "text-blue-400", // Gemini Blue
+            LLMProvider::Google | LLMProvider::GeminiGate => "text-blue-400", // Google/Gemini Blue
             LLMProvider::OpenAI => "text-emerald-400", // OpenAI Green
             LLMProvider::Ollama => "text-white", // Ollama White
             LLMProvider::OpenRouter => "text-violet-400",
@@ -232,6 +240,9 @@ pub fn LLMSettingsView() -> impl IntoView {
     // Copilot OAuth status (for badge display and model fetching)
     let copilot_status = RwSignal::new(CopilotAuthStatus::default());
 
+    // Gemini Gate OAuth status (for badge display and model fetching)
+    let gemini_gate_status = RwSignal::new(GeminiGateStatus::default());
+
     // --- Helpers ---
 
     let fetch_ollama_models = move |host: String| {
@@ -281,7 +292,11 @@ pub fn LLMSettingsView() -> impl IntoView {
             let models = match provider {
                 LLMProvider::AnthropicAPI => list_claude_models(api_key).await.unwrap_or_default(),
                 LLMProvider::OpenAI => list_openai_models(api_key).await.unwrap_or_default(),
-                LLMProvider::Gemini => list_gemini_models(api_key).await.unwrap_or_default(),
+                LLMProvider::Google => list_gemini_models(api_key).await.unwrap_or_default(),
+                LLMProvider::GeminiGate => {
+                    // GeminiGate uses OAuth - fetch default models list
+                    list_gemini_models(None).await.unwrap_or_default()
+                }
                 LLMProvider::OpenRouter => list_openrouter_models().await.unwrap_or_default(),
                 LLMProvider::Claude => {
                     // Fetch models from Claude API (OAuth authenticated)
@@ -523,7 +538,8 @@ pub fn LLMSettingsView() -> impl IntoView {
         LLMProvider::AnthropicAPI,
         LLMProvider::Claude,
         LLMProvider::Copilot,
-        LLMProvider::Gemini,
+        LLMProvider::Google,       // Google AI Studio (API key)
+        LLMProvider::GeminiGate,   // Gemini (OAuth)
         LLMProvider::OpenRouter,
         LLMProvider::Mistral,
         LLMProvider::Groq,
@@ -622,6 +638,20 @@ pub fn LLMSettingsView() -> impl IntoView {
                                                     let is_ready = status.authenticated;
                                                     provider_statuses.update(|map| { map.insert("copilot".to_string(), is_ready); });
                                                     copilot_status.set(status);
+                                                })
+                                            />
+                                        </div>
+                                    }.into_any()
+                                } else if provider == LLMProvider::GeminiGate {
+                                    // Gemini Gate OAuth panel - uses shared component
+                                    view! {
+                                        <div class="space-y-3">
+                                            <GeminiGateAuth
+                                                show_card=false
+                                                on_status_change=Callback::new(move |status: GeminiGateStatus| {
+                                                    let is_ready = status.authenticated;
+                                                    provider_statuses.update(|map| { map.insert("gemini-gate".to_string(), is_ready); });
+                                                    gemini_gate_status.set(status);
                                                 })
                                             />
                                         </div>

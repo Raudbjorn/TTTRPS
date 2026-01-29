@@ -5075,6 +5075,97 @@ pub async fn get_copilot_models() -> Result<Vec<CopilotGateModelInfo>, String> {
 }
 
 // ============================================================================
+// Gemini Gate OAuth Commands
+// ============================================================================
+
+/// Storage backend options for Gemini Gate tokens
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum GeminiGateStorageBackend {
+    /// File-based storage
+    File,
+    /// System keyring storage
+    Keyring,
+    /// Auto-select (keyring if available, else file)
+    #[default]
+    Auto,
+}
+
+impl std::fmt::Display for GeminiGateStorageBackend {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            GeminiGateStorageBackend::Auto => write!(f, "Auto"),
+            GeminiGateStorageBackend::Keyring => write!(f, "Keyring"),
+            GeminiGateStorageBackend::File => write!(f, "File"),
+        }
+    }
+}
+
+/// Status of Gemini Gate OAuth authentication
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct GeminiGateStatus {
+    /// Whether the user is authenticated
+    pub authenticated: bool,
+    /// Storage backend being used
+    pub storage_backend: String,
+    /// Token expiration timestamp (Unix seconds)
+    pub token_expires_at: Option<i64>,
+    /// Whether keyring (secret service) is available on this system
+    #[serde(default)]
+    pub keyring_available: bool,
+}
+
+/// Get Gemini Gate OAuth status
+pub async fn gemini_gate_get_status() -> Result<GeminiGateStatus, String> {
+    invoke_no_args("gemini_gate_get_status").await
+}
+
+/// Response from starting Gemini OAuth flow
+#[derive(Debug, Clone, Deserialize)]
+pub struct GeminiGateOAuthStartResponse {
+    /// URL to open in user's browser for OAuth authorization
+    pub auth_url: String,
+    /// State parameter for CSRF protection (pass back to complete_oauth)
+    pub state: String,
+}
+
+/// Start Gemini OAuth flow - returns the authorization URL and CSRF state
+pub async fn gemini_gate_start_oauth() -> Result<GeminiGateOAuthStartResponse, String> {
+    invoke_no_args("gemini_gate_start_oauth").await
+}
+
+/// Response from completing Gemini OAuth flow
+#[derive(Debug, Clone, Deserialize)]
+pub struct GeminiGateOAuthCompleteResponse {
+    pub success: bool,
+    pub error: Option<String>,
+}
+
+/// Complete Gemini OAuth flow with authorization code
+pub async fn gemini_gate_complete_oauth(code: String, oauth_state: Option<String>) -> Result<GeminiGateOAuthCompleteResponse, String> {
+    #[derive(Serialize)]
+    struct Args {
+        code: String,
+        oauth_state: Option<String>,
+    }
+    invoke("gemini_gate_complete_oauth", &Args { code, oauth_state }).await
+}
+
+/// Logout from Gemini Gate (remove stored token)
+pub async fn gemini_gate_logout() -> Result<(), String> {
+    invoke_void_no_args("gemini_gate_logout").await
+}
+
+/// Set storage backend for Gemini Gate tokens
+pub async fn gemini_gate_set_storage_backend(backend: GeminiGateStorageBackend) -> Result<(), String> {
+    #[derive(Serialize)]
+    struct Args {
+        backend: GeminiGateStorageBackend,
+    }
+    invoke_void("gemini_gate_set_storage_backend", &Args { backend }).await
+}
+
+// ============================================================================
 // Utility Commands
 // ============================================================================
 
