@@ -590,6 +590,11 @@ Type: {{ doc.chunk_type | default: "text" }}
                 // Headers based on GitHub Copilot CLI API patterns:
                 // - Authorization: Bearer token from OAuth flow
                 // - Copilot-Integration-Id: Identifies the integration type
+                //
+                // WARNING: Copilot tokens are short-lived (~30 minutes). When the token expires,
+                // Meilisearch will fail embedding requests until this config is refreshed.
+                // Users must call setup_copilot_embeddings again to update the token.
+                // TODO: Consider implementing a webhook or periodic refresh mechanism.
                 serde_json::json!({
                     "source": "rest",
                     "url": "https://api.githubcopilot.com/embeddings",
@@ -598,7 +603,6 @@ Type: {{ doc.chunk_type | default: "text" }}
                         "input": "{{text}}"
                     },
                     "response": {
-                        "embedding": "{{embedding}}",
                         "embeddings": "data.0.embedding"
                     },
                     "headers": {

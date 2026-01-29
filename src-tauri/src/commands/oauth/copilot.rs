@@ -112,8 +112,12 @@ impl CopilotGateClientOps for CopilotFileStorageClientWrapper {
     }
 
     async fn ensure_valid_token(&self) -> Result<String, String> {
-        // Use get_models() to trigger token refresh, then extract the token
-        // This ensures the client's internal token refresh logic is used
+        // WARNING: This implementation relies on calling models() to trigger the client's
+        // internal token refresh logic. This is a workaround because the copilot-api-rs
+        // crate doesn't expose a direct refresh_token_if_needed() method.
+        //
+        // If the upstream library changes models() to not refresh tokens, this will break.
+        // TODO: Add an explicit refresh method to copilot-api-rs crate.
         self.client.models().await.map_err(|e| e.to_string())?;
 
         // Now get the refreshed token

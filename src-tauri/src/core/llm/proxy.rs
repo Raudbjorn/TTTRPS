@@ -508,27 +508,24 @@ async fn embeddings(
     Json(request): Json<OpenAIEmbeddingRequest>,
 ) -> Response {
     // Get the embedding callback
-    let callback = state.embedding_callback.read().await;
-    let callback = match callback.as_ref() {
-        Some(cb) => cb.clone(),
-        None => {
-            return (
-                StatusCode::SERVICE_UNAVAILABLE,
-                Json(serde_json::json!({
-                    "error": {
-                        "message": "Embeddings not configured",
-                        "type": "service_unavailable"
-                    }
-                })),
-            )
-                .into_response();
+    let callback = {
+        let guard = state.embedding_callback.read().await;
+        match guard.as_ref() {
+            Some(cb) => cb.clone(),
+            None => {
+                return (
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    Json(serde_json::json!({
+                        "error": {
+                            "message": "Embeddings not configured",
+                            "type": "service_unavailable"
+                        }
+                    })),
+                )
+                    .into_response();
+            }
         }
     };
-    drop(callback);
-
-    // Re-acquire the callback for use
-    let callback = state.embedding_callback.read().await;
-    let callback = callback.as_ref().unwrap().clone();
 
     // Get default model if not specified or empty
     let model = if request.model.is_empty() {

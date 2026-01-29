@@ -5,7 +5,7 @@
 
 use leptos::prelude::*;
 use wasm_bindgen_futures::spawn_local;
-use gloo_timers::callback::Timeout;
+use gloo_timers::future::TimeoutFuture;
 
 use crate::bindings::{
     check_copilot_auth, start_copilot_auth, poll_copilot_auth, logout_copilot,
@@ -47,6 +47,9 @@ pub fn CopilotAuth(
     let device_code = RwSignal::new(String::new());
     let poll_interval_secs = RwSignal::new(5u64);
 
+    // Cancellation flag for polling loop cleanup
+    let polling_cancelled = RwSignal::new(false);
+
     // Refresh status from backend
     let refresh_status = move || {
         is_loading.set(true);
@@ -77,7 +80,14 @@ pub fn CopilotAuth(
         refresh_status();
     });
 
+    // Cleanup: cancel polling when component unmounts
+    on_cleanup(move || {
+        polling_cancelled.set(true);
+        awaiting_auth.set(false);
+    });
+
     // Polling effect - runs when awaiting_auth is true
+    // Uses a loop with TimeoutFuture for cleaner async control flow
     Effect::new(move |_| {
         if !awaiting_auth.get() {
             return;
@@ -88,74 +98,79 @@ pub fn CopilotAuth(
             return;
         }
 
-        let interval_ms = (poll_interval_secs.get() * 1000).max(5000) as u32;
+        // Reset cancellation flag when starting new polling
+        polling_cancelled.set(false);
 
-        // Schedule repeated polling using Timeout chain
-        fn schedule_poll(
-            interval_ms: u32,
-            awaiting: RwSignal<bool>,
-            device_code: RwSignal<String>,
-            poll_interval_secs: RwSignal<u64>,
-            user_code: RwSignal<String>,
-            verification_uri: RwSignal<String>,
-            refresh_status: impl Fn() + 'static + Copy,
-        ) {
-            if !awaiting.get_untracked() || device_code.get_untracked().is_empty() {
-                return;
-            }
+        spawn_local(async move {
+            const MAX_CONSECUTIVE_ERRORS: u32 = 3;
+            let mut consecutive_errors: u32 = 0;
 
-            let _ = Timeout::new(interval_ms, move || {
-                if !awaiting.get_untracked() {
-                    return;
+            while awaiting_auth.get_untracked() && !polling_cancelled.get_untracked() {
+                let interval_ms = (poll_interval_secs.get_untracked() * 1000).max(5000) as u32;
+                TimeoutFuture::new(interval_ms).await;
+
+                // Check cancellation after timeout
+                if polling_cancelled.get_untracked() || !awaiting_auth.get_untracked() {
+                    break;
                 }
 
                 let code = device_code.get_untracked();
                 if code.is_empty() {
-                    return;
+                    break;
                 }
 
-                spawn_local(async move {
-                    match poll_copilot_auth(code).await {
-                        Ok(result) => {
-                            match result.status.as_str() {
-                                "success" => {
-                                    show_success("Login Complete", Some("Successfully authenticated with GitHub Copilot"));
-                                    awaiting.set(false);
-                                    user_code.set(String::new());
-                                    verification_uri.set(String::new());
-                                    device_code.set(String::new());
-                                    refresh_status();
-                                }
-                                "expired" | "denied" | "error" => {
-                                    let msg = result.error.unwrap_or_else(|| result.status.clone());
-                                    show_error("Authentication Failed", Some(&msg), None);
-                                    awaiting.set(false);
-                                    user_code.set(String::new());
-                                    verification_uri.set(String::new());
-                                    device_code.set(String::new());
-                                }
-                                "slow_down" => {
-                                    poll_interval_secs.update(|i| *i = (*i + 5).min(30));
-                                }
-                                _ => {}
+                match poll_copilot_auth(code).await {
+                    Ok(result) => {
+                        // Check cancellation before updating signals
+                        if polling_cancelled.get_untracked() {
+                            break;
+                        }
+                        consecutive_errors = 0; // Reset on success
+                        match result.status.as_str() {
+                            "success" => {
+                                show_success("Login Complete", Some("Successfully authenticated with GitHub Copilot"));
+                                awaiting_auth.set(false);
+                                user_code.set(String::new());
+                                verification_uri.set(String::new());
+                                device_code.set(String::new());
+                                refresh_status();
+                                break;
                             }
-                        }
-                        Err(e) => {
-                            show_error("Poll Failed", Some(&e), None);
+                            "expired" | "denied" | "error" => {
+                                let msg = result.error.unwrap_or_else(|| result.status.clone());
+                                show_error("Authentication Failed", Some(&msg), None);
+                                awaiting_auth.set(false);
+                                user_code.set(String::new());
+                                verification_uri.set(String::new());
+                                device_code.set(String::new());
+                                break;
+                            }
+                            "slow_down" => {
+                                poll_interval_secs.update(|i| *i = (*i + 5).min(30));
+                            }
+                            _ => {}
                         }
                     }
-
-                    // Schedule next poll if still awaiting
-                    if awaiting.get_untracked() {
-                        let next_interval = (poll_interval_secs.get_untracked() * 1000).max(5000) as u32;
-                        schedule_poll(next_interval, awaiting, device_code, poll_interval_secs, user_code, verification_uri, refresh_status);
+                    Err(e) => {
+                        // Check cancellation before updating signals
+                        if polling_cancelled.get_untracked() {
+                            break;
+                        }
+                        consecutive_errors += 1;
+                        if consecutive_errors >= MAX_CONSECUTIVE_ERRORS {
+                            show_error("Poll Failed", Some(&format!("{} (giving up after {} attempts)", e, MAX_CONSECUTIVE_ERRORS)), None);
+                            awaiting_auth.set(false);
+                            user_code.set(String::new());
+                            verification_uri.set(String::new());
+                            device_code.set(String::new());
+                            break;
+                        }
+                        // Show error but continue polling
+                        show_error("Poll Failed", Some(&format!("{} (retrying...)", e)), None);
                     }
-                });
-            });
-        }
-
-        // Start the polling chain
-        schedule_poll(interval_ms, awaiting_auth, device_code, poll_interval_secs, user_code, verification_uri, refresh_status);
+                }
+            }
+        });
     });
 
     // Start Device Code OAuth flow
@@ -196,11 +211,14 @@ pub fn CopilotAuth(
             match logout_copilot().await {
                 Ok(_) => {
                     show_success("Logged Out", None);
+                    // refresh_status() sets is_loading to true then false when done
                     refresh_status();
                 }
-                Err(e) => show_error("Logout Failed", Some(&e), None),
+                Err(e) => {
+                    show_error("Logout Failed", Some(&e), None);
+                    is_loading.set(false);
+                }
             }
-            is_loading.set(false);
         });
     };
 
@@ -303,10 +321,12 @@ pub fn CopilotAuth(
                                             if let Some(window) = web_sys::window() {
                                                 let clipboard = window.navigator().clipboard();
                                                 spawn_local(async move {
-                                                    let _ = wasm_bindgen_futures::JsFuture::from(
+                                                    match wasm_bindgen_futures::JsFuture::from(
                                                         clipboard.write_text(&code_to_copy)
-                                                    ).await;
-                                                    show_success("Copied", Some("Code copied to clipboard"));
+                                                    ).await {
+                                                        Ok(_) => show_success("Copied", Some("Code copied to clipboard")),
+                                                        Err(_) => show_error("Copy Failed", Some("Could not copy to clipboard"), None),
+                                                    }
                                                 });
                                             }
                                         }
