@@ -60,6 +60,17 @@ pub enum EmbedderConfig {
         /// Embedding dimensions for this model
         dimensions: u32,
     },
+    /// REST-based Copilot embedder (direct API access)
+    /// Uses GitHub Copilot API at https://api.githubcopilot.com/embeddings
+    #[serde(rename = "copilotRest")]
+    CopilotRest {
+        /// Model name (e.g., "text-embedding-3-small")
+        model: String,
+        /// Embedding dimensions
+        dimensions: u32,
+        /// Copilot API token (short-lived, from OAuth flow)
+        api_key: String,
+    },
 }
 
 /// Get embedding dimensions for common Ollama models
@@ -76,6 +87,16 @@ pub fn ollama_embedding_dimensions(model: &str) -> u32 {
         "bge-base" => 768,
         "bge-small" => 384,
         _ => 768, // Default fallback
+    }
+}
+
+/// Get embedding dimensions for common Copilot/OpenAI embedding models
+pub fn copilot_embedding_dimensions(model: &str) -> u32 {
+    match model {
+        "text-embedding-3-small" => 1536,
+        "text-embedding-3-large" => 3072,
+        "text-embedding-ada-002" => 1536,
+        _ => 1536, // Default fallback for OpenAI-compatible models
     }
 }
 
@@ -154,6 +175,43 @@ pub fn build_embedder_json(config: &EmbedderConfig) -> serde_json::Value {
                 },
                 "response": {
                     "embedding": "{{embedding}}"
+                },
+                "dimensions": dimensions,
+                "documentTemplate": TTRPG_DOCUMENT_TEMPLATE,
+                "documentTemplateMaxBytes": DOCUMENT_TEMPLATE_MAX_BYTES
+            })
+        }
+        EmbedderConfig::CopilotRest {
+            model,
+            dimensions,
+            api_key,
+        } => {
+            // Direct Copilot API access at https://api.githubcopilot.com/embeddings
+            // Uses OpenAI-compatible format: POST /embeddings with {"model": "...", "input": "..."}
+            // Response: {"data": [{"embedding": [...]}]}
+            //
+            // Headers based on GitHub Copilot CLI API patterns:
+            // - Authorization: Bearer token from OAuth flow
+            // - Copilot-Integration-Id: Identifies the integration type
+            //
+            // WARNING: Copilot tokens are short-lived (~30 minutes). When the token expires,
+            // Meilisearch will fail embedding requests until this config is refreshed.
+            // Users must call setup_copilot_embeddings again to update the token.
+            serde_json::json!({
+                "source": "rest",
+                "url": "https://api.githubcopilot.com/embeddings",
+                "request": {
+                    "model": model,
+                    "input": "{{text}}"
+                },
+                "response": {
+                    "embeddings": "data.0.embedding"
+                },
+                "headers": {
+                    "Authorization": format!("Bearer {}", api_key),
+                    "Content-Type": "application/json",
+                    "Accept": "application/json",
+                    "Copilot-Integration-Id": "vscode-chat"
                 },
                 "dimensions": dimensions,
                 "documentTemplate": TTRPG_DOCUMENT_TEMPLATE,

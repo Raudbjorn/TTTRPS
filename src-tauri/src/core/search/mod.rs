@@ -75,10 +75,10 @@ pub use error::{Result, SearchError};
 
 // Configuration
 pub use config::{
-    all_indexes, build_embedder_json, ollama_embedding_dimensions, select_index_for_source_type,
-    EmbedderConfig, DOCUMENT_TEMPLATE_MAX_BYTES, INDEX_CHAT, INDEX_DOCUMENTS, INDEX_FICTION,
-    INDEX_LIBRARY_METADATA, INDEX_RULES, TASK_TIMEOUT_LONG_SECS, TASK_TIMEOUT_SHORT_SECS,
-    TTRPG_DOCUMENT_TEMPLATE,
+    all_indexes, build_embedder_json, copilot_embedding_dimensions, ollama_embedding_dimensions,
+    select_index_for_source_type, EmbedderConfig, DOCUMENT_TEMPLATE_MAX_BYTES, INDEX_CHAT,
+    INDEX_DOCUMENTS, INDEX_FICTION, INDEX_LIBRARY_METADATA, INDEX_RULES, TASK_TIMEOUT_LONG_SECS,
+    TASK_TIMEOUT_SHORT_SECS, TTRPG_DOCUMENT_TEMPLATE,
 };
 
 // Models

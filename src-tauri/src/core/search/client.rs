@@ -308,6 +308,58 @@ impl SearchClient {
         Ok(configured)
     }
 
+    /// Configure Copilot REST embedder on all content indexes
+    ///
+    /// This sets up AI-powered semantic search using GitHub Copilot's embedding API.
+    /// The embedder is named "copilot" and uses direct API access.
+    ///
+    /// **Note:** Copilot API tokens are short-lived (~30 minutes). If the token expires,
+    /// you will need to call this method again to refresh the configuration.
+    pub async fn setup_copilot_embeddings(
+        &self,
+        model: &str,
+        dimensions: u32,
+        api_key: &str,
+    ) -> Result<Vec<String>> {
+        let config = EmbedderConfig::CopilotRest {
+            model: model.to_string(),
+            dimensions,
+            api_key: api_key.to_string(),
+        };
+
+        let mut configured = Vec::new();
+        let content_indexes = all_indexes();
+
+        for index_name in content_indexes {
+            match self.configure_embedder(index_name, "copilot", &config).await {
+                Ok(_) => {
+                    log::info!(
+                        "Configured Copilot embedder on index '{}' with model '{}' ({} dimensions)",
+                        index_name,
+                        model,
+                        dimensions
+                    );
+                    configured.push(index_name.to_string());
+                }
+                Err(e) => {
+                    log::warn!(
+                        "Failed to configure Copilot embedder on '{}': {}",
+                        index_name,
+                        e
+                    );
+                }
+            }
+        }
+
+        if configured.is_empty() {
+            return Err(SearchError::ConfigError(
+                "Failed to configure Copilot embedder on any indexes".to_string(),
+            ));
+        }
+
+        Ok(configured)
+    }
+
     /// Get current embedder configuration for an index
     pub async fn get_embedder_settings(
         &self,
