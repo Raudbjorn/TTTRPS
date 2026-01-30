@@ -673,15 +673,70 @@ run_check() {
 clean_artifacts() {
     print_section "Cleaning Build Artifacts"
 
-    cd "$FRONTEND_DIR"
+    local remaining_artifacts=()
+
+    # Clean frontend
+    cd "$FRONTEND_DIR" || { print_error "Failed to cd to frontend directory"; return 1; }
+
+    print_info "Cleaning frontend dist..."
     rm -rf dist
-    cargo clean
 
-    cd "$BACKEND_DIR"
-    cargo clean
+    print_info "Running cargo clean in frontend..."
+    cargo clean 2>/dev/null || true
 
-    cd "$PROJECT_ROOT"
-    print_success "Cleaned all build artifacts"
+    # Clean backend
+    cd "$BACKEND_DIR" || { print_error "Failed to cd to backend directory"; return 1; }
+
+    print_info "Running cargo clean in backend..."
+    cargo clean 2>/dev/null || true
+
+    cd "$PROJECT_ROOT" || { print_error "Failed to cd to project root"; return 1; }
+
+    # Trust but verify - check for remaining artifacts
+    print_info "Verifying cleanup..."
+
+    if [ -d "$FRONTEND_DIR/target" ]; then
+        remaining_artifacts+=("$FRONTEND_DIR/target")
+    fi
+    if [ -d "$FRONTEND_DIR/dist" ]; then
+        remaining_artifacts+=("$FRONTEND_DIR/dist")
+    fi
+    if [ -d "$BACKEND_DIR/target" ]; then
+        remaining_artifacts+=("$BACKEND_DIR/target")
+    fi
+
+    if [ ${#remaining_artifacts[@]} -gt 0 ]; then
+        print_warning "Found ${#remaining_artifacts[@]} remaining artifact(s) after cargo clean:"
+        for artifact in "${remaining_artifacts[@]}"; do
+            local size
+            size=$(du -sh "$artifact" 2>/dev/null | cut -f1) || size="unknown"
+            echo -e "  ${YELLOW}→${NC} $artifact ($size)"
+        done
+
+        if [ "$FORCE_CLEAN" = true ]; then
+            print_info "Force clean enabled, removing all remaining artifacts..."
+            for artifact in "${remaining_artifacts[@]}"; do
+                rm -rf "$artifact"
+                print_success "Removed: $artifact"
+            done
+        else
+            echo ""
+            read -rp "Remove these remaining artifacts? [y/N] " response
+            case "$response" in
+                [yY][eE][sS]|[yY])
+                    for artifact in "${remaining_artifacts[@]}"; do
+                        rm -rf "$artifact"
+                        print_success "Removed: $artifact"
+                    done
+                    ;;
+                *)
+                    print_info "Keeping remaining artifacts. Use './build.sh clean --all' to force removal."
+                    ;;
+            esac
+        fi
+    fi
+
+    print_success "Clean completed"
 }
 
 run_lint() {
@@ -805,7 +860,8 @@ show_help() {
     echo ""
     echo -e "${YELLOW}Utility Commands:${NC}"
     echo "  status        Show git and GitHub repository status"
-    echo "  clean         Remove all build artifacts"
+    echo "  clean         Remove build artifacts (prompts for remaining)"
+    echo "  clean --all   Force remove all artifacts without prompting"
     echo "  setup         Install all required dependencies"
     echo "  help          Show this help message"
     echo ""
@@ -814,6 +870,7 @@ show_help() {
     echo "  --integration  Run integration tests (requires Meilisearch)"
     echo "  --auto-deps    Automatically install dependencies without prompting"
     echo "  --seize-port   Automatically kill processes using required ports (3030, 1420)"
+    echo "  --all, --force Remove all remaining artifacts without prompting (clean only)"
     echo ""
     echo -e "${YELLOW}Detected Tools:${NC}"
     echo -e "  Rust/Cargo: ${CYAN}$(command_exists cargo && cargo --version 2>/dev/null || echo "not found")${NC}"
@@ -825,6 +882,7 @@ show_help() {
     echo -e "  ${CYAN}$0 dev${NC}                    # Start development server"
     echo -e "  ${CYAN}$0 build --release${NC}        # Production build"
     echo -e "  ${CYAN}$0 lint && $0 test${NC}        # Lint then test"
+    echo -e "  ${CYAN}$0 clean --all${NC}            # Force clean all artifacts"
     echo -e "  ${CYAN}$0 status${NC}                 # Check repo status"
 }
 
@@ -897,6 +955,7 @@ RELEASE=false
 RUN_INTEGRATION=false
 AUTO_INSTALL_DEPS=false
 SEIZE_PORT=false
+FORCE_CLEAN=false
 COMMAND="build"
 
 while [[ $# -gt 0 ]]; do
@@ -915,6 +974,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --seize-port)
             SEIZE_PORT=true
+            shift
+            ;;
+        --all|--force)
+            FORCE_CLEAN=true
             shift
             ;;
         dev|build|frontend|backend|test|check|clean|setup|help|lint|format|format-check|status)
