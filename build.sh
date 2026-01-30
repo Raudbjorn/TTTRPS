@@ -548,6 +548,38 @@ build_desktop() {
     cd "$PROJECT_ROOT"
 }
 
+setup_enchant_backend() {
+    # Detect available enchant spell-checking backends to avoid libenchant warnings
+    # WebKitGTK uses libenchant for spell checking, which may warn about missing backends
+
+    if [ -n "$ENCHANT_BACKEND" ]; then
+        return 0  # User already set a preference
+    fi
+
+    # Check for available backends in order of preference
+    local backends=("hunspell" "aspell" "nuspell" "ispell")
+    local enchant_lib_dirs=("/usr/lib/enchant-2" "/usr/lib64/enchant-2" "/usr/local/lib/enchant-2")
+
+    for backend in "${backends[@]}"; do
+        for lib_dir in "${enchant_lib_dirs[@]}"; do
+            if [ -f "${lib_dir}/lib${backend}.so" ] || [ -f "${lib_dir}/${backend}.so" ]; then
+                export ENCHANT_BACKEND="$backend"
+                print_info "Set ENCHANT_BACKEND=$backend (spell-check)"
+                return 0
+            fi
+        done
+        # Also check if the backend command exists
+        if command_exists "$backend"; then
+            export ENCHANT_BACKEND="$backend"
+            print_info "Set ENCHANT_BACKEND=$backend (spell-check)"
+            return 0
+        fi
+    done
+
+    # No backend found, but that's okay - just means no spell checking
+    return 0
+}
+
 setup_display_environment() {
     # Detect Wayland and configure display environment for WebKitGTK compatibility
     local is_wayland=false
@@ -573,6 +605,9 @@ setup_display_environment() {
 
         echo -e "${CYAN}  Tip: These workarounds are needed due to WebKitGTK/Wayland compatibility issues${NC}"
     fi
+
+    # Setup spell-checking backend
+    setup_enchant_backend
 }
 
 run_dev() {

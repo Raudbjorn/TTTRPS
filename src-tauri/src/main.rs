@@ -637,20 +637,23 @@ fn main() {
             commands::oauth::claude::claude_gate_set_storage_backend,
             commands::oauth::claude::claude_gate_list_models,
 
-            // Gemini Gate OAuth Commands
+            // Gemini OAuth Commands
             commands::oauth::gemini::gemini_gate_get_status,
             commands::oauth::gemini::gemini_gate_start_oauth,
             commands::oauth::gemini::gemini_gate_complete_oauth,
             commands::oauth::gemini::gemini_gate_logout,
             commands::oauth::gemini::gemini_gate_set_storage_backend,
+            commands::oauth::gemini::gemini_gate_oauth_with_callback,
+            commands::oauth::gemini::gemini_gate_list_models,
 
-            // Copilot Gate OAuth Commands (Device Code Flow)
+            // Copilot OAuth Commands (Device Code Flow)
             commands::oauth::copilot::start_copilot_auth,
             commands::oauth::copilot::poll_copilot_auth,
             commands::oauth::copilot::check_copilot_auth,
             commands::oauth::copilot::logout_copilot,
             commands::oauth::copilot::get_copilot_usage,
             commands::oauth::copilot::get_copilot_models,
+            commands::oauth::copilot::copilot_gate_set_storage_backend,
 
             // Phase 4: Personality Extension Commands (TASK-PERS-014, TASK-PERS-015, TASK-PERS-016, TASK-PERS-017)
             // Template Commands

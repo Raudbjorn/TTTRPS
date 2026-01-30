@@ -126,13 +126,13 @@ impl AppState {
             }
         };
 
-        // Initialize Gemini Gate client
+        // Initialize Gemini client
         let gemini_gate = match GeminiGateState::with_defaults() {
             Ok(state) => Arc::new(state),
             Err(e) => {
-                log::warn!("Failed to initialize Gemini Gate with default storage: {}. Using file storage.", e);
+                log::warn!("Failed to initialize Gemini with default storage: {}. Using file storage.", e);
                 Arc::new(GeminiGateState::new(GeminiGateStorageBackend::File)
-                    .expect("Failed to initialize Gemini Gate with file storage"))
+                    .expect("Failed to initialize Gemini with file storage"))
             }
         };
 
