@@ -531,6 +531,12 @@ build_desktop() {
     print_section "Building Desktop App (Tauri Bundle)"
     cd "$BACKEND_DIR"
 
+    # Check for broken gstreamer dependencies (common on Arch/rolling release)
+    check_gstreamer_deps
+
+    # Patch linuxdeploy for Arch Linux compatibility (fixes .relr.dyn strip errors)
+    patch_linuxdeploy_strip
+
     print_info "Creating application bundle..."
 
     local build_args=()
@@ -546,6 +552,169 @@ build_desktop() {
     fi
 
     cd "$PROJECT_ROOT"
+}
+
+check_gstreamer_deps() {
+    # Check for broken gstreamer library dependencies (common on rolling release distros)
+    # linuxdeploy's gstreamer plugin will fail if dependencies are missing
+
+    if [ "$OSTYPE" != "linux-gnu" ] && [[ "$OSTYPE" != linux* ]]; then
+        return 0
+    fi
+
+    local missing_deps=()
+
+    # Check for common broken deps in gstreamer plugins
+    if [ -f /usr/lib/gstreamer-1.0/libgstlibav.so ]; then
+        local broken
+        broken=$(ldd /usr/lib/gstreamer-1.0/libgstlibav.so 2>&1 | grep "not found" | head -5)
+        if [ -n "$broken" ]; then
+            missing_deps+=("$broken")
+        fi
+    fi
+
+    if [ ${#missing_deps[@]} -gt 0 ]; then
+        print_warning "Broken gstreamer dependencies detected (common on rolling release distros):"
+        for dep in "${missing_deps[@]}"; do
+            echo -e "  ${YELLOW}$dep${NC}"
+        done
+
+        # Try to fix common version mismatches with symlinks
+        # Example: libvvenc.so.1.13 missing but libvvenc.so.1.14 exists
+        for dep in "${missing_deps[@]}"; do
+            local libname
+            libname=$(echo "$dep" | awk '{print $1}')
+            if [[ "$libname" =~ \.so\.[0-9]+$ ]]; then
+                local base_name="${libname%.*}"  # Remove version suffix
+                local newer_lib
+                newer_lib=$(ldconfig -p 2>/dev/null | grep "$base_name" | head -1 | awk '{print $NF}')
+                if [ -n "$newer_lib" ] && [ -f "$newer_lib" ]; then
+                    print_info "Found potential fix: symlink $libname -> $newer_lib"
+                    if [ "$AUTO_INSTALL_DEPS" = true ]; then
+                        sudo ln -sf "$newer_lib" "/usr/lib/$libname" && \
+                            print_success "Created compatibility symlink"
+                    else
+                        echo -e "${YELLOW}Run: sudo ln -sf $newer_lib /usr/lib/$libname${NC}"
+                    fi
+                fi
+            fi
+        done
+
+        print_info "AppImage bundling may fail. Options:"
+        print_info "  1. Create symlinks as shown above"
+        print_info "  2. Rebuild gstreamer packages: paru -S gst-libav gst-plugins-bad"
+        print_info "  3. Skip AppImage: cargo tauri build --bundles deb,rpm"
+        echo ""
+    fi
+}
+
+patch_linuxdeploy_strip() {
+    # Fix for modern Linux: linuxdeploy's bundled strip may not recognize .relr.dyn sections
+    # This newer ELF relocation format is used by modern distros (Arch, Fedora 38+, etc.)
+    # Solution: Extract the linuxdeploy AppImage and replace bundled strip with system's
+    #
+    # This fix is needed when:
+    # - System linuxdeploy is not installed (Tauri downloads AppImage)
+    # - The AppImage's bundled binutils are outdated
+    #
+    # Not needed when:
+    # - System linuxdeploy is installed (uses system strip via PATH)
+
+    if [ "$OSTYPE" != "linux-gnu" ] && [[ "$OSTYPE" != linux* ]]; then
+        return 0  # Only needed on Linux
+    fi
+
+    # If system linuxdeploy is installed, it will use system strip - no patching needed
+    if command_exists linuxdeploy; then
+        local ld_version=""
+        ld_version=$(linuxdeploy --version 2>&1 | head -1) || ld_version="unknown"
+        print_info "Using system linuxdeploy ($ld_version)"
+        return 0
+    fi
+
+    # No system linuxdeploy - Tauri will download an AppImage
+    # We need to download and patch it before Tauri runs
+    local tauri_cache="${XDG_CACHE_HOME:-$HOME/.cache}/tauri"
+    local appimage_url="https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage"
+    local appimage_path="$tauri_cache/linuxdeploy-x86_64.AppImage"
+    local patch_dir="/tmp/linuxdeploy-patched"
+    local patched_strip="$patch_dir/squashfs-root/usr/bin/strip"
+
+    # Check if already patched in this session
+    if [ -L "$patched_strip" ] && [ "$(readlink -f "$patched_strip" 2>/dev/null)" = "/usr/bin/strip" ]; then
+        print_info "Using patched linuxdeploy (system strip for .relr.dyn compatibility)"
+        export LINUXDEPLOY="$patch_dir/squashfs-root/AppRun"
+        return 0
+    fi
+
+    # Download AppImage if not present
+    mkdir -p "$tauri_cache"
+    if [ ! -f "$appimage_path" ]; then
+        print_info "Downloading linuxdeploy AppImage..."
+        if ! curl -fsSL "$appimage_url" -o "$appimage_path"; then
+            print_warning "Failed to download linuxdeploy - Tauri will try during build"
+            return 0
+        fi
+        chmod +x "$appimage_path"
+    fi
+
+    # Verify it's an actual AppImage (not a wrapper)
+    local file_size
+    file_size=$(stat -c%s "$appimage_path" 2>/dev/null) || file_size=0
+    if [ "$file_size" -lt 1000000 ]; then
+        # Less than 1MB - likely a wrapper, not full AppImage
+        print_info "linuxdeploy appears to be a wrapper binary, skipping patch"
+        return 0
+    fi
+
+    print_info "Patching linuxdeploy to use system strip (fixes .relr.dyn section handling)..."
+
+    # Extract the AppImage
+    rm -rf "$patch_dir"
+    mkdir -p "$patch_dir"
+    cd "$patch_dir" || return 1
+
+    # Try extraction with APPIMAGE_EXTRACT_AND_RUN to avoid FUSE issues
+    if ! env APPIMAGE_EXTRACT_AND_RUN=1 "$appimage_path" --appimage-extract >/dev/null 2>&1; then
+        # Fallback: try extracting with unsquashfs if available
+        if command_exists unsquashfs; then
+            local offset
+            offset=$(grep -aob 'hsqs' "$appimage_path" 2>/dev/null | head -1 | cut -d: -f1)
+            if [ -n "$offset" ]; then
+                dd if="$appimage_path" bs=1 skip="$offset" 2>/dev/null | unsquashfs -d squashfs-root -f /dev/stdin >/dev/null 2>&1
+            fi
+        fi
+    fi
+
+    # Check if extraction succeeded
+    if [ ! -d "$patch_dir/squashfs-root" ]; then
+        print_warning "Could not extract linuxdeploy AppImage - build may fail on AppImage step"
+        print_info "Install linuxdeploy via package manager to avoid this: paru -S linuxdeploy"
+        cd "$PROJECT_ROOT"
+        return 1
+    fi
+
+    # Replace bundled strip with system strip (if bundled strip exists)
+    if [ -f "$patched_strip" ] || [ -L "$patched_strip" ]; then
+        rm -f "$patched_strip"
+        ln -s /usr/bin/strip "$patched_strip"
+        print_success "Patched linuxdeploy: replaced bundled strip with /usr/bin/strip"
+    else
+        # Some versions might not bundle strip - create the symlink anyway
+        mkdir -p "$(dirname "$patched_strip")"
+        ln -s /usr/bin/strip "$patched_strip"
+        print_success "Added system strip symlink to linuxdeploy"
+    fi
+
+    # Export the patched linuxdeploy path for Tauri to use
+    if [ -f "$patch_dir/squashfs-root/AppRun" ]; then
+        chmod +x "$patch_dir/squashfs-root/AppRun"
+        export LINUXDEPLOY="$patch_dir/squashfs-root/AppRun"
+        print_success "Set LINUXDEPLOY=$LINUXDEPLOY"
+    fi
+
+    cd "$PROJECT_ROOT" || return 1
+    return 0
 }
 
 setup_enchant_backend() {
