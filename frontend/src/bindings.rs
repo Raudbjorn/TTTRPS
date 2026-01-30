@@ -4980,6 +4980,29 @@ pub async fn poll_copilot_auth(device_code: String) -> Result<CopilotAuthPollRes
     invoke("poll_copilot_auth", &Args { device_code }).await
 }
 
+/// Storage backend options for Copilot tokens
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CopilotGateStorageBackend {
+    /// File-based storage
+    File,
+    /// System keyring storage
+    Keyring,
+    /// Auto-select (keyring if available, else file)
+    #[default]
+    Auto,
+}
+
+impl std::fmt::Display for CopilotGateStorageBackend {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            CopilotGateStorageBackend::Auto => write!(f, "Auto"),
+            CopilotGateStorageBackend::Keyring => write!(f, "Keyring"),
+            CopilotGateStorageBackend::File => write!(f, "File"),
+        }
+    }
+}
+
 /// Status of Copilot authentication
 #[derive(Debug, Clone, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -4992,11 +5015,23 @@ pub struct CopilotAuthStatus {
     pub copilot_token_expires_at: Option<i64>,
     /// Whether the user has a valid GitHub token (long-lived)
     pub has_github_token: bool,
+    /// Whether keyring (secret service) is available on this system
+    #[serde(default)]
+    pub keyring_available: bool,
 }
 
 /// Check current Copilot authentication status
 pub async fn check_copilot_auth() -> Result<CopilotAuthStatus, String> {
     invoke_no_args("check_copilot_auth").await
+}
+
+/// Set storage backend for Copilot tokens
+pub async fn copilot_gate_set_storage_backend(backend: CopilotGateStorageBackend) -> Result<(), String> {
+    #[derive(Serialize)]
+    struct Args {
+        backend: CopilotGateStorageBackend,
+    }
+    invoke_void("copilot_gate_set_storage_backend", &Args { backend }).await
 }
 
 /// Logout from Copilot (remove stored tokens)
@@ -5075,10 +5110,10 @@ pub async fn get_copilot_models() -> Result<Vec<CopilotGateModelInfo>, String> {
 }
 
 // ============================================================================
-// Gemini Gate OAuth Commands
+// Gemini OAuth Commands
 // ============================================================================
 
-/// Storage backend options for Gemini Gate tokens
+/// Storage backend options for Gemini tokens
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum GeminiGateStorageBackend {
@@ -5101,7 +5136,7 @@ impl std::fmt::Display for GeminiGateStorageBackend {
     }
 }
 
-/// Status of Gemini Gate OAuth authentication
+/// Status of Gemini OAuth authentication
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct GeminiGateStatus {
     /// Whether the user is authenticated
@@ -5115,7 +5150,7 @@ pub struct GeminiGateStatus {
     pub keyring_available: bool,
 }
 
-/// Get Gemini Gate OAuth status
+/// Get Gemini OAuth status
 pub async fn gemini_gate_get_status() -> Result<GeminiGateStatus, String> {
     invoke_no_args("gemini_gate_get_status").await
 }
@@ -5151,18 +5186,69 @@ pub async fn gemini_gate_complete_oauth(code: String, oauth_state: Option<String
     invoke("gemini_gate_complete_oauth", &Args { code, oauth_state }).await
 }
 
-/// Logout from Gemini Gate (remove stored token)
+/// Logout from Gemini (remove stored token)
 pub async fn gemini_gate_logout() -> Result<(), String> {
     invoke_void_no_args("gemini_gate_logout").await
 }
 
-/// Set storage backend for Gemini Gate tokens
+/// Set storage backend for Gemini tokens
 pub async fn gemini_gate_set_storage_backend(backend: GeminiGateStorageBackend) -> Result<(), String> {
     #[derive(Serialize)]
     struct Args {
         backend: GeminiGateStorageBackend,
     }
     invoke_void("gemini_gate_set_storage_backend", &Args { backend }).await
+}
+
+/// Response from Gemini OAuth flow with automatic callback server
+#[derive(Debug, Clone, Deserialize)]
+pub struct GeminiGateOAuthCallbackResponse {
+    /// Whether the OAuth flow completed successfully
+    pub success: bool,
+    /// Error message if the flow failed
+    pub error: Option<String>,
+    /// The authorization URL (for display/manual fallback)
+    pub auth_url: Option<String>,
+}
+
+/// Start Gemini OAuth flow with automatic callback server
+///
+/// This command:
+/// 1. Starts a local HTTP server to receive the OAuth callback
+/// 2. Opens the authorization URL in the user's browser
+/// 3. Waits for the OAuth callback
+/// 4. Completes the OAuth flow automatically
+///
+/// Returns the result of the OAuth flow, including any errors.
+pub async fn gemini_gate_oauth_with_callback(
+    timeout_secs: Option<u64>,
+    open_browser: Option<bool>,
+) -> Result<GeminiGateOAuthCallbackResponse, String> {
+    #[derive(Serialize)]
+    struct Args {
+        timeout_secs: Option<u64>,
+        open_browser: Option<bool>,
+    }
+    invoke("gemini_gate_oauth_with_callback", &Args { timeout_secs, open_browser }).await
+}
+
+/// A model available via the Gemini Cloud Code API.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct GeminiGateModel {
+    /// Unique identifier for the model.
+    pub id: String,
+    /// Display name for the model.
+    pub name: String,
+    /// Description of the model (optional).
+    pub description: Option<String>,
+}
+
+/// List available models from the Gemini Cloud Code API.
+///
+/// Returns models available for use with the authenticated account.
+/// Requires successful OAuth authentication first.
+pub async fn gemini_gate_list_models() -> Result<Vec<GeminiGateModel>, String> {
+    invoke_no_args("gemini_gate_list_models").await
 }
 
 // ============================================================================

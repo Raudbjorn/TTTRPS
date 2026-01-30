@@ -11,10 +11,10 @@ use crate::bindings::{
     check_llm_health, configure_llm, get_llm_config, list_claude_models, list_gemini_models,
     list_ollama_models, list_openai_models, list_openrouter_models, list_provider_models,
     save_api_key, HealthStatus, LLMSettings, ModelInfo, OllamaModel,
-    // Claude Gate OAuth
+    // Claude OAuth
     claude_gate_get_status, claude_gate_list_models, ClaudeGateStatus,
-    // Gemini Gate OAuth
-    GeminiGateStatus,
+    // Gemini OAuth
+    gemini_gate_list_models, GeminiGateStatus,
     // Copilot OAuth
     check_copilot_auth, get_copilot_models, CopilotAuthStatus,
     // Embedding configuration
@@ -31,7 +31,7 @@ pub enum LLMProvider {
     Ollama,
     AnthropicAPI,
     Google,      // Google AI Studio API key
-    GeminiGate,  // Gemini via OAuth (Google Cloud Code)
+    Gemini,  // Gemini via OAuth (Google Cloud Code)
     OpenAI,
     OpenRouter,
     Mistral,
@@ -49,7 +49,7 @@ impl std::fmt::Display for LLMProvider {
             LLMProvider::Ollama => write!(f, "Ollama"),
             LLMProvider::AnthropicAPI => write!(f, "Anthropic API"),
             LLMProvider::Google => write!(f, "Google AI"),
-            LLMProvider::GeminiGate => write!(f, "Gemini"),
+            LLMProvider::Gemini => write!(f, "Gemini"),
             LLMProvider::OpenAI => write!(f, "OpenAI"),
             LLMProvider::OpenRouter => write!(f, "OpenRouter"),
             LLMProvider::Mistral => write!(f, "Mistral"),
@@ -69,7 +69,7 @@ impl LLMProvider {
             LLMProvider::Ollama => "ollama".to_string(),
             LLMProvider::AnthropicAPI => "anthropic".to_string(),
             LLMProvider::Google => "google".to_string(),
-            LLMProvider::GeminiGate => "gemini".to_string(), // Uses gemini backend
+            LLMProvider::Gemini => "gemini".to_string(), // Uses gemini backend
             LLMProvider::OpenAI => "openai".to_string(),
             LLMProvider::OpenRouter => "openrouter".to_string(),
             LLMProvider::Mistral => "mistral".to_string(),
@@ -86,7 +86,7 @@ impl LLMProvider {
         match s {
             "Anthropic API" | "anthropic" => LLMProvider::AnthropicAPI,
             "Google AI" | "google" => LLMProvider::Google,
-            "Gemini" | "gemini" | "gemini-gate" => LLMProvider::GeminiGate,
+            "Gemini" | "gemini" | "gemini-gate" => LLMProvider::Gemini,
             "OpenAI" | "openai" => LLMProvider::OpenAI,
             "OpenRouter" | "openrouter" => LLMProvider::OpenRouter,
             "Mistral" | "mistral" => LLMProvider::Mistral,
@@ -105,7 +105,7 @@ impl LLMProvider {
             LLMProvider::Ollama => "http://localhost:11434",
             LLMProvider::AnthropicAPI => "sk-ant-...",
             LLMProvider::Google => "AIza...",
-            LLMProvider::GeminiGate => "Uses OAuth authentication",
+            LLMProvider::Gemini => "Uses OAuth authentication",
             LLMProvider::OpenAI => "sk-...",
             LLMProvider::OpenRouter => "sk-or-...",
             LLMProvider::Mistral => "API Key",
@@ -121,7 +121,7 @@ impl LLMProvider {
     fn label_text(&self) -> &'static str {
         match self {
             LLMProvider::Ollama => "Ollama Host",
-            LLMProvider::Claude | LLMProvider::Copilot | LLMProvider::GeminiGate => "Status",
+            LLMProvider::Claude | LLMProvider::Copilot | LLMProvider::Gemini => "Status",
             _ => "API Key",
         }
     }
@@ -130,7 +130,7 @@ impl LLMProvider {
         match self {
             LLMProvider::Ollama => "llama3.2",
             LLMProvider::AnthropicAPI => "claude-3-5-sonnet-20241022",
-            LLMProvider::Google | LLMProvider::GeminiGate => "gemini-1.5-pro",
+            LLMProvider::Google | LLMProvider::Gemini => "gemini-1.5-pro",
             LLMProvider::OpenAI => "gpt-4o",
             LLMProvider::OpenRouter => "openai/gpt-4o",
             LLMProvider::Mistral => "mistral-large-latest",
@@ -147,7 +147,7 @@ impl LLMProvider {
         match self {
             LLMProvider::AnthropicAPI => Some("https://console.anthropic.com/settings/keys"),
             LLMProvider::Google => Some("https://aistudio.google.com/app/apikey"),
-            LLMProvider::GeminiGate => None, // Uses OAuth authentication
+            LLMProvider::Gemini => None, // Uses OAuth authentication
             LLMProvider::OpenAI => Some("https://platform.openai.com/api-keys"),
             LLMProvider::OpenRouter => Some("https://openrouter.ai/keys"),
             LLMProvider::Mistral => Some("https://console.mistral.ai/api-keys/"),
@@ -165,7 +165,7 @@ impl LLMProvider {
         match self {
             // Both AnthropicAPI (API key) and Claude (OAuth) are Anthropic providers, sharing brand color
             LLMProvider::AnthropicAPI | LLMProvider::Claude => "text-orange-400", // Anthropic Sienna
-            LLMProvider::Google | LLMProvider::GeminiGate => "text-blue-400", // Google/Gemini Blue
+            LLMProvider::Google | LLMProvider::Gemini => "text-blue-400", // Google/Gemini Blue
             LLMProvider::OpenAI => "text-emerald-400", // OpenAI Green
             LLMProvider::Ollama => "text-white", // Ollama White
             LLMProvider::OpenRouter => "text-violet-400",
@@ -240,7 +240,7 @@ pub fn LLMSettingsView() -> impl IntoView {
     // Copilot OAuth status (for badge display and model fetching)
     let copilot_status = RwSignal::new(CopilotAuthStatus::default());
 
-    // Gemini Gate OAuth status (for badge display and model fetching)
+    // Gemini OAuth status (for badge display and model fetching)
     let gemini_gate_status = RwSignal::new(GeminiGateStatus::default());
 
     // --- Helpers ---
@@ -293,9 +293,18 @@ pub fn LLMSettingsView() -> impl IntoView {
                 LLMProvider::AnthropicAPI => list_claude_models(api_key).await.unwrap_or_default(),
                 LLMProvider::OpenAI => list_openai_models(api_key).await.unwrap_or_default(),
                 LLMProvider::Google => list_gemini_models(api_key).await.unwrap_or_default(),
-                LLMProvider::GeminiGate => {
-                    // GeminiGate uses OAuth - fetch default models list
-                    list_gemini_models(None).await.unwrap_or_default()
+                LLMProvider::Gemini => {
+                    // Gemini uses OAuth - fetch models from the Cloud Code API
+                    match gemini_gate_list_models().await {
+                        Ok(gate_models) => gate_models
+                            .into_iter()
+                            .map(|m| ModelInfo { id: m.id.clone(), name: m.name, description: m.description })
+                            .collect(),
+                        Err(_) => {
+                            // Fall back to default models list if not authenticated
+                            list_gemini_models(None).await.unwrap_or_default()
+                        }
+                    }
                 }
                 LLMProvider::OpenRouter => list_openrouter_models().await.unwrap_or_default(),
                 LLMProvider::Claude => {
@@ -539,7 +548,7 @@ pub fn LLMSettingsView() -> impl IntoView {
         LLMProvider::Claude,
         LLMProvider::Copilot,
         LLMProvider::Google,       // Google AI Studio (API key)
-        LLMProvider::GeminiGate,   // Gemini (OAuth)
+        LLMProvider::Gemini,   // Gemini (OAuth)
         LLMProvider::OpenRouter,
         LLMProvider::Mistral,
         LLMProvider::Groq,
@@ -607,21 +616,32 @@ pub fn LLMSettingsView() -> impl IntoView {
                             {move || {
                                 let provider = selected_provider.get();
                                 if provider == LLMProvider::Claude {
-                                    // Claude Gate OAuth panel - uses shared component
+                                    // Claude OAuth panel - uses shared component
                                     view! {
                                         <div class="space-y-3">
                                             <ClaudeGateAuth
                                                 show_card=false
                                                 on_status_change=Callback::new(move |status: ClaudeGateStatus| {
                                                     let is_ready = status.authenticated;
-                                                    provider_statuses.update(|map| { map.insert("claude-gate".to_string(), is_ready); });
+                                                    provider_statuses.update(|map| { map.insert("claude".to_string(), is_ready); });
                                                     claude_gate_status.set(status);
+                                                    // Trigger health check and model fetch after auth status changes
+                                                    if is_ready {
+                                                        spawn_local(async move {
+                                                            // Refresh health status
+                                                            if let Ok(h) = check_llm_health().await {
+                                                                health_status.set(Some(h));
+                                                            }
+                                                            // Fetch models now that we're authenticated
+                                                            fetch_cloud_models(LLMProvider::Claude, None);
+                                                        });
+                                                    }
                                                 })
                                             />
                                             // Link to extraction settings
                                             <div class="pt-2 border-t border-[var(--border-subtle)]">
                                                 <p class="text-xs text-[var(--text-muted)]">
-                                                    "Claude Gate can also be used for document extraction. Configure in "
+                                                    "Claude can also be used for document extraction. Configure in "
                                                     <span class="text-[var(--accent-primary)]">"Extraction Settings"</span>
                                                     "."
                                                 </p>
@@ -638,20 +658,42 @@ pub fn LLMSettingsView() -> impl IntoView {
                                                     let is_ready = status.authenticated;
                                                     provider_statuses.update(|map| { map.insert("copilot".to_string(), is_ready); });
                                                     copilot_status.set(status);
+                                                    // Trigger health check and model fetch after auth status changes
+                                                    if is_ready {
+                                                        spawn_local(async move {
+                                                            // Refresh health status
+                                                            if let Ok(h) = check_llm_health().await {
+                                                                health_status.set(Some(h));
+                                                            }
+                                                            // Fetch models now that we're authenticated
+                                                            fetch_cloud_models(LLMProvider::Copilot, None);
+                                                        });
+                                                    }
                                                 })
                                             />
                                         </div>
                                     }.into_any()
-                                } else if provider == LLMProvider::GeminiGate {
-                                    // Gemini Gate OAuth panel - uses shared component
+                                } else if provider == LLMProvider::Gemini {
+                                    // Gemini OAuth panel - uses shared component
                                     view! {
                                         <div class="space-y-3">
                                             <GeminiGateAuth
                                                 show_card=false
                                                 on_status_change=Callback::new(move |status: GeminiGateStatus| {
                                                     let is_ready = status.authenticated;
-                                                    provider_statuses.update(|map| { map.insert("gemini-gate".to_string(), is_ready); });
+                                                    provider_statuses.update(|map| { map.insert("gemini".to_string(), is_ready); });
                                                     gemini_gate_status.set(status);
+                                                    // Trigger health check and model fetch after auth status changes
+                                                    if is_ready {
+                                                        spawn_local(async move {
+                                                            // Refresh health status
+                                                            if let Ok(h) = check_llm_health().await {
+                                                                health_status.set(Some(h));
+                                                            }
+                                                            // Fetch models now that we're authenticated
+                                                            fetch_cloud_models(LLMProvider::Gemini, None);
+                                                        });
+                                                    }
                                                 })
                                             />
                                         </div>
@@ -698,7 +740,12 @@ pub fn LLMSettingsView() -> impl IntoView {
                                                 on:change=move |ev| model_name.set(event_target_value(&ev))
                                             >
                                                 {models.into_iter().map(|m| {
-                                                    view! { <option value=m.id.clone() class="bg-[var(--bg-elevated)] text-[var(--text-primary)]">{m.id.clone()}</option> }
+                                                    let display_name = if m.name.is_empty() || m.name == m.id {
+                                                        m.id.clone()
+                                                    } else {
+                                                        m.name.clone()
+                                                    };
+                                                    view! { <option value=m.id.clone() class="bg-[var(--bg-elevated)] text-[var(--text-primary)]">{display_name}</option> }
                                                 }).collect::<Vec<_>>()}
                                             </select>
                                         }.into_any()
