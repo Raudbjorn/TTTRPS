@@ -31,10 +31,17 @@ impl Default for TokenExchangeConfig {
 }
 
 impl TokenExchangeConfig {
-    /// Creates a new token exchange config with custom VS Code version.
+    /// Sets a custom VS Code version to report.
     #[must_use]
     pub fn with_vs_code_version(mut self, version: impl Into<String>) -> Self {
         self.vs_code_version = version.into();
+        self
+    }
+
+    /// Sets a custom token URL for testing.
+    #[must_use]
+    pub fn with_token_url(mut self, url: impl Into<String>) -> Self {
+        self.token_url = url.into();
         self
     }
 }

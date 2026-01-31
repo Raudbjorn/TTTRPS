@@ -93,8 +93,8 @@ async fn test_get_active_session() {
         .await
         .expect("Failed to get active session");
 
-    assert!(active.is_some());
-    assert_eq!(active.unwrap().id, "sess-active");
+    assert!(active.is_some(), "Active session should be found");
+    assert_eq!(active.expect("Active session should be present").id, "sess-active");
 }
 
 // =============================================================================
@@ -144,7 +144,7 @@ async fn test_session_full_lifecycle() {
         .expect("Not found");
     assert_eq!(after_update.status, "completed");
     assert!(after_update.ended_at.is_some());
-    assert!(after_update.notes.unwrap().contains("dragon"));
+    assert!(after_update.notes.as_ref().map_or(false, |n| n.contains("dragon")), "Notes should contain 'dragon'");
 }
 
 #[tokio::test]
@@ -290,7 +290,7 @@ async fn test_session_note_update() {
         .expect("Failed to get")
         .expect("Not found");
     assert!(retrieved.content.contains("more details"));
-    assert!(retrieved.tags.unwrap().contains("important"));
+    assert!(retrieved.tags.as_ref().map_or(false, |t| t.contains("important")), "Tags should contain 'important'");
 }
 
 #[tokio::test]
@@ -463,8 +463,8 @@ async fn test_combat_states() {
         .get_active_combat("sess-combat")
         .await
         .expect("Failed to get active combat");
-    assert!(active.is_some());
-    assert!(active.unwrap().is_active);
+    let active_combat = active.expect("Active combat should be present");
+    assert!(active_combat.is_active, "Combat should be active");
 
     db.end_combat("combat-001")
         .await
@@ -526,7 +526,7 @@ async fn test_combat_state_update() {
         .expect("Not found");
     assert_eq!(retrieved.round, 5);
     assert_eq!(retrieved.current_turn, 2);
-    assert!(retrieved.notes.unwrap().contains("Intense"));
+    assert!(retrieved.notes.as_ref().map_or(false, |n| n.contains("Intense")), "Notes should contain 'Intense'");
 }
 
 // =============================================================================

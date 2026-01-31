@@ -87,6 +87,13 @@ impl CopilotConfig {
         self
     }
 
+    /// Sets a custom Copilot token URL for testing.
+    #[must_use]
+    pub fn with_copilot_token_url(mut self, url: impl Into<String>) -> Self {
+        self.copilot_token_url = url.into();
+        self
+    }
+
     /// Sets whether to automatically refresh tokens.
     #[must_use]
     pub fn with_auto_refresh(mut self, enabled: bool) -> Self {

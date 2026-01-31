@@ -200,8 +200,6 @@ impl GeminiGateClientOps for GeminiKeyringStorageClientWrapper {
 pub struct GeminiGateState {
     /// The active client (type-erased)
     client: AsyncRwLock<Option<Box<dyn GeminiGateClientOps>>>,
-    /// In-memory flow state for OAuth (needed for state verification)
-    pending_oauth_state: AsyncRwLock<Option<String>>,
     /// Current storage backend
     storage_backend: AsyncRwLock<GeminiGateStorageBackend>,
 }
@@ -265,7 +263,6 @@ impl GeminiGateState {
         let client = Self::create_client(backend)?;
         Ok(Self {
             client: AsyncRwLock::new(Some(client)),
-            pending_oauth_state: AsyncRwLock::new(None),
             storage_backend: AsyncRwLock::new(backend),
         })
     }
@@ -295,12 +292,6 @@ impl GeminiGateState {
         {
             let mut backend_lock = self.storage_backend.write().await;
             *backend_lock = new_backend;
-        }
-
-        // Clear any pending OAuth state
-        {
-            let mut state_lock = self.pending_oauth_state.write().await;
-            *state_lock = None;
         }
 
         log::info!("Gemini storage backend switched to: {}", backend_name);
@@ -333,9 +324,6 @@ impl GeminiGateState {
             .ok_or("Gemini client not initialized")?;
         let (url, state) = client.start_oauth_flow_with_state().await?;
 
-        // Store the state for verification
-        *self.pending_oauth_state.write().await = Some(state.state.clone());
-
         Ok((url, state.state))
     }
 
@@ -345,35 +333,6 @@ impl GeminiGateState {
         code: &str,
         state: Option<&str>,
     ) -> Result<GateTokenInfo, String> {
-        // Verify state - CSRF protection requires a pending OAuth flow
-        // Use write lock for atomic check-and-clear to prevent TOCTOU race
-        {
-            let mut pending = self.pending_oauth_state.write().await;
-            match pending.take() {
-                Some(expected_state) => {
-                    match state {
-                        Some(received_state) if received_state == expected_state => {
-                            // State matches - pending already cleared by take()
-                        }
-                        Some(_received_state) => {
-                            // Note: Don't expose expected/received state in error to prevent info leakage
-                            log::warn!("CSRF state mismatch during OAuth callback");
-                            return Err("OAuth state mismatch - possible CSRF attack".to_string());
-                        }
-                        None => {
-                            log::warn!("Missing CSRF state parameter in OAuth callback");
-                            return Err("Missing state parameter for CSRF verification".to_string());
-                        }
-                    }
-                }
-                None => {
-                    // No pending OAuth flow - reject callback entirely
-                    log::warn!("OAuth callback received but no OAuth flow was initiated");
-                    return Err("No pending OAuth flow - callback rejected".to_string());
-                }
-            }
-        } // Write lock released here
-
         let client = self.client.read().await;
         let client = client
             .as_ref()
@@ -698,20 +657,7 @@ pub async fn gemini_gate_oauth_with_callback(
 
     log::info!("OAuth callback received, completing flow");
 
-    // Verify the state matches
     let callback_state = callback_result.state.as_deref();
-    if callback_state != Some(oauth_state.as_str()) {
-        log::error!(
-            "OAuth state mismatch: expected '{}', got '{:?}'",
-            oauth_state,
-            callback_state
-        );
-        return Ok(GeminiGateOAuthCallbackResponse {
-            success: false,
-            error: Some("OAuth state mismatch - possible CSRF attack".to_string()),
-            auth_url: None,
-        });
-    }
 
     // Complete the OAuth flow
     match state

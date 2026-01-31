@@ -482,6 +482,7 @@ pub struct CopilotAuthStatus {
 
 /// Response for copilot_gate_set_storage_backend command
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CopilotGateSetStorageResponse {
     /// Whether the storage backend was changed successfully
     pub success: bool,

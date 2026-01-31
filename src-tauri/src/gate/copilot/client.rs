@@ -205,6 +205,7 @@ impl<S: CopilotTokenStorage> CopilotClient<S> {
 
         // Exchange for Copilot token
         let exchange_config = TokenExchangeConfig::default()
+            .with_token_url(&self.config.copilot_token_url)
             .with_vs_code_version(&self.config.vs_code_version);
 
         ensure_valid_copilot_token(&self.http_client, &mut token_info, &exchange_config).await?;
@@ -354,6 +355,7 @@ impl<S: CopilotTokenStorage> CopilotClient<S> {
         if token.needs_copilot_refresh() && self.config.auto_refresh {
             debug!("Token needs refresh, refreshing...");
             let exchange_config = TokenExchangeConfig::default()
+                .with_token_url(&self.config.copilot_token_url)
                 .with_vs_code_version(&self.config.vs_code_version);
 
             if let Err(e) =

@@ -525,6 +525,7 @@ async fn handle_callback(
 
 /// Handle requests to the root path.
 async fn handle_root(State(state): State<Arc<ServerState>>) -> Html<String> {
+    let provider = html_escape(&state.provider_name);
     Html(format!(
         r#"<!DOCTYPE html>
 <html lang="en">
@@ -564,12 +565,13 @@ async fn handle_root(State(state): State<Arc<ServerState>>) -> Html<String> {
     </div>
 </body>
 </html>"#,
-        state.provider_name, state.provider_name
+        provider, provider
     ))
 }
 
 /// Generate success HTML page.
-fn success_html(provider: &str) -> String {
+fn success_html(provider_name: &str) -> String {
+    let provider = html_escape(provider_name);
     format!(
         r#"<!DOCTYPE html>
 <html lang="en">
@@ -631,7 +633,10 @@ fn success_html(provider: &str) -> String {
 }
 
 /// Generate error HTML page.
-fn error_html(provider: &str, error: &str, description: &str) -> String {
+fn error_html(provider_name: &str, error: &str, description: &str) -> String {
+    let provider = html_escape(provider_name);
+    let error_code = html_escape(error);
+    let desc = html_escape(description);
     format!(
         r#"<!DOCTYPE html>
 <html lang="en">
@@ -694,8 +699,24 @@ fn error_html(provider: &str, error: &str, description: &str) -> String {
     </div>
 </body>
 </html>"#,
-        provider, provider, error, description
+        provider, provider, error_code, desc
     )
+}
+
+/// Simple HTML escaping to prevent XSS.
+fn html_escape(s: &str) -> String {
+    let mut escaped = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '&' => escaped.push_str("&amp;"),
+            '<' => escaped.push_str("&lt;"),
+            '>' => escaped.push_str("&gt;"),
+            '"' => escaped.push_str("&quot;"),
+            '\'' => escaped.push_str("&#39;"),
+            _ => escaped.push(c),
+        }
+    }
+    escaped
 }
 
 // ============================================================================

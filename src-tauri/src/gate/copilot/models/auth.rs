@@ -13,7 +13,8 @@ use crate::gate::copilot::auth::refresh::REFRESH_BUFFER_SECS;
 // =============================================================================
 
 /// Response from GitHub's device code endpoint.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct DeviceCodeResponse {
     /// The device verification code (internal).
     pub device_code: String,
@@ -33,7 +34,8 @@ fn default_interval() -> u64 {
 }
 
 /// Response from GitHub's token endpoint after device flow completion.
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct GitHubTokenResponse {
     /// The OAuth access token.
     pub access_token: String,
@@ -49,6 +51,7 @@ pub struct GitHubTokenResponse {
 
 /// Response from the Copilot token exchange endpoint.
 #[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CopilotTokenResponse {
     /// The Copilot API token.
     pub token: String,
@@ -121,6 +124,7 @@ impl CopilotTokenResponse {
 /// This struct contains both the long-lived GitHub token and the
 /// short-lived Copilot token, along with expiration information.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TokenInfo {
     /// Type identifier (always "github" for Copilot auth).
     #[serde(default = "default_token_type")]

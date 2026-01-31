@@ -584,8 +584,8 @@ check_gstreamer_deps() {
         for dep in "${missing_deps[@]}"; do
             local libname
             libname=$(echo "$dep" | awk '{print $1}')
-            if [[ "$libname" =~ \.so\.[0-9]+$ ]]; then
-                local base_name="${libname%.*}"  # Remove version suffix
+            if [[ "$libname" =~ \.so(\.[0-9]+)+$ ]]; then
+                local base_name="${libname%%.so*}.so"
                 local newer_lib
                 newer_lib=$(ldconfig -p 2>/dev/null | grep "$base_name" | head -1 | awk '{print $NF}')
                 if [ -n "$newer_lib" ] && [ -f "$newer_lib" ]; then
@@ -681,7 +681,7 @@ patch_linuxdeploy_strip() {
             local offset
             offset=$(grep -aob 'hsqs' "$appimage_path" 2>/dev/null | head -1 | cut -d: -f1)
             if [ -n "$offset" ]; then
-                dd if="$appimage_path" bs=1 skip="$offset" 2>/dev/null | unsquashfs -d squashfs-root -f /dev/stdin >/dev/null 2>&1
+                dd if="$appimage_path" bs=1M iflag=skip_bytes,count_bytes skip="$offset" 2>/dev/null | unsquashfs -d squashfs-root -f /dev/stdin >/dev/null 2>&1
             fi
         fi
     fi
