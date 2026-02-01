@@ -107,7 +107,7 @@ pub fn RecapViewer(
     };
 
     // Save handler
-    let handle_save = {
+    let handle_save = Callback::new({
         let recap_id = recap.id.clone();
         let session_id = recap.session_id.clone();
         let campaign_id = recap.campaign_id.clone();
@@ -116,7 +116,7 @@ pub fn RecapViewer(
         let key_events = recap.key_events.clone();
         let on_save = on_save.clone();
 
-        move |_| {
+        move |_: leptos::ev::MouseEvent| {
             let updated = SessionRecap {
                 id: recap_id.clone(),
                 session_id: session_id.clone(),
@@ -138,7 +138,7 @@ pub fn RecapViewer(
 
             is_editing.set(false);
         }
-    };
+    });
 
     view! {
         <div class="recap-viewer bg-zinc-900 rounded-xl border border-zinc-800 overflow-hidden">
@@ -194,20 +194,24 @@ pub fn RecapViewer(
                                 >
                                     "Edit"
                                 </button>
-                            }
+                            }.into_any()
                         >
-                            <button
-                                class="px-3 py-1.5 bg-zinc-700 hover:bg-zinc-600 text-white rounded-lg text-sm transition-colors"
-                                on:click=move |_| is_editing.set(false)
-                            >
-                                "Cancel"
-                            </button>
-                            <button
-                                class="px-3 py-1.5 bg-green-600 hover:bg-green-500 text-white rounded-lg text-sm transition-colors"
-                                on:click=handle_save.clone()
-                            >
-                                "Save"
-                            </button>
+                            {view! {
+                                <>
+                                    <button
+                                        class="px-3 py-1.5 bg-zinc-700 hover:bg-zinc-600 text-white rounded-lg text-sm transition-colors"
+                                        on:click=move |_| is_editing.set(false)
+                                    >
+                                        "Cancel"
+                                    </button>
+                                    <button
+                                        class="px-3 py-1.5 bg-green-600 hover:bg-green-500 text-white rounded-lg text-sm transition-colors"
+                                        on:click=move |ev| handle_save.run(ev)
+                                    >
+                                        "Save"
+                                    </button>
+                                </>
+                            }.into_any()}
                         </Show>
                     </Show>
                 </div>

@@ -26,6 +26,10 @@ PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FRONTEND_DIR="$PROJECT_ROOT/frontend"
 BACKEND_DIR="$PROJECT_ROOT/src-tauri"
 
+# Default configuration
+: "${LLM_PROXY_PORT:=18787}"
+export LLM_PROXY_PORT
+
 print_header() {
     echo -e "\n${PURPLE}╔═══════════════════════════════════════════════════════════════════════════════╗${NC}"
     echo -e "${PURPLE}║              TTRPG Assistant (Sidecar DM) Build System                        ║${NC}"
@@ -789,8 +793,14 @@ run_dev() {
     # Setup display environment (Wayland workarounds)
     setup_display_environment
 
-    # Check for port conflicts (3030 is trunk dev server, 1420 is Tauri)
-    for port in 3030 1420; do
+    # Kill any existing instances of the app binary
+    if [ "$SEIZE_PORT" = true ]; then
+        print_info "Killing old instances of ttrpg-assistant..."
+        pkill -f "target/debug/ttrpg-assistant" || true
+    fi
+
+    # Check for port conflicts (3030 is trunk dev server, 1420 is Tauri, LLM_PROXY_PORT is proxy)
+    for port in 3030 1420 "$LLM_PROXY_PORT"; do
         if ! check_port_usage "$port" "$SEIZE_PORT"; then
             exit 1
         fi
