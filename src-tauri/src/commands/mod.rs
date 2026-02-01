@@ -42,8 +42,7 @@ pub use state::AppState;
 // Re-export error types
 pub use error::{CommandError, CommandResult};
 
-// Re-export OAuth types and commands (these will shadow the ones from commands_legacy)
-// Re-export OAuth types and commands (these will shadow the ones from commands_legacy)
+// Re-export OAuth types and commands
 pub use oauth::{
     // State types
     ClaudeState, ClaudeStorageBackend,

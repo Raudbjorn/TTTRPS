@@ -27,7 +27,7 @@ impl TextExtractionProvider {
 
     pub fn from_str(s: &str) -> Self {
         match s.to_lowercase().as_str() {
-            "claude" => Self::Claude,
+            "claude" | "claude_gate" | "claude-gate" => Self::Claude,
             _ => Self::Kreuzberg,
         }
     }
