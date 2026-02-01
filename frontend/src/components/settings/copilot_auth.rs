@@ -176,10 +176,13 @@ pub fn CopilotAuth(
 
     // Start Device Code OAuth flow
     let start_auth = move || {
+        web_sys::console::log_1(&"[CopilotAuth] start_auth called".into());
         spawn_local(async move {
+            web_sys::console::log_1(&"[CopilotAuth] spawn_local started, calling start_copilot_auth".into());
             is_loading.set(true);
             match start_copilot_auth().await {
                 Ok(response) => {
+                    web_sys::console::log_1(&format!("[CopilotAuth] Got response: user_code={}, uri={}", response.user_code, response.verification_uri).into());
                     user_code.set(response.user_code.clone());
                     verification_uri.set(response.verification_uri.clone());
                     device_code.set(response.device_code.clone());
@@ -199,7 +202,10 @@ pub fn CopilotAuth(
                         }
                     }
                 }
-                Err(e) => show_error("OAuth Failed", Some(&e), None),
+                Err(e) => {
+                    web_sys::console::log_1(&format!("[CopilotAuth] Error: {}", e).into());
+                    show_error("OAuth Failed", Some(&e), None);
+                }
             }
             is_loading.set(false);
         });
