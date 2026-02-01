@@ -489,6 +489,25 @@ impl GeminiClientTrait for MemoryStorageClient {
 }
 
 impl GeminiProvider {
+    /// Check if file storage has a gemini token (synchronous check).
+    /// Used by Auto backend selection to prefer file storage when tokens exist there.
+    fn file_storage_has_gemini_token() -> bool {
+        // Check unified path: ~/.local/share/ttrpg-assistant/oauth-tokens.json
+        if let Some(app_path) = FileTokenStorage::app_token_path() {
+            if app_path.exists() {
+                if let Ok(content) = std::fs::read_to_string(&app_path) {
+                    if let Ok(json) = serde_json::from_str::<serde_json::Value>(&content) {
+                        if json.get("gemini").is_some() {
+                            debug!("Gemini: Found existing token in file storage");
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        false
+    }
+
     /// Create a new provider with file-based token storage.
     ///
     /// Uses the app data path (~/.local/share/ttrpg-assistant/oauth-tokens.json).
@@ -574,10 +593,33 @@ impl GeminiProvider {
                 )
             }
             GeminiStorageBackend::Auto => {
-                // Try keyring first, fall back to file
+                // Smart Auto: Check both backends for existing tokens, prefer the one with tokens
+                // This ensures consistency with GeminiState's auto selection logic
+                let file_has_tokens = Self::file_storage_has_gemini_token();
+
                 #[cfg(feature = "keyring")]
                 {
-                    if KeyringTokenStorage::is_available() {
+                    let keyring_available = KeyringTokenStorage::is_available();
+
+                    if file_has_tokens {
+                        // File has tokens - prefer file storage for consistency
+                        info!("Gemini: Auto-selected file storage (has existing tokens)");
+                        let storage = FileTokenStorage::app_data_path().map_err(|e| {
+                            LLMError::NotConfigured(format!(
+                                "Failed to create file storage: {}",
+                                e
+                            ))
+                        })?;
+                        let gemini_client = CloudCodeClient::new(storage);
+                        (
+                            Arc::new(FileStorageClient {
+                                client: Arc::new(gemini_client),
+                            }),
+                            "file".to_string(),
+                        )
+                    } else if keyring_available {
+                        // No file tokens, keyring available -> use keyring
+                        info!("Gemini: Auto-selected keyring storage (no file tokens)");
                         let storage = KeyringTokenStorage::new();
                         let gemini_client = CloudCodeClient::new(storage);
                         (
@@ -587,6 +629,8 @@ impl GeminiProvider {
                             "keyring".to_string(),
                         )
                     } else {
+                        // No file tokens, keyring not available -> use file (default)
+                        info!("Gemini: Using file storage backend (default)");
                         let storage = FileTokenStorage::app_data_path().map_err(|e| {
                             LLMError::NotConfigured(format!(
                                 "Failed to create file storage: {}",
@@ -604,6 +648,12 @@ impl GeminiProvider {
                 }
                 #[cfg(not(feature = "keyring"))]
                 {
+                    // No keyring feature - always use file storage
+                    if file_has_tokens {
+                        info!("Gemini: Using file storage backend (has existing tokens)");
+                    } else {
+                        info!("Gemini: Using file storage backend (default)");
+                    }
                     let storage = FileTokenStorage::app_data_path().map_err(|e| {
                         LLMError::NotConfigured(format!("Failed to create file storage: {}", e))
                     })?;
