@@ -382,3 +382,280 @@ fn test_active_campaign_state() {
     active_campaign_id.set(None);
     assert!(active_campaign_id.get().is_none());
 }
+
+// ============================================================================
+// Additional CampaignGenre Tests
+// ============================================================================
+
+#[wasm_bindgen_test]
+fn test_campaign_genre_from_system_modern() {
+    assert!(matches!(CampaignGenre::from_system("Modern Setting"), CampaignGenre::Modern));
+    assert!(matches!(CampaignGenre::from_system("Fate Core"), CampaignGenre::Modern));
+    assert!(matches!(CampaignGenre::from_system("GURPS"), CampaignGenre::Modern));
+}
+
+#[wasm_bindgen_test]
+fn test_campaign_genre_from_system_historical() {
+    assert!(matches!(CampaignGenre::from_system("Historical Campaign"), CampaignGenre::Historical));
+    assert!(matches!(CampaignGenre::from_system("Pendragon"), CampaignGenre::Historical));
+    assert!(matches!(CampaignGenre::from_system("Ars Magica"), CampaignGenre::Historical));
+}
+
+#[wasm_bindgen_test]
+fn test_campaign_genre_case_insensitive() {
+    assert!(matches!(CampaignGenre::from_system("D&D 5E"), CampaignGenre::Fantasy));
+    assert!(matches!(CampaignGenre::from_system("d&d 5e"), CampaignGenre::Fantasy));
+    assert!(matches!(CampaignGenre::from_system("CALL OF CTHULHU"), CampaignGenre::Horror));
+    assert!(matches!(CampaignGenre::from_system("call of cthulhu"), CampaignGenre::Horror));
+}
+
+#[wasm_bindgen_test]
+fn test_campaign_genre_all_styles_return_tuples() {
+    let genres = [
+        CampaignGenre::Fantasy,
+        CampaignGenre::Horror,
+        CampaignGenre::Cyberpunk,
+        CampaignGenre::SciFi,
+        CampaignGenre::Modern,
+        CampaignGenre::Historical,
+        CampaignGenre::Unknown,
+    ];
+
+    for genre in genres {
+        let (bg_class, text_class) = genre.style();
+        assert!(!bg_class.is_empty(), "Genre {:?} should have bg class", genre);
+        assert!(!text_class.is_empty(), "Genre {:?} should have text class", genre);
+        assert!(bg_class.contains("bg-gradient"), "Genre {:?} bg should be gradient", genre);
+        assert!(text_class.starts_with("text-"), "Genre {:?} text class format", genre);
+    }
+}
+
+#[wasm_bindgen_test]
+fn test_campaign_genre_horror_style() {
+    let (bg_class, text_class) = CampaignGenre::Horror.style();
+    assert!(bg_class.contains("red") || bg_class.contains("slate"));
+    assert!(text_class.contains("red"));
+}
+
+#[wasm_bindgen_test]
+fn test_campaign_genre_cyberpunk_style() {
+    let (bg_class, text_class) = CampaignGenre::Cyberpunk.style();
+    assert!(bg_class.contains("fuchsia") || bg_class.contains("purple"));
+    assert!(text_class.contains("fuchsia"));
+}
+
+#[wasm_bindgen_test]
+fn test_campaign_genre_scifi_style() {
+    let (bg_class, text_class) = CampaignGenre::SciFi.style();
+    assert!(bg_class.contains("cyan") || bg_class.contains("blue"));
+    assert!(text_class.contains("cyan"));
+}
+
+#[wasm_bindgen_test]
+fn test_campaign_genre_modern_style() {
+    let (bg_class, text_class) = CampaignGenre::Modern.style();
+    assert!(bg_class.contains("slate"));
+    assert!(text_class.contains("slate"));
+}
+
+#[wasm_bindgen_test]
+fn test_campaign_genre_historical_style() {
+    let (bg_class, text_class) = CampaignGenre::Historical.style();
+    assert!(bg_class.contains("stone"));
+    assert!(text_class.contains("stone"));
+}
+
+#[wasm_bindgen_test]
+fn test_campaign_genre_unknown_style() {
+    let (bg_class, text_class) = CampaignGenre::Unknown.style();
+    assert!(bg_class.contains("zinc"));
+    assert!(text_class.contains("zinc"));
+}
+
+// ============================================================================
+// Campaign Helper Function Tests
+// ============================================================================
+
+#[wasm_bindgen_test]
+fn test_create_test_campaign_with_all_fields() {
+    let campaign = create_test_campaign(
+        "full-campaign",
+        "Full Campaign",
+        "D&D 5e",
+        Some("A complete campaign with description"),
+    );
+
+    assert_eq!(campaign.id, "full-campaign");
+    assert_eq!(campaign.name, "Full Campaign");
+    assert_eq!(campaign.system, "D&D 5e");
+    assert_eq!(campaign.description, Some("A complete campaign with description".to_string()));
+    assert!(!campaign.created_at.is_empty());
+    assert!(!campaign.updated_at.is_empty());
+}
+
+#[wasm_bindgen_test]
+fn test_create_test_campaign_without_description() {
+    let campaign = create_test_campaign(
+        "minimal-campaign",
+        "Minimal Campaign",
+        "Pathfinder",
+        None,
+    );
+
+    assert_eq!(campaign.id, "minimal-campaign");
+    assert!(campaign.description.is_none());
+}
+
+// ============================================================================
+// DashboardTab All Variants Tests
+// ============================================================================
+
+#[wasm_bindgen_test]
+fn test_dashboard_tab_clone() {
+    let tab = DashboardTab::Overview;
+    let cloned = tab.clone();
+    assert!(tab == cloned);
+}
+
+#[wasm_bindgen_test]
+fn test_dashboard_tab_copy() {
+    let tab = DashboardTab::Entities;
+    let copied: DashboardTab = tab;
+    assert!(tab == copied);
+}
+
+// ============================================================================
+// Campaign Card Edge Cases
+// ============================================================================
+
+#[wasm_bindgen_test]
+fn test_campaign_card_empty_description() {
+    leptos::mount::mount_to_body(|| {
+        provide_layout_state();
+
+        let campaign = create_test_campaign(
+            "no-desc",
+            "No Description Campaign",
+            "Unknown System",
+            None,
+        );
+
+        let on_click = Callback::new(|_id: String| {});
+
+        view! {
+            <Router>
+                <CampaignCard
+                    campaign=campaign
+                    on_click=on_click
+                />
+            </Router>
+        }
+    });
+}
+
+#[wasm_bindgen_test]
+fn test_campaign_card_long_name() {
+    leptos::mount::mount_to_body(|| {
+        provide_layout_state();
+
+        let campaign = create_test_campaign(
+            "long-name",
+            "This Is A Very Long Campaign Name That Might Overflow The Card Display Area",
+            "D&D 5e",
+            Some("Short desc"),
+        );
+
+        let on_click = Callback::new(|_id: String| {});
+
+        view! {
+            <Router>
+                <CampaignCard
+                    campaign=campaign
+                    on_click=on_click
+                />
+            </Router>
+        }
+    });
+}
+
+#[wasm_bindgen_test]
+fn test_campaign_card_special_characters() {
+    leptos::mount::mount_to_body(|| {
+        provide_layout_state();
+
+        let campaign = create_test_campaign(
+            "special-chars",
+            "Campaign: \"The Dragon's Hoard\" & Other Tales",
+            "D&D 5e",
+            Some("<script>alert('xss')</script>"),
+        );
+
+        let on_click = Callback::new(|_id: String| {});
+
+        view! {
+            <Router>
+                <CampaignCard
+                    campaign=campaign
+                    on_click=on_click
+                />
+            </Router>
+        }
+    });
+}
+
+#[wasm_bindgen_test]
+fn test_campaign_card_zero_sessions() {
+    leptos::mount::mount_to_body(|| {
+        provide_layout_state();
+
+        let campaign = create_test_campaign(
+            "zero-sessions",
+            "New Campaign",
+            "Pathfinder 2e",
+            None,
+        );
+
+        let on_click = Callback::new(|_id: String| {});
+
+        view! {
+            <Router>
+                <CampaignCard
+                    campaign=campaign
+                    session_count=0
+                    on_click=on_click
+                />
+            </Router>
+        }
+    });
+}
+
+#[wasm_bindgen_test]
+fn test_campaign_card_combined_states() {
+    // Test card that is both active and selected
+    leptos::mount::mount_to_body(|| {
+        provide_layout_state();
+
+        let campaign = create_test_campaign(
+            "combined-states",
+            "Active Selected Campaign",
+            "Call of Cthulhu",
+            Some("Both active and selected"),
+        );
+
+        let on_click = Callback::new(|_id: String| {});
+        let on_delete = Callback::new(|(_id, _name): (String, String)| {});
+
+        view! {
+            <Router>
+                <CampaignCard
+                    campaign=campaign
+                    is_active=true
+                    is_selected=true
+                    session_count=10
+                    on_click=on_click
+                    on_delete=on_delete
+                />
+            </Router>
+        }
+    });
+}
