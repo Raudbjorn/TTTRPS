@@ -175,7 +175,7 @@ pub fn CopilotAuth(
     });
 
     // Start Device Code OAuth flow
-    let start_auth = move |_| {
+    let start_auth = move || {
         spawn_local(async move {
             is_loading.set(true);
             match start_copilot_auth().await {
@@ -206,7 +206,7 @@ pub fn CopilotAuth(
     };
 
     // Logout
-    let logout = move |_| {
+    let logout = move || {
         spawn_local(async move {
             is_loading.set(true);
             match logout_copilot().await {
@@ -224,7 +224,7 @@ pub fn CopilotAuth(
     };
 
     // Cancel auth
-    let cancel_auth = move |_| {
+    let cancel_auth = move || {
         awaiting_auth.set(false);
         user_code.set(String::new());
         verification_uri.set(String::new());
@@ -424,7 +424,7 @@ pub fn CopilotAuth(
                                 <button
                                     type="button"
                                     class="px-3 py-1.5 text-xs font-medium rounded-lg bg-[var(--bg-surface)] text-[var(--text-muted)] hover:bg-[var(--bg-elevated)] transition-colors"
-                                    on:click=cancel_auth
+                                    on:click=move |_| cancel_auth()
                                 >
                                     "Cancel"
                                 </button>
@@ -448,7 +448,7 @@ pub fn CopilotAuth(
                                 type="button"
                                 class="px-4 py-2 text-sm font-medium rounded-lg bg-[#6e40c9] text-white hover:bg-[#5a32a3] transition-colors disabled:opacity-50"
                                 disabled=loading
-                                on:click=start_auth
+                                on:click=move |_| start_auth()
                             >
                                 "Login with GitHub"
                             </button>
@@ -459,7 +459,7 @@ pub fn CopilotAuth(
                                 type="button"
                                 class="px-4 py-2 text-sm font-medium rounded-lg bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors disabled:opacity-50"
                                 disabled=loading
-                                on:click=logout
+                                on:click=move |_| logout()
                             >
                                 "Logout"
                             </button>
