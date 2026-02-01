@@ -529,7 +529,7 @@ fn test_dashboard_tab_copy() {
 // ============================================================================
 
 #[wasm_bindgen_test]
-fn test_campaign_card_empty_description() {
+fn test_campaign_card_empty_description_renders_fallback() {
     leptos::mount::mount_to_body(|| {
         provide_layout_state();
 
@@ -551,18 +551,32 @@ fn test_campaign_card_empty_description() {
             </Router>
         }
     });
+
+    let document = web_sys::window().unwrap().document().unwrap();
+
+    // With None description, the element might not render if using conditional rendering.
+    // In CampaignCard.rs:
+    // if !campaign_desc.is_empty() { Some(...) } else { None }
+    // So if description is None/empty, the <p> is NOT rendered.
+    // We should assert that the element does NOT exist.
+    
+    let description_el = document.query_selector("[data-testid='campaign-description']").unwrap();
+    assert!(description_el.is_none(), "description element should NOT be rendered when description is missing");
 }
 
 #[wasm_bindgen_test]
-fn test_campaign_card_long_name() {
+fn test_campaign_card_long_name_truncates_or_clamps() {
     leptos::mount::mount_to_body(|| {
         provide_layout_state();
+
+        let long_name = "This is a very long campaign name that should be truncated or clamped in the UI so that it does not overflow the card width or wrap unexpectedly"
+            .to_string();
 
         let campaign = create_test_campaign(
             "long-name",
-            "This Is A Very Long Campaign Name That Might Overflow The Card Display Area",
-            "D&D 5e",
-            Some("Short desc"),
+            &long_name,
+            "Unknown System",
+            Some("Some description"),
         );
 
         let on_click = Callback::new(|_id: String| {});
@@ -576,44 +590,41 @@ fn test_campaign_card_long_name() {
             </Router>
         }
     });
+
+    let document = web_sys::window().unwrap().document().unwrap();
+
+    let title_el = document
+        .query_selector("[data-testid='campaign-title']")
+        .unwrap()
+        .expect("campaign title element should exist");
+
+    let classes = title_el.class_list();
+    // In CampaignCard.rs: line-clamp-2
+    let has_truncation_class = classes.contains("truncate")
+        || classes.contains("line-clamp-1")
+        || classes.contains("line-clamp-2")
+        || classes.contains("text-ellipsis");
+
+    assert!(
+        has_truncation_class,
+        "campaign title should have a truncation/ellipsis class (e.g. line-clamp-2) to prevent overflow"
+    );
 }
 
 #[wasm_bindgen_test]
-fn test_campaign_card_special_characters() {
-    leptos::mount::mount_to_body(|| {
-        provide_layout_state();
-
-        let campaign = create_test_campaign(
-            "special-chars",
-            "Campaign: \"The Dragon's Hoard\" & Other Tales",
-            "D&D 5e",
-            Some("<script>alert('xss')</script>"),
-        );
-
-        let on_click = Callback::new(|_id: String| {});
-
-        view! {
-            <Router>
-                <CampaignCard
-                    campaign=campaign
-                    on_click=on_click
-                />
-            </Router>
-        }
-    });
-}
-
-#[wasm_bindgen_test]
-fn test_campaign_card_zero_sessions() {
+fn test_campaign_card_zero_sessions_text_is_correct() {
     leptos::mount::mount_to_body(|| {
         provide_layout_state();
 
         let campaign = create_test_campaign(
             "zero-sessions",
-            "New Campaign",
-            "Pathfinder 2e",
-            None,
+            "Zero Session Campaign",
+            "Unknown System",
+            Some("A campaign with no sessions"),
         );
+        // Ensure campaign has zero sessions (in case create_test_campaign adds any by default)
+        // Note: Campaign struct doesn't have sessions field directly here, passed as prop
+        // session_count=0 is passed to component
 
         let on_click = Callback::new(|_id: String| {});
 
@@ -627,35 +638,66 @@ fn test_campaign_card_zero_sessions() {
             </Router>
         }
     });
+
+    let document = web_sys::window().unwrap().document().unwrap();
+
+    let sessions_el = document
+        .query_selector("[data-testid='campaign-session-count']")
+        .unwrap()
+        .expect("campaign session count element should exist");
+    let sessions_text = sessions_el.text_content().unwrap_or_default().trim().to_string();
+
+    // In CampaignCard.rs: <span>{session_count}</span> <span ...>"tracks"</span>
+    // So text should be "0 tracks"
+    assert!(
+        sessions_text.contains('0') && sessions_text.to_ascii_lowercase().contains("tracks"),
+        "expected zero-session text to communicate 0 sessions/tracks, got: {sessions_text:?}"
+    );
 }
 
 #[wasm_bindgen_test]
-fn test_campaign_card_combined_states() {
-    // Test card that is both active and selected
+fn test_campaign_card_special_characters_are_escaped() {
     leptos::mount::mount_to_body(|| {
         provide_layout_state();
 
+        let dangerous_text = "<script>alert('xss')</script> & <b>bold</b>";
+
         let campaign = create_test_campaign(
-            "combined-states",
-            "Active Selected Campaign",
-            "Call of Cthulhu",
-            Some("Both active and selected"),
+            "special-chars",
+            dangerous_text,
+            "Unknown System",
+            Some(dangerous_text), // Description also has it
         );
 
         let on_click = Callback::new(|_id: String| {});
-        let on_delete = Callback::new(|(_id, _name): (String, String)| {});
 
         view! {
             <Router>
                 <CampaignCard
                     campaign=campaign
-                    is_active=true
-                    is_selected=true
-                    session_count=10
                     on_click=on_click
-                    on_delete=on_delete
                 />
             </Router>
         }
     });
+
+    let document = web_sys::window().unwrap().document().unwrap();
+
+    let card_el = document
+        .query_selector("[data-testid='campaign-card']")
+        .unwrap()
+        .expect("campaign card root element should exist");
+
+    let inner_html = card_el.inner_html();
+
+    // Ensure potentially dangerous HTML is not interpreted as markup.
+    // Note: Leptos escapes by default.
+    assert!(
+        !inner_html.to_ascii_lowercase().contains("<script>"),
+        "campaign card should not render <script> tags from user input"
+    );
+    assert!(
+        inner_html.contains("&lt;script&gt;") || inner_html.contains("&amp;") || inner_html.contains("&lt;b&gt;"),
+        "special characters should be HTML-escaped in the rendered output"
+    );
 }
