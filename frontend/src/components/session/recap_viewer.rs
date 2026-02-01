@@ -107,7 +107,7 @@ pub fn RecapViewer(
     };
 
     // Save handler
-    let handle_save = Callback::new({
+    let handle_save = {
         let recap_id = recap.id.clone();
         let session_id = recap.session_id.clone();
         let campaign_id = recap.campaign_id.clone();
@@ -116,7 +116,7 @@ pub fn RecapViewer(
         let key_events = recap.key_events.clone();
         let on_save = on_save.clone();
 
-        move |_: leptos::ev::MouseEvent| {
+        move |_| {
             let updated = SessionRecap {
                 id: recap_id.clone(),
                 session_id: session_id.clone(),
@@ -138,7 +138,7 @@ pub fn RecapViewer(
 
             is_editing.set(false);
         }
-    });
+    };
 
     view! {
         <div class="recap-viewer bg-zinc-900 rounded-xl border border-zinc-800 overflow-hidden">
@@ -184,10 +184,24 @@ pub fn RecapViewer(
                     })}
 
                     // Edit/Save buttons
-                    <Show when=move || editable>
-                        <Show
-                            when=move || is_editing.get()
-                            fallback=move || view! {
+                    {editable.then(|| {
+                        if is_editing.get() {
+                            view! {
+                                <button
+                                    class="px-3 py-1.5 bg-zinc-700 hover:bg-zinc-600 text-white rounded-lg text-sm transition-colors"
+                                    on:click=move |_| is_editing.set(false)
+                                >
+                                    "Cancel"
+                                </button>
+                                <button
+                                    class="px-3 py-1.5 bg-green-600 hover:bg-green-500 text-white rounded-lg text-sm transition-colors"
+                                    on:click=handle_save.clone()
+                                >
+                                    "Save"
+                                </button>
+                            }.into_any()
+                        } else {
+                            view! {
                                 <button
                                     class="px-3 py-1.5 bg-zinc-700 hover:bg-zinc-600 text-white rounded-lg text-sm transition-colors"
                                     on:click=move |_| is_editing.set(true)
@@ -195,25 +209,8 @@ pub fn RecapViewer(
                                     "Edit"
                                 </button>
                             }.into_any()
-                        >
-                            {view! {
-                                <>
-                                    <button
-                                        class="px-3 py-1.5 bg-zinc-700 hover:bg-zinc-600 text-white rounded-lg text-sm transition-colors"
-                                        on:click=move |_| is_editing.set(false)
-                                    >
-                                        "Cancel"
-                                    </button>
-                                    <button
-                                        class="px-3 py-1.5 bg-green-600 hover:bg-green-500 text-white rounded-lg text-sm transition-colors"
-                                        on:click=move |ev| handle_save.run(ev)
-                                    >
-                                        "Save"
-                                    </button>
-                                </>
-                            }.into_any()}
-                        </Show>
-                    </Show>
+                        }
+                    })}
                 </div>
             </div>
 
@@ -464,10 +461,8 @@ fn BulletsView(
                                             prop:value=bullet
                                             on:input=move |ev| {
                                                 let mut updated_bullets = bullets.get();
-                                                if i < updated_bullets.len() {
-                                                    updated_bullets[i] = event_target_value(&ev);
-                                                    on_change.run(updated_bullets);
-                                                }
+                                                updated_bullets[i] = event_target_value(&ev);
+                                                on_change.run(updated_bullets);
                                             }
                                         />
                                         <button
