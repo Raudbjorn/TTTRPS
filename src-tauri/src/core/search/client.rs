@@ -680,17 +680,34 @@ impl SearchClient {
     // Statistics
     // ========================================================================
 
-    /// Get statistics for all indexes
+    /// Get statistics for all indexes (including dynamic per-document indexes)
     pub async fn get_all_stats(&self) -> Result<HashMap<String, u64>> {
         let mut stats = HashMap::new();
 
-        for index_name in Self::all_indexes() {
-            match self.document_count(index_name).await {
+        // First, get all indexes from Meilisearch (includes dynamic ones like shadowdark-rpg)
+        let all_meili_indexes: Vec<String> = match self.client.list_all_indexes().await {
+            Ok(indexes) => indexes
+                .results
+                .into_iter()
+                .map(|idx| idx.uid)
+                .collect(),
+            Err(e) => {
+                log::warn!("Failed to list all indexes: {}, falling back to static list", e);
+                Self::all_indexes().iter().map(|s| s.to_string()).collect()
+            }
+        };
+
+        for index_name in all_meili_indexes {
+            // Skip internal indexes that shouldn't be shown in stats
+            if index_name.ends_with("-raw") || index_name == "library_metadata" {
+                continue;
+            }
+            match self.document_count(&index_name).await {
                 Ok(count) => {
-                    stats.insert(index_name.to_string(), count);
+                    stats.insert(index_name, count);
                 }
                 Err(_) => {
-                    stats.insert(index_name.to_string(), 0);
+                    stats.insert(index_name, 0);
                 }
             }
         }

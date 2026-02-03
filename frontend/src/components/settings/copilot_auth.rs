@@ -90,38 +90,65 @@ pub fn CopilotAuth(
     // Polling effect - runs when awaiting_auth is true
     // Uses a loop with TimeoutFuture for cleaner async control flow
     Effect::new(move |_| {
-        if !awaiting_auth.get() {
+        let awaiting = awaiting_auth.get();
+        let code = device_code.get();
+
+        web_sys::console::log_1(
+            &format!(
+                "[CopilotAuth] Polling Effect triggered: awaiting={}, code_len={}",
+                awaiting,
+                code.len()
+            )
+            .into(),
+        );
+
+        if !awaiting {
+            web_sys::console::log_1(&"[CopilotAuth] Effect: awaiting_auth is false, returning".into());
             return;
         }
 
-        let code = device_code.get();
         if code.is_empty() {
+            web_sys::console::log_1(&"[CopilotAuth] Effect: device_code is empty, returning".into());
             return;
         }
+
+        web_sys::console::log_1(&"[CopilotAuth] Effect: Starting polling loop!".into());
 
         // Reset cancellation flag when starting new polling
         polling_cancelled.set(false);
 
         spawn_local(async move {
+            web_sys::console::log_1(&"[CopilotAuth] spawn_local polling started".into());
             const MAX_CONSECUTIVE_ERRORS: u32 = 3;
             let mut consecutive_errors: u32 = 0;
 
             while awaiting_auth.get_untracked() && !polling_cancelled.get_untracked() {
                 let interval_ms = (poll_interval_secs.get_untracked() * 1000).max(5000) as u32;
+                web_sys::console::log_1(
+                    &format!("[CopilotAuth] Waiting {}ms before poll", interval_ms).into(),
+                );
                 TimeoutFuture::new(interval_ms).await;
 
                 // Check cancellation after timeout
                 if polling_cancelled.get_untracked() || !awaiting_auth.get_untracked() {
+                    web_sys::console::log_1(&"[CopilotAuth] Polling cancelled or not awaiting".into());
                     break;
                 }
 
                 let code = device_code.get_untracked();
                 if code.is_empty() {
+                    web_sys::console::log_1(&"[CopilotAuth] device_code empty in loop, breaking".into());
                     break;
                 }
 
+                web_sys::console::log_1(
+                    &format!("[CopilotAuth] Calling poll_copilot_auth with code: {}", code).into(),
+                );
                 match poll_copilot_auth(code).await {
                     Ok(result) => {
+                        web_sys::console::log_1(
+                            &format!("[CopilotAuth] Poll result: status={}", result.status).into(),
+                        );
                         // Check cancellation before updating signals
                         if polling_cancelled.get_untracked() {
                             break;
@@ -156,6 +183,9 @@ pub fn CopilotAuth(
                         }
                     }
                     Err(e) => {
+                        web_sys::console::log_1(
+                            &format!("[CopilotAuth] Poll error: {}", e).into(),
+                        );
                         // Check cancellation before updating signals
                         if polling_cancelled.get_untracked() {
                             break;
@@ -201,11 +231,27 @@ pub fn CopilotAuth(
                         )
                         .into(),
                     );
+                    web_sys::console::log_1(
+                        &format!(
+                            "[CopilotAuth] Setting signals: device_code={}, interval={}",
+                            response.device_code, response.interval
+                        )
+                        .into(),
+                    );
                     user_code.set(response.user_code.clone());
                     verification_uri.set(response.verification_uri.clone());
                     device_code.set(response.device_code.clone());
                     poll_interval_secs.set(response.interval);
+                    web_sys::console::log_1(&"[CopilotAuth] Setting awaiting_auth to true".into());
                     awaiting_auth.set(true);
+                    web_sys::console::log_1(
+                        &format!(
+                            "[CopilotAuth] After setting: awaiting_auth={}, device_code={}",
+                            awaiting_auth.get_untracked(),
+                            device_code.get_untracked()
+                        )
+                        .into(),
+                    );
 
                     // Open the verification URL in browser
                     match open_url_in_browser(response.verification_uri.clone()).await {
