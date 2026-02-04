@@ -66,7 +66,7 @@ Add to Claude Desktop's `claude_desktop_config.json`:
   "mcpServers": {
     "claude-code": {
       "command": "npx",
-      "args": ["@anthropic/claude-code-mcp"]
+      "args": ["@anthropic-ai/claude-code"]
     }
   }
 }

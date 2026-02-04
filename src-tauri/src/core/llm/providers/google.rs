@@ -30,8 +30,9 @@ impl GoogleProvider {
             .build()
             .expect("Failed to create HTTP client");
 
+        // Trim the API key at construction to ensure consistency with validation
         Self {
-            api_key,
+            api_key: api_key.trim().to_string(),
             model,
             client,
         }

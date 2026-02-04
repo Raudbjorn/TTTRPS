@@ -102,14 +102,18 @@ async fn test_health_check_invalid_key_format() {
 
 // Integration-style test: exercises real health_check(), including network call.
 // This is ignored by default to keep CI deterministic.
-// Run explicitly with: cargo test test_health_check_valid_key -- --ignored
+// Run explicitly with: GOOGLE_API_KEY=your-key cargo test test_health_check_valid_key -- --ignored
 #[tokio::test]
-#[ignore = "Requires valid Google API key and network access"]
+#[ignore = "Requires GOOGLE_API_KEY env var with valid Google API key"]
 async fn test_health_check_valid_key() {
-    let provider = GoogleProvider::new(
-        "AIzaValidApiKey12345".to_string(),
-        "gemini-2.0-flash-exp".to_string(),
-    );
+    let api_key = match std::env::var("GOOGLE_API_KEY") {
+        Ok(key) => key,
+        Err(_) => {
+            println!("GOOGLE_API_KEY not set, skipping test");
+            return;
+        }
+    };
+    let provider = GoogleProvider::new(api_key, "gemini-2.0-flash-exp".to_string());
     // Note: health_check() validates key format AND makes an API call
     assert!(provider.health_check().await);
 }
