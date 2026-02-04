@@ -8,7 +8,7 @@ use tauri::State;
 use tokio::sync::RwLock as AsyncRwLock;
 
 // Copilot Gate OAuth client - for Device Code flow
-use crate::gate::copilot::{
+use crate::oauth::copilot::{
     CopilotClient, DeviceFlowPending, GateStorageAdapter as CopilotGateStorageAdapter,
     ModelInfo as CopilotModelInfo, ModelsResponse as CopilotModelsResponse,
     PollResult as CopilotPollResult, QuotaInfo as CopilotQuotaInfo,
@@ -16,7 +16,7 @@ use crate::gate::copilot::{
     storage::CopilotTokenStorage,
     models::{EmbeddingResponse as CopilotEmbeddingResponse},
 };
-use crate::gate::storage::FileTokenStorage as GateFileTokenStorage;
+use crate::oauth::storage::FileTokenStorage as GateFileTokenStorage;
 
 // Import AppState - will be available via commands_legacy re-export
 use crate::commands::AppState;
@@ -76,7 +76,7 @@ trait CopilotGateClientOps: Send + Sync {
     async fn is_authenticated(&self) -> Result<bool, String>;
     async fn get_token_info(
         &self,
-    ) -> Result<Option<crate::gate::copilot::models::TokenInfo>, String>;
+    ) -> Result<Option<crate::oauth::copilot::models::TokenInfo>, String>;
     /// Get a valid Copilot API token, refreshing if needed.
     /// Returns the token string that can be used in Authorization headers.
     async fn ensure_valid_token(&self) -> Result<String, String>;
@@ -103,7 +103,7 @@ impl CopilotGateClientOps for CopilotFileStorageClientWrapper {
 
     async fn get_token_info(
         &self,
-    ) -> Result<Option<crate::gate::copilot::models::TokenInfo>, String> {
+    ) -> Result<Option<crate::oauth::copilot::models::TokenInfo>, String> {
         self.client
             .storage()
             .load()
@@ -260,7 +260,7 @@ impl CopilotGateState {
     /// Get token info
     pub async fn get_token_info(
         &self,
-    ) -> Result<Option<crate::gate::copilot::models::TokenInfo>, String> {
+    ) -> Result<Option<crate::oauth::copilot::models::TokenInfo>, String> {
         let client = self.client.read().await;
         let client = client
             .as_ref()
@@ -480,7 +480,7 @@ pub struct CopilotAuthStatus {
     pub keyring_available: bool,
 }
 
-/// Response for copilot_gate_set_storage_backend command
+/// Response for copilot_set_storage_backend command
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CopilotGateSetStorageResponse {
     /// Whether the storage backend was changed successfully
@@ -677,7 +677,7 @@ pub async fn check_copilot_auth(state: State<'_, AppState>) -> Result<CopilotAut
 
     // Check if keyring is available on this system
     #[cfg(feature = "keyring")]
-    let keyring_available = crate::gate::KeyringTokenStorage::is_available();
+    let keyring_available = crate::oauth::KeyringTokenStorage::is_available();
     #[cfg(not(feature = "keyring"))]
     let keyring_available = false;
 
@@ -755,7 +755,7 @@ pub async fn get_copilot_models(
 /// Allows switching between file-based and keyring storage.
 /// Note: Switching backends will require re-authentication.
 #[tauri::command]
-pub async fn copilot_gate_set_storage_backend(
+pub async fn copilot_set_storage_backend(
     backend: String,
     state: State<'_, AppState>,
 ) -> Result<CopilotGateSetStorageResponse, String> {

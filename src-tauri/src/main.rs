@@ -298,9 +298,9 @@ fn main() {
             commands::get_llm_config,
             commands::get_router_stats,
             commands::list_ollama_models,
-            commands::list_claude_models,
+            commands::claude_list_models,
             commands::list_openai_models,
-            commands::list_gemini_models,
+            commands::gemini_list_models,
             commands::list_openrouter_models,
             commands::list_provider_models,
 
@@ -631,30 +631,30 @@ fn main() {
             commands::check_ocr_availability,
 
             // Claude Gate OAuth Commands
-            commands::oauth::claude::claude_gate_get_status,
-            commands::oauth::claude::claude_gate_start_oauth,
-            commands::oauth::claude::claude_gate_complete_oauth,
-            commands::oauth::claude::claude_gate_logout,
-            commands::oauth::claude::claude_gate_set_storage_backend,
-            commands::oauth::claude::claude_gate_list_models,
+            commands::claude_get_status,
+            commands::claude_start_oauth,
+            commands::claude_complete_oauth,
+            commands::claude_logout,
+            commands::claude_set_storage_backend,
+            commands::claude_list_models,
 
             // Gemini OAuth Commands
-            commands::oauth::gemini::gemini_gate_get_status,
-            commands::oauth::gemini::gemini_gate_start_oauth,
-            commands::oauth::gemini::gemini_gate_complete_oauth,
-            commands::oauth::gemini::gemini_gate_logout,
-            commands::oauth::gemini::gemini_gate_set_storage_backend,
-            commands::oauth::gemini::gemini_gate_oauth_with_callback,
-            commands::oauth::gemini::gemini_gate_list_models,
+            commands::gemini_get_status,
+            commands::gemini_start_oauth,
+            commands::gemini_complete_oauth,
+            commands::gemini_logout,
+            commands::gemini_set_storage_backend,
+            commands::gemini_oauth_with_callback,
+            commands::gemini_list_models,
 
             // Copilot OAuth Commands (Device Code Flow)
-            commands::oauth::copilot::start_copilot_auth,
-            commands::oauth::copilot::poll_copilot_auth,
-            commands::oauth::copilot::check_copilot_auth,
-            commands::oauth::copilot::logout_copilot,
-            commands::oauth::copilot::get_copilot_usage,
-            commands::oauth::copilot::get_copilot_models,
-            commands::oauth::copilot::copilot_gate_set_storage_backend,
+            commands::start_copilot_auth,
+            commands::poll_copilot_auth,
+            commands::check_copilot_auth,
+            commands::logout_copilot,
+            commands::get_copilot_usage,
+            commands::get_copilot_models,
+            commands::copilot_set_storage_backend,
 
             // Phase 4: Personality Extension Commands (TASK-PERS-014, TASK-PERS-015, TASK-PERS-016, TASK-PERS-017)
             // Template Commands

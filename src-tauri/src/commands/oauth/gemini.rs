@@ -8,16 +8,16 @@ use tauri::State;
 use tokio::sync::RwLock as AsyncRwLock;
 
 // Unified Gate OAuth types
-use crate::gate::{OAuthFlowState as GateOAuthFlowState, TokenInfo as GateTokenInfo};
+use crate::oauth::{OAuthFlowState as GateOAuthFlowState, TokenInfo as GateTokenInfo};
 
 // Gemini OAuth client
 #[allow(deprecated)]
-use crate::gate::gemini::{
+use crate::oauth::gemini::{
     CloudCodeClient as GeminiCloudCodeClient, FileTokenStorage as GeminiFileTokenStorage,
 };
 #[cfg(feature = "keyring")]
 #[allow(deprecated)]
-use crate::gate::gemini::KeyringTokenStorage as GeminiKeyringTokenStorage;
+use crate::oauth::gemini::KeyringTokenStorage as GeminiKeyringTokenStorage;
 
 // Import AppState - will be available via commands_legacy re-export
 use crate::commands::AppState;
@@ -87,7 +87,7 @@ trait GeminiGateClientOps: Send + Sync {
         state: Option<&str>,
     ) -> Result<GateTokenInfo, String>;
     async fn logout(&self) -> Result<(), String>;
-    async fn list_models(&self) -> Result<Vec<crate::gate::gemini::GeminiApiModel>, String>;
+    async fn list_models(&self) -> Result<Vec<crate::oauth::gemini::GeminiApiModel>, String>;
     fn storage_name(&self) -> &'static str;
 }
 
@@ -131,7 +131,7 @@ impl GeminiGateClientOps for GeminiFileStorageClientWrapper {
     async fn logout(&self) -> Result<(), String> {
         self.client.logout().await.map_err(|e| e.to_string())
     }
-    async fn list_models(&self) -> Result<Vec<crate::gate::gemini::GeminiApiModel>, String> {
+    async fn list_models(&self) -> Result<Vec<crate::oauth::gemini::GeminiApiModel>, String> {
         self.client.list_models().await.map_err(|e| e.to_string())
     }
     fn storage_name(&self) -> &'static str {
@@ -181,7 +181,7 @@ impl GeminiGateClientOps for GeminiKeyringStorageClientWrapper {
     async fn logout(&self) -> Result<(), String> {
         self.client.logout().await.map_err(|e| e.to_string())
     }
-    async fn list_models(&self) -> Result<Vec<crate::gate::gemini::GeminiApiModel>, String> {
+    async fn list_models(&self) -> Result<Vec<crate::oauth::gemini::GeminiApiModel>, String> {
         self.client.list_models().await.map_err(|e| e.to_string())
     }
     fn storage_name(&self) -> &'static str {
@@ -403,7 +403,7 @@ impl GeminiGateState {
     }
 
     /// List available models from the Cloud Code API.
-    pub async fn list_models(&self) -> Result<Vec<crate::gate::gemini::GeminiApiModel>, String> {
+    pub async fn list_models(&self) -> Result<Vec<crate::oauth::gemini::GeminiApiModel>, String> {
         let client = self.client.read().await;
         let client = client
             .as_ref()
@@ -416,7 +416,7 @@ impl GeminiGateState {
 // Command Response Types
 // ============================================================================
 
-/// Response for gemini_gate_get_status command
+/// Response for gemini_get_status command
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GeminiGateStatusResponse {
     /// Whether the user is authenticated with valid tokens
@@ -429,7 +429,7 @@ pub struct GeminiGateStatusResponse {
     pub keyring_available: bool,
 }
 
-/// Response for gemini_gate_start_oauth command
+/// Response for gemini_start_oauth command
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GeminiGateOAuthStartResponse {
     /// URL to open in user's browser for OAuth authorization
@@ -438,7 +438,7 @@ pub struct GeminiGateOAuthStartResponse {
     pub state: String,
 }
 
-/// Response for gemini_gate_complete_oauth command
+/// Response for gemini_complete_oauth command
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GeminiGateOAuthCompleteResponse {
     /// Whether the OAuth flow completed successfully
@@ -447,14 +447,14 @@ pub struct GeminiGateOAuthCompleteResponse {
     pub error: Option<String>,
 }
 
-/// Response for gemini_gate_logout command
+/// Response for gemini_logout command
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GeminiGateLogoutResponse {
     /// Whether the logout was successful
     pub success: bool,
 }
 
-/// Response for gemini_gate_set_storage_backend command
+/// Response for gemini_set_storage_backend command
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GeminiGateSetStorageResponse {
     /// Whether the storage backend was changed successfully
@@ -471,7 +471,7 @@ pub struct GeminiGateSetStorageResponse {
 ///
 /// Returns authentication status, storage backend, token expiration, and keyring availability.
 #[tauri::command]
-pub async fn gemini_gate_get_status(
+pub async fn gemini_get_status(
     state: State<'_, AppState>,
 ) -> Result<GeminiGateStatusResponse, String> {
     let authenticated = state.gemini_gate.is_authenticated().await?;
@@ -489,7 +489,7 @@ pub async fn gemini_gate_get_status(
 
     // Check if keyring is available on this system (using unified gate)
     #[cfg(feature = "keyring")]
-    let keyring_available = crate::gate::KeyringTokenStorage::is_available();
+    let keyring_available = crate::oauth::KeyringTokenStorage::is_available();
     #[cfg(not(feature = "keyring"))]
     let keyring_available = false;
 
@@ -506,7 +506,7 @@ pub async fn gemini_gate_get_status(
 /// Returns the authorization URL that the user should open in their browser,
 /// along with a state parameter for CSRF verification.
 #[tauri::command]
-pub async fn gemini_gate_start_oauth(
+pub async fn gemini_start_oauth(
     state: State<'_, AppState>,
 ) -> Result<GeminiGateOAuthStartResponse, String> {
     let (auth_url, oauth_state) = state.gemini_gate.start_oauth_flow().await?;
@@ -528,7 +528,7 @@ pub async fn gemini_gate_start_oauth(
 ///   `code#state` format where the state is embedded after a `#` character.
 /// * `oauth_state` - Optional state parameter for CSRF verification (if not embedded in code)
 #[tauri::command]
-pub async fn gemini_gate_complete_oauth(
+pub async fn gemini_complete_oauth(
     code: String,
     oauth_state: Option<String>,
     state: State<'_, AppState>,
@@ -580,7 +580,7 @@ pub async fn gemini_gate_complete_oauth(
 
 /// Logout from Gemini and remove stored tokens
 #[tauri::command]
-pub async fn gemini_gate_logout(
+pub async fn gemini_logout(
     state: State<'_, AppState>,
 ) -> Result<GeminiGateLogoutResponse, String> {
     state.gemini_gate.logout().await?;
@@ -597,7 +597,7 @@ pub async fn gemini_gate_logout(
 /// # Arguments
 /// * `backend` - Storage backend to use: "file", "keyring", or "auto"
 #[tauri::command]
-pub async fn gemini_gate_set_storage_backend(
+pub async fn gemini_set_storage_backend(
     backend: String,
     state: State<'_, AppState>,
 ) -> Result<GeminiGateSetStorageResponse, String> {
@@ -618,10 +618,10 @@ pub async fn gemini_gate_set_storage_backend(
 // Callback Server Integration
 // ============================================================================
 
-use crate::gate::callback_server::{CallbackConfig, CallbackServer};
+use crate::oauth::callback_server::{CallbackConfig, CallbackServer};
 use std::time::Duration;
 
-/// Response for gemini_gate_oauth_with_callback command
+/// Response for gemini_oauth_with_callback command
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GeminiGateOAuthCallbackResponse {
     /// Whether the OAuth flow completed successfully
@@ -647,7 +647,7 @@ pub struct GeminiGateOAuthCallbackResponse {
 /// * `timeout_secs` - Optional timeout in seconds (default: 300 = 5 minutes)
 /// * `open_browser` - Whether to automatically open the browser (default: true)
 #[tauri::command]
-pub async fn gemini_gate_oauth_with_callback(
+pub async fn gemini_oauth_with_callback(
     timeout_secs: Option<u64>,
     open_browser: Option<bool>,
     state: State<'_, AppState>,
@@ -753,8 +753,8 @@ pub struct GeminiGateModel {
     pub description: Option<String>,
 }
 
-impl From<crate::gate::gemini::GeminiApiModel> for GeminiGateModel {
-    fn from(m: crate::gate::gemini::GeminiApiModel) -> Self {
+impl From<crate::oauth::gemini::GeminiApiModel> for GeminiGateModel {
+    fn from(m: crate::oauth::gemini::GeminiApiModel) -> Self {
         Self {
             id: m.id.clone(),
             name: m.display_name,
@@ -768,7 +768,7 @@ impl From<crate::gate::gemini::GeminiApiModel> for GeminiGateModel {
 /// Returns models available for use with the authenticated account.
 /// Requires successful OAuth authentication first.
 #[tauri::command]
-pub async fn gemini_gate_list_models(
+pub async fn gemini_list_models(
     state: State<'_, AppState>,
 ) -> Result<Vec<GeminiGateModel>, String> {
     // Check if authenticated

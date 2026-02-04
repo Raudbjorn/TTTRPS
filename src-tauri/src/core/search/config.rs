@@ -60,6 +60,13 @@ pub enum EmbedderConfig {
         /// Embedding dimensions for this model
         dimensions: u32,
     },
+    /// GitHub Copilot embeddings
+    #[serde(rename = "copilot")]
+    Copilot {
+        api_key: String,
+        model: String,
+        dimensions: u32,
+    },
 }
 
 /// Get embedding dimensions for common Ollama models
@@ -76,6 +83,15 @@ pub fn ollama_embedding_dimensions(model: &str) -> u32 {
         "bge-base" => 768,
         "bge-small" => 384,
         _ => 768, // Default fallback
+    }
+}
+
+/// Get embedding dimensions for GitHub Copilot models
+pub fn copilot_embedding_dimensions(model: &str) -> u32 {
+    match model {
+        "text-embedding-3-small" => 1536,
+        "text-embedding-3-large" => 3072,
+        _ => 1536,
     }
 }
 
@@ -154,6 +170,29 @@ pub fn build_embedder_json(config: &EmbedderConfig) -> serde_json::Value {
                 },
                 "response": {
                     "embedding": "{{embedding}}"
+                },
+                "dimensions": dimensions,
+                "documentTemplate": TTRPG_DOCUMENT_TEMPLATE,
+                "documentTemplateMaxBytes": DOCUMENT_TEMPLATE_MAX_BYTES
+            })
+        }
+        EmbedderConfig::Copilot {
+            api_key,
+            model,
+            dimensions,
+        } => {
+            serde_json::json!({
+                "source": "rest",
+                "url": "https://api.githubcopilot.com/embeddings",
+                "request": {
+                    "model": model,
+                    "input": "{{text}}"
+                },
+                "response": {
+                    "embedding": "{{embedding}}"
+                },
+                "headers": {
+                    "Authorization": format!("Bearer {}", api_key)
                 },
                 "dimensions": dimensions,
                 "documentTemplate": TTRPG_DOCUMENT_TEMPLATE,

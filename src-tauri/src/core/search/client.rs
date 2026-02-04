@@ -308,6 +308,50 @@ impl SearchClient {
         Ok(configured)
     }
 
+    /// Configure Copilot embeddings on all content indexes
+    ///
+    /// This configures Meilisearch to use GitHub Copilot for AI-powered semantic search.
+    /// The embedder is configured as a REST source calling the Copilot API directly.
+    pub async fn setup_copilot_embeddings(
+        &self,
+        model: &str,
+        dimensions: u32,
+        api_key: &str,
+    ) -> Result<Vec<String>> {
+        let config = EmbedderConfig::Copilot {
+            api_key: api_key.to_string(),
+            model: model.to_string(),
+            dimensions,
+        };
+
+        let mut configured = Vec::new();
+        let content_indexes = all_indexes();
+
+        for index_name in content_indexes {
+            match self.configure_embedder(index_name, "copilot", &config).await {
+                Ok(_) => {
+                    log::info!(
+                        "Configured Copilot embedder on index '{}' with model '{}'",
+                        index_name,
+                        model
+                    );
+                    configured.push(index_name.to_string());
+                }
+                Err(e) => {
+                    log::warn!("Failed to configure embedder on '{}': {}", index_name, e);
+                }
+            }
+        }
+
+        if configured.is_empty() {
+            return Err(SearchError::ConfigError(
+                "Failed to configure any indexes".to_string(),
+            ));
+        }
+
+        Ok(configured)
+    }
+
     /// Get current embedder configuration for an index
     pub async fn get_embedder_settings(
         &self,

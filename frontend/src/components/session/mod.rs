@@ -29,6 +29,9 @@ pub mod entity_card;
 pub mod card_tray;
 pub mod cheat_sheet_viewer;
 
+pub mod session_chat_panel;
+pub mod thread_tabs;
+
 use leptos::prelude::*;
 use leptos::ev;
 use leptos_router::hooks::use_params;
@@ -43,7 +46,7 @@ use crate::components::design_system::{Button, ButtonVariant};
 use crate::components::campaign_details::NpcConversation;
 
 use session_list::SessionList;
-use npc_list::NpcList;
+use npc_list::{NpcList, NpcSelection};
 use active_session_workspace::ActiveSessionWorkspace;
 
 pub use session_list::SessionList as SessionListComponent;
@@ -83,6 +86,7 @@ pub use cheat_sheet_viewer::{
     CheatSheetViewer, FloatingCheatSheet,
     CheatSheet, CheatSheetSection, CheatSheetItem, SectionType, TruncationWarning,
 };
+pub use session_chat_panel::SessionChatPanel;
 
 /// Route params for session page
 #[derive(Params, PartialEq, Clone, Default)]
@@ -343,16 +347,9 @@ pub fn Session() -> impl IntoView {
             <NpcList
                 campaign_id=campaign_id_memo.into()
                 selected_npc_id=selected_npc_id.into()
-                on_select_npc=Callback::new(move |id: String| {
-                    // Mock NPC name lookup - in production, would fetch from backend
-                    let name = match id.as_str() {
-                        "npc-1" => "Garrosh",
-                        "npc-2" => "Elara",
-                        "npc-3" => "Zoltan",
-                        _ => "Unknown NPC",
-                    };
-                    selected_npc_id.set(Some(id));
-                    selected_npc_name.set(Some(name.to_string()));
+                on_select_npc=Callback::new(move |selection: NpcSelection| {
+                    selected_npc_id.set(Some(selection.id));
+                    selected_npc_name.set(Some(selection.name));
                 })
             />
         </div>
