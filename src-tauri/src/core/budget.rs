@@ -276,9 +276,25 @@ impl BudgetEnforcer {
         let spending = self.spending.read().unwrap();
         let now = Utc::now();
 
-        let today_start = now - Duration::hours(now.hour() as i64);
-        let week_start = now - Duration::days(now.weekday().num_days_from_monday() as i64);
-        let month_start = now - Duration::days(now.day() as i64 - 1);
+        // Truncate to start of each period (midnight UTC)
+        let today_start = now
+            .with_hour(0)
+            .and_then(|t| t.with_minute(0))
+            .and_then(|t| t.with_second(0))
+            .and_then(|t| t.with_nanosecond(0))
+            .unwrap_or(now);
+        let week_start = (now - Duration::days(now.weekday().num_days_from_monday() as i64))
+            .with_hour(0)
+            .and_then(|t| t.with_minute(0))
+            .and_then(|t| t.with_second(0))
+            .and_then(|t| t.with_nanosecond(0))
+            .unwrap_or(now);
+        let month_start = (now - Duration::days(now.day() as i64 - 1))
+            .with_hour(0)
+            .and_then(|t| t.with_minute(0))
+            .and_then(|t| t.with_second(0))
+            .and_then(|t| t.with_nanosecond(0))
+            .unwrap_or(now);
 
         let today: f64 = spending
             .iter()
@@ -346,23 +362,46 @@ fn get_period_bounds(period: BudgetPeriod) -> (DateTime<Utc>, DateTime<Utc>) {
 
     match period {
         BudgetPeriod::Hourly => {
-            let start = now - Duration::minutes(now.minute() as i64);
+            // Truncate to start of current hour
+            let start = now
+                .with_minute(0)
+                .and_then(|t| t.with_second(0))
+                .and_then(|t| t.with_nanosecond(0))
+                .unwrap_or(now);
             let end = start + Duration::hours(1);
             (start, end)
         }
         BudgetPeriod::Daily => {
-            let start = now - Duration::hours(now.hour() as i64);
+            // Truncate to start of current day (midnight UTC)
+            let start = now
+                .with_hour(0)
+                .and_then(|t| t.with_minute(0))
+                .and_then(|t| t.with_second(0))
+                .and_then(|t| t.with_nanosecond(0))
+                .unwrap_or(now);
             let end = start + Duration::days(1);
             (start, end)
         }
         BudgetPeriod::Weekly => {
             let days_since_monday = now.weekday().num_days_from_monday() as i64;
-            let start = now - Duration::days(days_since_monday);
+            // Truncate to start of Monday (midnight UTC)
+            let start = (now - Duration::days(days_since_monday))
+                .with_hour(0)
+                .and_then(|t| t.with_minute(0))
+                .and_then(|t| t.with_second(0))
+                .and_then(|t| t.with_nanosecond(0))
+                .unwrap_or(now);
             let end = start + Duration::weeks(1);
             (start, end)
         }
         BudgetPeriod::Monthly => {
-            let start = now - Duration::days(now.day() as i64 - 1);
+            // Truncate to start of current month (1st day, midnight UTC)
+            let start = (now - Duration::days(now.day() as i64 - 1))
+                .with_hour(0)
+                .and_then(|t| t.with_minute(0))
+                .and_then(|t| t.with_second(0))
+                .and_then(|t| t.with_nanosecond(0))
+                .unwrap_or(now);
             let end = start + Duration::days(30); // Approximation
             (start, end)
         }

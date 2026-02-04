@@ -61,12 +61,13 @@ fn test_pro_convenience_constructor() {
 // =============================================================================
 
 #[tokio::test]
+#[ignore = "Requires valid Google API key and network access"]
 async fn test_health_check_valid_key() {
     let provider = GoogleProvider::new(
         "AIzaValidApiKey12345".to_string(),
         "gemini-2.0-flash-exp".to_string(),
     );
-    // Health check validates key format (starts with "AIza")
+    // Note: health_check() validates key format AND makes an API call
     assert!(provider.health_check().await);
 }
 
