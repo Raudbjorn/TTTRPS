@@ -200,14 +200,16 @@ pub async fn configure_llm(
     // Sync Meilisearch chat workspace with the new provider
     // LLMConfig is a type alias for ProviderConfig, so we can convert directly
     if let Ok(chat_provider) = ChatProviderConfig::try_from(&config) {
+        // Clone needed values before acquiring lock to minimize lock duration
+        let search_host = state.search_client.host().to_string();
+        let master_key = state.sidecar_manager.config().master_key.clone();
+
+        // Use write lock since set_chat_client and configure_chat_workspace modify internal state
         let manager = state.llm_manager.clone();
-        let manager_guard = manager.read().await;
+        let manager_guard = manager.write().await;
 
         // Ensure chat client is configured
-        manager_guard.set_chat_client(
-            state.search_client.host(),
-            Some(&state.sidecar_manager.config().master_key),
-        ).await;
+        manager_guard.set_chat_client(&search_host, Some(&master_key)).await;
 
         // Configure the dm-assistant workspace with the new provider
         if let Err(e) = manager_guard.configure_chat_workspace("dm-assistant", chat_provider, None).await {
