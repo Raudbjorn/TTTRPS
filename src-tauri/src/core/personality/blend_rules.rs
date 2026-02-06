@@ -21,7 +21,7 @@
 
 use super::context::GameplayContext;
 use super::errors::{BlendRuleError, PersonalityExtensionError};
-use super::meilisearch::PersonalityIndexManager;
+use super::meilisearch::{escape_filter_value, PersonalityIndexManager};
 use super::types::{BlendRule, BlendRuleDocument, BlendRuleId, PersonalityId};
 use lru::LruCache;
 use serde::{Deserialize, Serialize};
@@ -30,23 +30,12 @@ use std::num::NonZeroUsize;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-/// Escape a value for safe use in Meilisearch filter expressions.
-fn escape_filter_value(value: &str) -> String {
-    value.replace('\\', "\\\\").replace('"', "\\\"")
-}
-
 // ============================================================================
 // Constants
 // ============================================================================
 
 /// Default cache capacity for blend rules.
 pub const DEFAULT_RULE_CACHE_CAPACITY: usize = 50;
-
-/// Timeout for Meilisearch operations.
-pub const MEILISEARCH_TIMEOUT_SECS: u64 = 30;
-
-/// Polling interval for Meilisearch tasks.
-pub const MEILISEARCH_POLL_MS: u64 = 100;
 
 // ============================================================================
 // Blend Rule Store

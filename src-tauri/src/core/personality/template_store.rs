@@ -38,7 +38,7 @@
 //! ```
 
 use super::errors::{PersonalityExtensionError, TemplateError};
-use super::meilisearch::PersonalityIndexManager;
+use super::meilisearch::{escape_filter_value, PersonalityIndexManager};
 use super::templates::SettingTemplate;
 use super::types::{PersonalityId, TemplateDocument, TemplateId};
 use crate::core::personality_base::PersonalityProfile;
@@ -231,7 +231,7 @@ impl SettingTemplateStore {
         &self,
         setting_name: &str,
     ) -> Result<Vec<SettingTemplate>, PersonalityExtensionError> {
-        let filter = format!("settingName = \"{}\"", setting_name);
+        let filter = format!("settingName = \"{}\"", escape_filter_value(setting_name));
         let docs = self
             .index_manager
             .list_templates(Some(&filter), DEFAULT_SEARCH_LIMIT)?;
@@ -247,7 +247,8 @@ impl SettingTemplateStore {
     ) -> Result<Vec<SettingTemplate>, PersonalityExtensionError> {
         let filter = format!(
             "gameSystem = \"{}\" AND settingName = \"{}\"",
-            game_system, setting_name
+            escape_filter_value(game_system),
+            escape_filter_value(setting_name),
         );
         let docs = self
             .index_manager
@@ -282,7 +283,7 @@ impl SettingTemplateStore {
         &self,
         tag: &str,
     ) -> Result<Vec<SettingTemplate>, PersonalityExtensionError> {
-        let filter = format!("tags = \"{}\"", tag);
+        let filter = format!("tags = \"{}\"", escape_filter_value(tag));
         let docs = self
             .index_manager
             .list_templates(Some(&filter), DEFAULT_SEARCH_LIMIT)?;

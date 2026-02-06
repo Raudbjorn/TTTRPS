@@ -90,7 +90,7 @@ const INDEX_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Escape a value for safe use in Meilisearch filter expressions.
 /// Escapes backslashes and double quotes to prevent filter injection.
-fn escape_filter_value(value: &str) -> String {
+pub(crate) fn escape_filter_value(value: &str) -> String {
     value.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
@@ -108,10 +108,11 @@ pub fn personality_templates_settings() -> Settings<Unchecked> {
         FilterableAttributesRule::Field("campaignId".to_string()),
     ];
 
-    let mut sortable: BTreeSet<String> = BTreeSet::new();
-    sortable.insert("name".to_string());
-    sortable.insert("createdAt".to_string());
-    sortable.insert("updatedAt".to_string());
+    let sortable = BTreeSet::from([
+        "name".to_string(),
+        "createdAt".to_string(),
+        "updatedAt".to_string(),
+    ]);
 
     Settings {
         searchable_attributes: Setting::Set(vec![
@@ -137,11 +138,12 @@ pub fn blend_rules_settings() -> Settings<Unchecked> {
         FilterableAttributesRule::Field("campaignId".to_string()),
     ];
 
-    let mut sortable: BTreeSet<String> = BTreeSet::new();
-    sortable.insert("name".to_string());
-    sortable.insert("priority".to_string());
-    sortable.insert("createdAt".to_string());
-    sortable.insert("updatedAt".to_string());
+    let sortable = BTreeSet::from([
+        "name".to_string(),
+        "priority".to_string(),
+        "createdAt".to_string(),
+        "updatedAt".to_string(),
+    ]);
 
     Settings {
         searchable_attributes: Setting::Set(vec![
@@ -306,23 +308,13 @@ impl PersonalityIndexManager {
                 })?;
                 Ok(Some(doc))
             }
-            Err(e) => {
-                let err_str = e.to_string();
-                // Meilisearch returns a specific error for missing documents
-                if err_str.contains("document_not_found")
-                    || err_str.contains("not found")
-                    || err_str.contains("Document")
-                {
-                    Ok(None)
-                } else {
-                    Err(PersonalityIndexError::GetDocument {
-                        index: INDEX_PERSONALITY_TEMPLATES.to_string(),
-                        doc_id: id.to_string(),
-                        source: err_str,
-                    }
-                    .into())
-                }
+            Err(meilisearch_lib::Error::DocumentNotFound(_)) => Ok(None),
+            Err(e) => Err(PersonalityIndexError::GetDocument {
+                index: INDEX_PERSONALITY_TEMPLATES.to_string(),
+                doc_id: id.to_string(),
+                source: e.to_string(),
             }
+            .into()),
         }
     }
 
@@ -468,22 +460,13 @@ impl PersonalityIndexManager {
                 })?;
                 Ok(Some(doc))
             }
-            Err(e) => {
-                let err_str = e.to_string();
-                if err_str.contains("document_not_found")
-                    || err_str.contains("not found")
-                    || err_str.contains("Document")
-                {
-                    Ok(None)
-                } else {
-                    Err(PersonalityIndexError::GetDocument {
-                        index: INDEX_BLEND_RULES.to_string(),
-                        doc_id: id.to_string(),
-                        source: err_str,
-                    }
-                    .into())
-                }
+            Err(meilisearch_lib::Error::DocumentNotFound(_)) => Ok(None),
+            Err(e) => Err(PersonalityIndexError::GetDocument {
+                index: INDEX_BLEND_RULES.to_string(),
+                doc_id: id.to_string(),
+                source: e.to_string(),
             }
+            .into()),
         }
     }
 
@@ -572,7 +555,7 @@ impl PersonalityIndexManager {
         &self,
         limit: usize,
     ) -> Result<Vec<BlendRuleDocument>, PersonalityExtensionError> {
-        let mut search_query = SearchQuery::empty()
+        let search_query = SearchQuery::empty()
             .with_filter(serde_json::Value::String("enabled = true".to_string()))
             .with_sort(vec!["priority:desc".to_string()])
             .with_pagination(0, limit);
