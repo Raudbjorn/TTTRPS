@@ -37,8 +37,8 @@ pub enum PersonalityIndexError {
     #[error("Failed to update settings for '{index}': {source}")]
     Settings { index: String, source: String },
 
-    #[error("Task timeout for index '{index}'")]
-    Timeout { index: String },
+    #[error("Task failed for index '{index}': {source}")]
+    TaskFailed { index: String, source: String },
 
     #[error("Failed to get stats for '{index}': {source}")]
     Stats { index: String, source: String },
@@ -187,8 +187,9 @@ fn ensure_single_index(
             })?;
         meili
             .wait_for_task(task.uid, Some(INDEX_TIMEOUT))
-            .map_err(|_| PersonalityIndexError::Timeout {
+            .map_err(|e| PersonalityIndexError::TaskFailed {
                 index: uid.to_string(),
+                source: e.to_string(),
             })?;
     }
 
@@ -200,8 +201,9 @@ fn ensure_single_index(
         })?;
     meili
         .wait_for_task(task.uid, Some(INDEX_TIMEOUT))
-        .map_err(|_| PersonalityIndexError::Timeout {
+        .map_err(|e| PersonalityIndexError::TaskFailed {
             index: uid.to_string(),
+            source: e.to_string(),
         })?;
 
     log::debug!("Configured index '{}'", uid);
@@ -285,8 +287,9 @@ impl PersonalityIndexManager {
 
         self.meili
             .wait_for_task(task.uid, Some(INDEX_TIMEOUT))
-            .map_err(|_| PersonalityIndexError::Timeout {
+            .map_err(|e| PersonalityIndexError::TaskFailed {
                 index: INDEX_PERSONALITY_TEMPLATES.to_string(),
+                source: e.to_string(),
             })?;
 
         log::debug!("Upserted template: {} ({})", template.name, template.id);
@@ -331,8 +334,9 @@ impl PersonalityIndexManager {
 
         self.meili
             .wait_for_task(task.uid, Some(INDEX_TIMEOUT))
-            .map_err(|_| PersonalityIndexError::Timeout {
+            .map_err(|e| PersonalityIndexError::TaskFailed {
                 index: INDEX_PERSONALITY_TEMPLATES.to_string(),
+                source: e.to_string(),
             })?;
 
         log::debug!("Deleted template: {}", id);
@@ -437,8 +441,9 @@ impl PersonalityIndexManager {
 
         self.meili
             .wait_for_task(task.uid, Some(INDEX_TIMEOUT))
-            .map_err(|_| PersonalityIndexError::Timeout {
+            .map_err(|e| PersonalityIndexError::TaskFailed {
                 index: INDEX_BLEND_RULES.to_string(),
+                source: e.to_string(),
             })?;
 
         log::debug!("Upserted blend rule: {} ({})", rule.name, rule.id);
@@ -483,8 +488,9 @@ impl PersonalityIndexManager {
 
         self.meili
             .wait_for_task(task.uid, Some(INDEX_TIMEOUT))
-            .map_err(|_| PersonalityIndexError::Timeout {
+            .map_err(|e| PersonalityIndexError::TaskFailed {
                 index: INDEX_BLEND_RULES.to_string(),
+                source: e.to_string(),
             })?;
 
         log::debug!("Deleted blend rule: {}", id);
@@ -615,8 +621,9 @@ impl PersonalityIndexManager {
 
         self.meili
             .wait_for_task(task.uid, Some(INDEX_TIMEOUT))
-            .map_err(|_| PersonalityIndexError::Timeout {
+            .map_err(|e| PersonalityIndexError::TaskFailed {
                 index: INDEX_PERSONALITY_TEMPLATES.to_string(),
+                source: e.to_string(),
             })?;
 
         log::info!("Cleared all templates");
@@ -635,8 +642,9 @@ impl PersonalityIndexManager {
 
         self.meili
             .wait_for_task(task.uid, Some(INDEX_TIMEOUT))
-            .map_err(|_| PersonalityIndexError::Timeout {
+            .map_err(|e| PersonalityIndexError::TaskFailed {
                 index: INDEX_BLEND_RULES.to_string(),
+                source: e.to_string(),
             })?;
 
         log::info!("Cleared all blend rules");
@@ -769,10 +777,12 @@ mod tests {
         };
         assert!(err.to_string().contains("doc-123"));
 
-        let err = PersonalityIndexError::Timeout {
+        let err = PersonalityIndexError::TaskFailed {
             index: "test_index".to_string(),
+            source: "timeout exceeded".to_string(),
         };
         assert!(err.to_string().contains("test_index"));
+        assert!(err.to_string().contains("timeout exceeded"));
     }
 
     #[test]
