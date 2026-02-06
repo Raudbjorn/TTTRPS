@@ -11,7 +11,7 @@
 //!
 //! ```text
 //! SettingTemplateStore
-//! ├── PersonalityIndexManager (Meilisearch operations)
+//! ├── PersonalityIndexManager (embedded meilisearch_lib, sync operations)
 //! └── LRU Cache (in-memory, capacity 100)
 //!     └── RwLock<LruCache<TemplateId, SettingTemplate>>
 //! ```
@@ -21,7 +21,8 @@
 //! ```rust,ignore
 //! use personality::template_store::SettingTemplateStore;
 //!
-//! let store = SettingTemplateStore::new("http://localhost:7700", None).await?;
+//! // Create from an existing PersonalityIndexManager
+//! let store = SettingTemplateStore::from_manager(index_manager);
 //!
 //! // Save a template
 //! store.save(&template).await?;
@@ -74,36 +75,10 @@ pub struct SettingTemplateStore {
 }
 
 impl SettingTemplateStore {
-    /// Create a new template store with the given Meilisearch connection.
-    pub async fn new(
-        host: &str,
-        api_key: Option<&str>,
-    ) -> Result<Self, PersonalityExtensionError> {
-        Self::with_capacity(host, api_key, DEFAULT_CACHE_CAPACITY).await
-    }
-
-    /// Create a new template store with a custom cache capacity.
-    pub async fn with_capacity(
-        host: &str,
-        api_key: Option<&str>,
-        cache_capacity: usize,
-    ) -> Result<Self, PersonalityExtensionError> {
-        let index_manager = Arc::new(PersonalityIndexManager::new(host, api_key));
-
-        // Initialize the templates index
-        index_manager.initialize_indexes().await?;
-
-        let capacity = NonZeroUsize::new(cache_capacity.max(1))
-            .unwrap_or(NonZeroUsize::new(DEFAULT_CACHE_CAPACITY).unwrap());
-
-        Ok(Self {
-            index_manager,
-            cache: RwLock::new(LruCache::new(capacity)),
-            cache_capacity,
-        })
-    }
-
     /// Create a store from an existing index manager.
+    ///
+    /// This is the primary constructor. The `PersonalityIndexManager` wraps
+    /// an `Arc<MeilisearchLib>` for embedded search operations.
     pub fn from_manager(index_manager: Arc<PersonalityIndexManager>) -> Self {
         let capacity =
             NonZeroUsize::new(DEFAULT_CACHE_CAPACITY).unwrap();
@@ -112,6 +87,21 @@ impl SettingTemplateStore {
             index_manager,
             cache: RwLock::new(LruCache::new(capacity)),
             cache_capacity: DEFAULT_CACHE_CAPACITY,
+        }
+    }
+
+    /// Create a store from an existing index manager with custom cache capacity.
+    pub fn from_manager_with_capacity(
+        index_manager: Arc<PersonalityIndexManager>,
+        cache_capacity: usize,
+    ) -> Self {
+        let capacity = NonZeroUsize::new(cache_capacity.max(1))
+            .unwrap_or(NonZeroUsize::new(DEFAULT_CACHE_CAPACITY).unwrap());
+
+        Self {
+            index_manager,
+            cache: RwLock::new(LruCache::new(capacity)),
+            cache_capacity,
         }
     }
 
@@ -139,11 +129,11 @@ impl SettingTemplateStore {
 
         // Fall back to Meilisearch
         log::debug!("Cache miss for template: {}, fetching from Meilisearch", id);
-        let doc = self.index_manager.get_template(id).await?;
+        let doc = self.index_manager.get_template(id)?;
 
         if let Some(doc) = doc {
             // Convert document to full template
-            let template = self.document_to_template(&doc).await?;
+            let template = self.document_to_template(&doc)?;
 
             // Update cache
             {
@@ -167,11 +157,11 @@ impl SettingTemplateStore {
         &self,
         limit: usize,
     ) -> Result<Vec<SettingTemplate>, PersonalityExtensionError> {
-        let docs = self.index_manager.list_templates(None, limit).await?;
+        let docs = self.index_manager.list_templates(None, limit)?;
 
         let mut templates = Vec::with_capacity(docs.len());
         for doc in docs {
-            let template = self.document_to_template(&doc).await?;
+            let template = self.document_to_template(&doc)?;
             templates.push(template);
         }
 
@@ -191,7 +181,7 @@ impl SettingTemplateStore {
         let spt: super::types::SettingPersonalityTemplate = template.clone().into();
 
         // Save to Meilisearch
-        self.index_manager.upsert_template(&spt).await?;
+        self.index_manager.upsert_template(&spt)?;
 
         // Update cache
         {
@@ -208,7 +198,7 @@ impl SettingTemplateStore {
     /// Invalidates cache entry.
     pub async fn delete(&self, id: &TemplateId) -> Result<(), PersonalityExtensionError> {
         // Delete from Meilisearch
-        self.index_manager.delete_template(id).await?;
+        self.index_manager.delete_template(id)?;
 
         // Remove from cache
         {
@@ -231,10 +221,9 @@ impl SettingTemplateStore {
     ) -> Result<Vec<SettingTemplate>, PersonalityExtensionError> {
         let docs = self
             .index_manager
-            .list_templates_by_game_system(game_system, DEFAULT_SEARCH_LIMIT)
-            .await?;
+            .list_templates_by_game_system(game_system, DEFAULT_SEARCH_LIMIT)?;
 
-        self.documents_to_templates(docs).await
+        self.documents_to_templates(docs)
     }
 
     /// Filter templates by setting name.
@@ -245,10 +234,9 @@ impl SettingTemplateStore {
         let filter = format!("settingName = \"{}\"", setting_name);
         let docs = self
             .index_manager
-            .list_templates(Some(&filter), DEFAULT_SEARCH_LIMIT)
-            .await?;
+            .list_templates(Some(&filter), DEFAULT_SEARCH_LIMIT)?;
 
-        self.documents_to_templates(docs).await
+        self.documents_to_templates(docs)
     }
 
     /// Filter templates by both game system and setting.
@@ -263,20 +251,18 @@ impl SettingTemplateStore {
         );
         let docs = self
             .index_manager
-            .list_templates(Some(&filter), DEFAULT_SEARCH_LIMIT)
-            .await?;
+            .list_templates(Some(&filter), DEFAULT_SEARCH_LIMIT)?;
 
-        self.documents_to_templates(docs).await
+        self.documents_to_templates(docs)
     }
 
     /// List built-in templates only.
     pub async fn list_builtin(&self) -> Result<Vec<SettingTemplate>, PersonalityExtensionError> {
         let docs = self
             .index_manager
-            .list_builtin_templates(DEFAULT_SEARCH_LIMIT)
-            .await?;
+            .list_builtin_templates(DEFAULT_SEARCH_LIMIT)?;
 
-        self.documents_to_templates(docs).await
+        self.documents_to_templates(docs)
     }
 
     /// List templates for a specific campaign.
@@ -286,10 +272,9 @@ impl SettingTemplateStore {
     ) -> Result<Vec<SettingTemplate>, PersonalityExtensionError> {
         let docs = self
             .index_manager
-            .list_templates_by_campaign(campaign_id, DEFAULT_SEARCH_LIMIT)
-            .await?;
+            .list_templates_by_campaign(campaign_id, DEFAULT_SEARCH_LIMIT)?;
 
-        self.documents_to_templates(docs).await
+        self.documents_to_templates(docs)
     }
 
     /// Filter templates by tag.
@@ -300,10 +285,9 @@ impl SettingTemplateStore {
         let filter = format!("tags = \"{}\"", tag);
         let docs = self
             .index_manager
-            .list_templates(Some(&filter), DEFAULT_SEARCH_LIMIT)
-            .await?;
+            .list_templates(Some(&filter), DEFAULT_SEARCH_LIMIT)?;
 
-        self.documents_to_templates(docs).await
+        self.documents_to_templates(docs)
     }
 
     // ========================================================================
@@ -325,10 +309,9 @@ impl SettingTemplateStore {
     ) -> Result<Vec<SettingTemplate>, PersonalityExtensionError> {
         let docs = self
             .index_manager
-            .search_templates(keyword, None, limit)
-            .await?;
+            .search_templates(keyword, None, limit)?;
 
-        self.documents_to_templates(docs).await
+        self.documents_to_templates(docs)
     }
 
     /// Search templates with a filter.
@@ -339,10 +322,9 @@ impl SettingTemplateStore {
     ) -> Result<Vec<SettingTemplate>, PersonalityExtensionError> {
         let docs = self
             .index_manager
-            .search_templates(keyword, Some(filter), DEFAULT_SEARCH_LIMIT)
-            .await?;
+            .search_templates(keyword, Some(filter), DEFAULT_SEARCH_LIMIT)?;
 
-        self.documents_to_templates(docs).await
+        self.documents_to_templates(docs)
     }
 
     // ========================================================================
@@ -489,19 +471,19 @@ impl SettingTemplateStore {
         }
 
         // Check Meilisearch
-        let doc = self.index_manager.get_template(id).await?;
+        let doc = self.index_manager.get_template(id)?;
         Ok(doc.is_some())
     }
 
     /// Get the total count of templates.
     pub async fn count(&self) -> Result<u64, PersonalityExtensionError> {
-        let stats = self.index_manager.get_stats().await?;
+        let stats = self.index_manager.get_stats()?;
         Ok(stats.template_count)
     }
 
     /// Clear all templates (use with caution).
     pub async fn clear_all(&self) -> Result<(), PersonalityExtensionError> {
-        self.index_manager.clear_templates().await?;
+        self.index_manager.clear_templates()?;
         self.clear_cache().await;
         log::info!("Cleared all templates");
         Ok(())
@@ -650,8 +632,8 @@ impl SettingTemplateStore {
     /// Convert a TemplateDocument to a full SettingTemplate.
     ///
     /// Since TemplateDocument doesn't contain all fields (like full vocabulary map),
-    /// we need to fetch the full document from Meilisearch if needed.
-    async fn document_to_template(
+    /// we reconstruct from the document fields available.
+    fn document_to_template(
         &self,
         doc: &TemplateDocument,
     ) -> Result<SettingTemplate, PersonalityExtensionError> {
@@ -689,13 +671,13 @@ impl SettingTemplateStore {
     }
 
     /// Convert multiple documents to templates.
-    async fn documents_to_templates(
+    fn documents_to_templates(
         &self,
         docs: Vec<TemplateDocument>,
     ) -> Result<Vec<SettingTemplate>, PersonalityExtensionError> {
         let mut templates = Vec::with_capacity(docs.len());
         for doc in docs {
-            let template = self.document_to_template(&doc).await?;
+            let template = self.document_to_template(&doc)?;
             templates.push(template);
         }
         Ok(templates)
@@ -813,11 +795,18 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "Requires running Meilisearch instance"]
+    #[ignore = "Requires embedded Meilisearch instance"]
     async fn test_store_crud_operations() {
-        let store = SettingTemplateStore::new("http://localhost:7700", None)
-            .await
+        use meilisearch_lib::MeilisearchLib;
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let config = meilisearch_lib::Config::builder()
+            .db_path(temp_dir.path())
+            .build()
             .unwrap();
+        let meili = Arc::new(MeilisearchLib::new(config).unwrap());
+        let index_manager = Arc::new(PersonalityIndexManager::new(meili));
+        index_manager.initialize_indexes().unwrap();
+        let store = SettingTemplateStore::from_manager(index_manager);
 
         let template = sample_template();
 
@@ -838,11 +827,18 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "Requires running Meilisearch instance"]
+    #[ignore = "Requires embedded Meilisearch instance"]
     async fn test_store_cache_behavior() {
-        let store = SettingTemplateStore::with_capacity("http://localhost:7700", None, 10)
-            .await
+        use meilisearch_lib::MeilisearchLib;
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let config = meilisearch_lib::Config::builder()
+            .db_path(temp_dir.path())
+            .build()
             .unwrap();
+        let meili = Arc::new(MeilisearchLib::new(config).unwrap());
+        let index_manager = Arc::new(PersonalityIndexManager::new(meili));
+        index_manager.initialize_indexes().unwrap();
+        let store = SettingTemplateStore::from_manager_with_capacity(index_manager, 10);
 
         let template = sample_template();
         store.save(&template).await.unwrap();
@@ -864,11 +860,18 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "Requires running Meilisearch instance"]
+    #[ignore = "Requires embedded Meilisearch instance"]
     async fn test_store_search() {
-        let store = SettingTemplateStore::new("http://localhost:7700", None)
-            .await
+        use meilisearch_lib::MeilisearchLib;
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let config = meilisearch_lib::Config::builder()
+            .db_path(temp_dir.path())
+            .build()
             .unwrap();
+        let meili = Arc::new(MeilisearchLib::new(config).unwrap());
+        let index_manager = Arc::new(PersonalityIndexManager::new(meili));
+        index_manager.initialize_indexes().unwrap();
+        let store = SettingTemplateStore::from_manager(index_manager);
 
         let template = SettingTemplate::builder("Forgotten Realms Sage", "storyteller")
             .game_system("dnd5e")
@@ -893,11 +896,18 @@ mod tests {
     }
 
     #[tokio::test]
-    #[ignore = "Requires running Meilisearch instance"]
+    #[ignore = "Requires embedded Meilisearch instance"]
     async fn test_store_filter_by_game_system() {
-        let store = SettingTemplateStore::new("http://localhost:7700", None)
-            .await
+        use meilisearch_lib::MeilisearchLib;
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let config = meilisearch_lib::Config::builder()
+            .db_path(temp_dir.path())
+            .build()
             .unwrap();
+        let meili = Arc::new(MeilisearchLib::new(config).unwrap());
+        let index_manager = Arc::new(PersonalityIndexManager::new(meili));
+        index_manager.initialize_indexes().unwrap();
+        let store = SettingTemplateStore::from_manager(index_manager);
 
         let template = sample_template();
         store.save(&template).await.unwrap();

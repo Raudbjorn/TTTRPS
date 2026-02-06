@@ -88,7 +88,7 @@ impl BlendRuleStore {
 
     /// Initialize the store, loading the context index.
     pub async fn initialize(&self) -> Result<(), PersonalityExtensionError> {
-        // Load all rules to build context index
+        // Load all rules to build context index (list_all still async due to cache lock)
         let rules = self.list_all(1000).await?;
         let mut index = self.context_index.lock().await;
 
@@ -119,7 +119,7 @@ impl BlendRuleStore {
         }
 
         // Fetch from Meilisearch
-        let doc = self.index_manager.get_blend_rule(id).await?;
+        let doc = self.index_manager.get_blend_rule(id)?;
 
         match doc {
             Some(doc) => {
@@ -170,8 +170,7 @@ impl BlendRuleStore {
 
                 let docs = self
                     .index_manager
-                    .list_blend_rules(Some(&filter), 1)
-                    .await?;
+                    .list_blend_rules(Some(&filter), 1)?;
 
                 match docs.into_iter().next() {
                     Some(doc) => {
@@ -219,7 +218,7 @@ impl BlendRuleStore {
         rule.touch();
 
         // Save to Meilisearch
-        self.index_manager.upsert_blend_rule(&rule).await?;
+        self.index_manager.upsert_blend_rule(&rule)?;
 
         // Update cache
         {
@@ -253,7 +252,7 @@ impl BlendRuleStore {
             }
 
             // Delete from Meilisearch
-            self.index_manager.delete_blend_rule(id).await?;
+            self.index_manager.delete_blend_rule(id)?;
 
             // Remove from cache
             {
@@ -280,7 +279,7 @@ impl BlendRuleStore {
         &self,
         limit: usize,
     ) -> Result<Vec<BlendRule>, PersonalityExtensionError> {
-        let docs = self.index_manager.list_blend_rules(None, limit).await?;
+        let docs = self.index_manager.list_blend_rules(None, limit)?;
         self.documents_to_rules(docs)
     }
 
@@ -292,8 +291,7 @@ impl BlendRuleStore {
     ) -> Result<Vec<BlendRule>, PersonalityExtensionError> {
         let docs = self
             .index_manager
-            .list_rules_by_campaign(campaign_id, limit)
-            .await?;
+            .list_rules_by_campaign(campaign_id, limit)?;
         self.documents_to_rules(docs)
     }
 
@@ -305,8 +303,7 @@ impl BlendRuleStore {
     ) -> Result<Vec<BlendRule>, PersonalityExtensionError> {
         let docs = self
             .index_manager
-            .list_rules_by_context(context.as_str(), limit)
-            .await?;
+            .list_rules_by_context(context.as_str(), limit)?;
         self.documents_to_rules(docs)
     }
 
@@ -315,7 +312,7 @@ impl BlendRuleStore {
         &self,
         limit: usize,
     ) -> Result<Vec<BlendRule>, PersonalityExtensionError> {
-        let docs = self.index_manager.list_enabled_rules(limit).await?;
+        let docs = self.index_manager.list_enabled_rules(limit)?;
         self.documents_to_rules(docs)
     }
 
@@ -327,8 +324,7 @@ impl BlendRuleStore {
     ) -> Result<Vec<BlendRule>, PersonalityExtensionError> {
         let docs = self
             .index_manager
-            .search_blend_rules(query, None, limit)
-            .await?;
+            .search_blend_rules(query, None, limit)?;
         self.documents_to_rules(docs)
     }
 
@@ -372,8 +368,7 @@ impl BlendRuleStore {
             None => {
                 let docs = self
                     .index_manager
-                    .list_blend_rules(Some("campaignId IS NULL"), 1000)
-                    .await?;
+                    .list_blend_rules(Some("campaignId IS NULL"), 1000)?;
                 self.documents_to_rules(docs)
             }
         }

@@ -41,21 +41,6 @@ fn main() {
                 });
             }
 
-            // Initialize managers
-            let (
-                cm, sm, ns, creds, vm,
-                personality_store, personality_manager, pipeline,
-                _llm_router, version_manager, world_state_manager,
-                relationship_manager, location_manager, llm_manager,
-                claude, gemini, copilot, setting_pack_loader,
-                // Phase 4: Personality Extensions
-                template_store, blend_rule_store, personality_blender, contextual_personality_manager,
-                // Query Preprocessing Pipeline (typo correction + synonyms)
-                query_pipeline,
-                // Dictionary rebuild service for post-ingestion dictionary regeneration
-                dictionary_rebuild_service
-            ) = commands::AppState::init_defaults();
-
             // Initialize Database
             let app_handle = app.handle();
             let app_dir = app_handle.path().app_data_dir().unwrap_or(std::path::PathBuf::from("."));
@@ -72,13 +57,28 @@ fn main() {
             });
             log::info!("Database initialized at {:?}", database.path());
 
-            // Initialize Embedded Meilisearch
+            // Initialize Embedded Meilisearch (must be before init_defaults for personality indexes)
             let meili_db_path = app_dir.join("meilisearch");
             let embedded_search = std::sync::Arc::new(
                 ttrpg_assistant::core::search::EmbeddedSearch::new(meili_db_path)
                     .expect("Failed to initialize embedded Meilisearch")
             );
             log::info!("Embedded Meilisearch initialized");
+
+            // Initialize managers (personality indexes use embedded MeilisearchLib directly)
+            let (
+                cm, sm, ns, creds, vm,
+                personality_store, personality_manager, pipeline,
+                _llm_router, version_manager, world_state_manager,
+                relationship_manager, location_manager, llm_manager,
+                claude, gemini, copilot, setting_pack_loader,
+                // Phase 4: Personality Extensions
+                template_store, blend_rule_store, personality_blender, contextual_personality_manager,
+                // Query Preprocessing Pipeline (typo correction + synonyms)
+                query_pipeline,
+                // Dictionary rebuild service for post-ingestion dictionary regeneration
+                dictionary_rebuild_service
+            ) = commands::AppState::init_defaults(embedded_search.clone_inner());
 
             // Load persisted voice config or use default
             let voice_manager = if let Some(voice_config) = commands::load_voice_config_disk(app.handle()) {
