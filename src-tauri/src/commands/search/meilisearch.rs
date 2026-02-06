@@ -393,9 +393,7 @@ fn map_config_to_settings(config: &ChatConfig) -> ChatWorkspaceSettings {
         ChatSource::AzureOpenAi => ChatLLMSource::AzureOpenAi,
         ChatSource::Mistral => ChatLLMSource::Mistral,
         ChatSource::VLlm => ChatLLMSource::VLlm,
-        // ChatLLMSource has no Anthropic variant; map to OpenAi as the closest
-        // OpenAI-compatible display source for settings readback.
-        ChatSource::Anthropic => ChatLLMSource::OpenAi,
+        ChatSource::Anthropic => ChatLLMSource::Anthropic,
     };
 
     let prompts = {
@@ -663,17 +661,36 @@ pub async fn reindex_library(
         None => {
             log::info!("reindex_library: clearing all indexes");
 
-            let meili_list = state.embedded_search.clone_inner();
-            let (total, indexes) = tokio::task::spawn_blocking(move || {
-                meili_list.list_indexes(0, 1000)
-            })
-            .await
-            .map_err(|e| format!("Task join error: {}", e))?
-            .map_err(|e| format!("Failed to list indexes: {}", e))?;
+            // Paginate through all indexes (page size 200)
+            const PAGE_SIZE: usize = 200;
+            let mut all_indexes = Vec::new();
+            let mut offset: usize = 0;
 
-            if total == 0 {
-                return Ok("No indexes found to clear.".to_string());
+            loop {
+                let meili_list = state.embedded_search.clone_inner();
+                let current_offset = offset;
+                let (total, page) = tokio::task::spawn_blocking(move || {
+                    meili_list.list_indexes(current_offset, PAGE_SIZE)
+                })
+                .await
+                .map_err(|e| format!("Task join error: {}", e))?
+                .map_err(|e| format!("Failed to list indexes: {}", e))?;
+
+                if total == 0 && all_indexes.is_empty() {
+                    return Ok("No indexes found to clear.".to_string());
+                }
+
+                let page_len = page.len();
+                all_indexes.extend(page);
+
+                if all_indexes.len() >= total || page_len < PAGE_SIZE {
+                    break;
+                }
+                offset += page_len;
             }
+
+            let total = all_indexes.len();
+            let indexes = all_indexes;
 
             let mut cleared = Vec::new();
             let mut errors = Vec::new();
@@ -725,8 +742,8 @@ pub async fn reindex_library(
                     cleared.len()
                 ))
             } else {
-                Ok(format!(
-                    "Cleared {} of {} indexes. Errors: {}",
+                Err(format!(
+                    "Partial failure: cleared {} of {} indexes. Errors: {}",
                     cleared.len(),
                     total,
                     errors.join("; ")
@@ -746,21 +763,19 @@ pub fn list_chat_providers() -> Vec<ChatProviderInfo> {
     get_chat_providers()
 }
 
-/// Configure a Meilisearch chat workspace with a specific LLM provider.
+/// Configure the global Meilisearch chat with a specific LLM provider.
 ///
 /// Maps the provided `ChatProviderConfig` to a `meilisearch_lib::ChatConfig` and
-/// sets it on the embedded Meilisearch instance. The configuration is stored in-memory
-/// and takes effect immediately.
+/// sets it on the embedded Meilisearch instance. The configuration is global (not
+/// per-workspace) and takes effect immediately.
 #[tauri::command]
 pub async fn configure_chat_workspace(
-    workspace_id: String,
     provider: ChatProviderConfig,
     custom_prompts: Option<ChatPrompts>,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     log::info!(
-        "configure_chat_workspace: workspace='{}', provider='{}'",
-        workspace_id,
+        "configure_chat_workspace: provider='{}'",
         provider.provider_id()
     );
 
@@ -770,8 +785,7 @@ pub async fn configure_chat_workspace(
     meili.set_chat_config(Some(config));
 
     log::info!(
-        "configure_chat_workspace: configured workspace '{}' with provider '{}' (native: {})",
-        workspace_id,
+        "configure_chat_workspace: configured provider '{}' (native: {})",
         provider.provider_id(),
         !provider.requires_proxy()
     );
@@ -779,19 +793,16 @@ pub async fn configure_chat_workspace(
     Ok(())
 }
 
-/// Get the current settings for a Meilisearch chat workspace.
+/// Get the current global Meilisearch chat settings.
 ///
 /// Returns `None` if no chat configuration has been set. API keys in the response
-/// are masked for security (e.g., "sk-t...xYzW").
+/// are masked for security (e.g., "sk-t...xYzW"). The configuration is global
+/// (not per-workspace).
 #[tauri::command]
 pub async fn get_chat_workspace_settings(
-    workspace_id: String,
     state: State<'_, AppState>,
 ) -> Result<Option<ChatWorkspaceSettings>, String> {
-    log::debug!(
-        "get_chat_workspace_settings: workspace='{}'",
-        workspace_id
-    );
+    log::debug!("get_chat_workspace_settings: reading global config");
 
     let meili = state.embedded_search.inner();
 
@@ -801,10 +812,7 @@ pub async fn get_chat_workspace_settings(
             Ok(Some(settings))
         }
         None => {
-            log::debug!(
-                "get_chat_workspace_settings: no configuration found for workspace '{}'",
-                workspace_id
-            );
+            log::debug!("get_chat_workspace_settings: no configuration set");
             Ok(None)
         }
     }
@@ -1232,7 +1240,7 @@ mod tests {
     fn test_map_config_to_settings_openai() {
         let config = ChatConfig {
             source: ChatSource::OpenAi,
-            api_key: "sk-test1234567890abcdef".to_string(),
+            api_key: "not-a-real-key-for-testing-only".to_string(),
             base_url: None,
             model: "gpt-4o".to_string(),
             org_id: Some("org-123".to_string()),
@@ -1249,8 +1257,27 @@ mod tests {
         // API key should be masked
         let masked_key = settings.api_key.unwrap();
         assert!(masked_key.contains("..."));
-        assert!(!masked_key.contains("test1234567890"));
+        assert!(!masked_key.contains("real-key-for"));
         assert_eq!(settings.org_id, Some("org-123".to_string()));
+    }
+
+    #[test]
+    fn test_map_config_to_settings_anthropic() {
+        let config = ChatConfig {
+            source: ChatSource::Anthropic,
+            api_key: "not-a-real-key-for-testing-only".to_string(),
+            base_url: None,
+            model: "claude-sonnet-4-20250514".to_string(),
+            org_id: None,
+            project_id: None,
+            api_version: None,
+            deployment_id: None,
+            prompts: MeiliChatPrompts::default(),
+            index_configs: HashMap::new(),
+        };
+
+        let settings = map_config_to_settings(&config);
+        assert_eq!(settings.source, ChatLLMSource::Anthropic);
     }
 
     #[test]

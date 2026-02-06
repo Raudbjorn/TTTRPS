@@ -22,6 +22,7 @@ use super::prompts::{
 pub enum ChatLLMSource {
     #[default]
     OpenAi,
+    Anthropic,
     AzureOpenAi,
     Mistral,
     Google,
