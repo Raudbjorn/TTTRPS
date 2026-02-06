@@ -29,6 +29,9 @@ use super::types::MeilisearchStatus;
 
 /// Mask an API key for safe display. Shows first 4 and last 4 characters.
 ///
+/// Uses character (not byte) indexing to avoid panics on multi-byte UTF-8 strings,
+/// though API keys are typically ASCII-only.
+///
 /// # Returns
 /// - `None` if the key is empty
 /// - `Some("****")` if the key is 8 characters or fewer
@@ -37,10 +40,13 @@ fn mask_api_key(key: &str) -> Option<String> {
     if key.is_empty() {
         return None;
     }
-    if key.len() <= 8 {
+    let char_count = key.chars().count();
+    if char_count <= 8 {
         return Some("****".to_string());
     }
-    Some(format!("{}...{}", &key[..4], &key[key.len() - 4..]))
+    let prefix: String = key.chars().take(4).collect();
+    let suffix: String = key.chars().skip(char_count - 4).collect();
+    Some(format!("{}...{}", prefix, suffix))
 }
 
 /// Build TTRPG-specific index configurations for chat context retrieval.
@@ -386,17 +392,10 @@ fn map_config_to_settings(config: &ChatConfig) -> ChatWorkspaceSettings {
         ChatSource::OpenAi => ChatLLMSource::OpenAi,
         ChatSource::AzureOpenAi => ChatLLMSource::AzureOpenAi,
         ChatSource::Mistral => ChatLLMSource::Mistral,
-        ChatSource::Anthropic | ChatSource::VLlm => {
-            // Anthropic maps to VLlm in our local enum since ChatLLMSource
-            // doesn't have an Anthropic variant. VLlm is already VLlm.
-            if config.source == ChatSource::VLlm {
-                ChatLLMSource::VLlm
-            } else {
-                // Anthropic doesn't have a direct local equivalent,
-                // treat as OpenAi for display (closest native match)
-                ChatLLMSource::OpenAi
-            }
-        }
+        ChatSource::VLlm => ChatLLMSource::VLlm,
+        // ChatLLMSource has no Anthropic variant; map to OpenAi as the closest
+        // OpenAI-compatible display source for settings readback.
+        ChatSource::Anthropic => ChatLLMSource::OpenAi,
     };
 
     let prompts = {
