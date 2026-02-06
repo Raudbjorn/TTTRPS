@@ -26,37 +26,41 @@ use std::time::Duration;
 // ============================================================================
 
 /// Errors that can occur during personality index operations.
+///
+/// Uses `detail` instead of `source` for the error message string to avoid
+/// conflict with `thiserror`'s automatic `#[source]` attribute on fields
+/// named `source` (which requires `std::error::Error`).
 #[derive(Debug, thiserror::Error)]
 pub enum PersonalityIndexError {
-    #[error("Failed to check index '{index}': {source}")]
-    Check { index: String, source: String },
+    #[error("Failed to check index '{index}': {detail}")]
+    Check { index: String, detail: String },
 
-    #[error("Failed to create index '{index}': {source}")]
-    Create { index: String, source: String },
+    #[error("Failed to create index '{index}': {detail}")]
+    Create { index: String, detail: String },
 
-    #[error("Failed to update settings for '{index}': {source}")]
-    Settings { index: String, source: String },
+    #[error("Failed to update settings for '{index}': {detail}")]
+    Settings { index: String, detail: String },
 
-    #[error("Task failed for index '{index}': {source}")]
-    TaskFailed { index: String, source: String },
+    #[error("Task wait failed for index '{index}': {detail}")]
+    TaskWaitFailed { index: String, detail: String },
 
-    #[error("Failed to get stats for '{index}': {source}")]
-    Stats { index: String, source: String },
+    #[error("Failed to get stats for '{index}': {detail}")]
+    Stats { index: String, detail: String },
 
-    #[error("Failed to add document to '{index}': {source}")]
-    AddDocuments { index: String, source: String },
+    #[error("Failed to add document to '{index}': {detail}")]
+    AddDocuments { index: String, detail: String },
 
-    #[error("Failed to get document '{doc_id}' from '{index}': {source}")]
-    GetDocument { index: String, doc_id: String, source: String },
+    #[error("Failed to get document '{doc_id}' from '{index}': {detail}")]
+    GetDocument { index: String, doc_id: String, detail: String },
 
-    #[error("Failed to delete document '{doc_id}' from '{index}': {source}")]
-    DeleteDocument { index: String, doc_id: String, source: String },
+    #[error("Failed to delete document '{doc_id}' from '{index}': {detail}")]
+    DeleteDocument { index: String, doc_id: String, detail: String },
 
-    #[error("Search failed on '{index}': {source}")]
-    Search { index: String, source: String },
+    #[error("Search failed on '{index}': {detail}")]
+    Search { index: String, detail: String },
 
-    #[error("Failed to clear index '{index}': {source}")]
-    Clear { index: String, source: String },
+    #[error("Failed to clear index '{index}': {detail}")]
+    Clear { index: String, detail: String },
 }
 
 impl From<PersonalityIndexError> for String {
@@ -174,7 +178,7 @@ fn ensure_single_index(
         .index_exists(uid)
         .map_err(|e| PersonalityIndexError::Check {
             index: uid.to_string(),
-            source: e.to_string(),
+            detail: e.to_string(),
         })?;
 
     if !exists {
@@ -183,13 +187,13 @@ fn ensure_single_index(
             .create_index(uid, Some("id".to_string()))
             .map_err(|e| PersonalityIndexError::Create {
                 index: uid.to_string(),
-                source: e.to_string(),
+                detail: e.to_string(),
             })?;
         meili
             .wait_for_task(task.uid, Some(INDEX_TIMEOUT))
-            .map_err(|e| PersonalityIndexError::TaskFailed {
+            .map_err(|e| PersonalityIndexError::TaskWaitFailed {
                 index: uid.to_string(),
-                source: e.to_string(),
+                detail: e.to_string(),
             })?;
     }
 
@@ -197,31 +201,38 @@ fn ensure_single_index(
         .update_settings(uid, settings)
         .map_err(|e| PersonalityIndexError::Settings {
             index: uid.to_string(),
-            source: e.to_string(),
+            detail: e.to_string(),
         })?;
     meili
         .wait_for_task(task.uid, Some(INDEX_TIMEOUT))
-        .map_err(|e| PersonalityIndexError::TaskFailed {
+        .map_err(|e| PersonalityIndexError::TaskWaitFailed {
             index: uid.to_string(),
-            source: e.to_string(),
+            detail: e.to_string(),
         })?;
 
     log::debug!("Configured index '{}'", uid);
     Ok(())
 }
 
-/// Get the document count for an index, returning 0 if the index does not exist.
-fn get_document_count(meili: &MeilisearchLib, uid: &str) -> u64 {
-    match meili.index_exists(uid) {
-        Ok(true) => match meili.index_stats(uid) {
-            Ok(stats) => stats.number_of_documents,
-            Err(e) => {
-                log::debug!("Index '{}' stats unavailable: {}", uid, e);
-                0
-            }
-        },
-        _ => 0,
+/// Get the document count for an index.
+///
+/// Returns `Ok(0)` if the index does not exist, propagates errors from
+/// `index_exists` and `index_stats` calls.
+fn get_document_count(meili: &MeilisearchLib, uid: &str) -> Result<u64, PersonalityIndexError> {
+    if !meili.index_exists(uid).map_err(|e| PersonalityIndexError::Check {
+        index: uid.to_string(),
+        detail: e.to_string(),
+    })? {
+        return Ok(0);
     }
+
+    meili
+        .index_stats(uid)
+        .map(|stats| stats.number_of_documents)
+        .map_err(|e| PersonalityIndexError::Stats {
+            index: uid.to_string(),
+            detail: e.to_string(),
+        })
 }
 
 // ============================================================================
@@ -282,14 +293,14 @@ impl PersonalityIndexManager {
             .add_documents(INDEX_PERSONALITY_TEMPLATES, vec![doc_value], Some("id".to_string()))
             .map_err(|e| PersonalityIndexError::AddDocuments {
                 index: INDEX_PERSONALITY_TEMPLATES.to_string(),
-                source: e.to_string(),
+                detail: e.to_string(),
             })?;
 
         self.meili
             .wait_for_task(task.uid, Some(INDEX_TIMEOUT))
-            .map_err(|e| PersonalityIndexError::TaskFailed {
+            .map_err(|e| PersonalityIndexError::TaskWaitFailed {
                 index: INDEX_PERSONALITY_TEMPLATES.to_string(),
-                source: e.to_string(),
+                detail: e.to_string(),
             })?;
 
         log::debug!("Upserted template: {} ({})", template.name, template.id);
@@ -315,7 +326,7 @@ impl PersonalityIndexManager {
             Err(e) => Err(PersonalityIndexError::GetDocument {
                 index: INDEX_PERSONALITY_TEMPLATES.to_string(),
                 doc_id: id.to_string(),
-                source: e.to_string(),
+                detail: e.to_string(),
             }
             .into()),
         }
@@ -329,14 +340,14 @@ impl PersonalityIndexManager {
             .map_err(|e| PersonalityIndexError::DeleteDocument {
                 index: INDEX_PERSONALITY_TEMPLATES.to_string(),
                 doc_id: id.to_string(),
-                source: e.to_string(),
+                detail: e.to_string(),
             })?;
 
         self.meili
             .wait_for_task(task.uid, Some(INDEX_TIMEOUT))
-            .map_err(|e| PersonalityIndexError::TaskFailed {
+            .map_err(|e| PersonalityIndexError::TaskWaitFailed {
                 index: INDEX_PERSONALITY_TEMPLATES.to_string(),
-                source: e.to_string(),
+                detail: e.to_string(),
             })?;
 
         log::debug!("Deleted template: {}", id);
@@ -367,7 +378,7 @@ impl PersonalityIndexManager {
             .search(INDEX_PERSONALITY_TEMPLATES, search_query)
             .map_err(|e| PersonalityIndexError::Search {
                 index: INDEX_PERSONALITY_TEMPLATES.to_string(),
-                source: e.to_string(),
+                detail: e.to_string(),
             })?;
 
         let mut docs = Vec::with_capacity(result.hits.len());
@@ -436,14 +447,14 @@ impl PersonalityIndexManager {
             .add_documents(INDEX_BLEND_RULES, vec![doc_value], Some("id".to_string()))
             .map_err(|e| PersonalityIndexError::AddDocuments {
                 index: INDEX_BLEND_RULES.to_string(),
-                source: e.to_string(),
+                detail: e.to_string(),
             })?;
 
         self.meili
             .wait_for_task(task.uid, Some(INDEX_TIMEOUT))
-            .map_err(|e| PersonalityIndexError::TaskFailed {
+            .map_err(|e| PersonalityIndexError::TaskWaitFailed {
                 index: INDEX_BLEND_RULES.to_string(),
-                source: e.to_string(),
+                detail: e.to_string(),
             })?;
 
         log::debug!("Upserted blend rule: {} ({})", rule.name, rule.id);
@@ -469,7 +480,7 @@ impl PersonalityIndexManager {
             Err(e) => Err(PersonalityIndexError::GetDocument {
                 index: INDEX_BLEND_RULES.to_string(),
                 doc_id: id.to_string(),
-                source: e.to_string(),
+                detail: e.to_string(),
             }
             .into()),
         }
@@ -483,14 +494,14 @@ impl PersonalityIndexManager {
             .map_err(|e| PersonalityIndexError::DeleteDocument {
                 index: INDEX_BLEND_RULES.to_string(),
                 doc_id: id.to_string(),
-                source: e.to_string(),
+                detail: e.to_string(),
             })?;
 
         self.meili
             .wait_for_task(task.uid, Some(INDEX_TIMEOUT))
-            .map_err(|e| PersonalityIndexError::TaskFailed {
+            .map_err(|e| PersonalityIndexError::TaskWaitFailed {
                 index: INDEX_BLEND_RULES.to_string(),
-                source: e.to_string(),
+                detail: e.to_string(),
             })?;
 
         log::debug!("Deleted blend rule: {}", id);
@@ -521,7 +532,7 @@ impl PersonalityIndexManager {
             .search(INDEX_BLEND_RULES, search_query)
             .map_err(|e| PersonalityIndexError::Search {
                 index: INDEX_BLEND_RULES.to_string(),
-                source: e.to_string(),
+                detail: e.to_string(),
             })?;
 
         let mut docs = Vec::with_capacity(result.hits.len());
@@ -556,7 +567,7 @@ impl PersonalityIndexManager {
         self.list_blend_rules(Some(&filter), limit)
     }
 
-    /// List enabled blend rules ordered by priority (descending).
+    /// List blend rules where `enabled = true`, ordered by priority (descending).
     pub fn list_enabled_rules(
         &self,
         limit: usize,
@@ -571,7 +582,7 @@ impl PersonalityIndexManager {
             .search(INDEX_BLEND_RULES, search_query)
             .map_err(|e| PersonalityIndexError::Search {
                 index: INDEX_BLEND_RULES.to_string(),
-                source: e.to_string(),
+                detail: e.to_string(),
             })?;
 
         let mut docs = Vec::with_capacity(result.hits.len());
@@ -604,8 +615,8 @@ impl PersonalityIndexManager {
     /// Get document counts for both indexes.
     pub fn get_stats(&self) -> Result<PersonalityIndexStats, PersonalityExtensionError> {
         Ok(PersonalityIndexStats {
-            template_count: get_document_count(&self.meili, INDEX_PERSONALITY_TEMPLATES),
-            rule_count: get_document_count(&self.meili, INDEX_BLEND_RULES),
+            template_count: get_document_count(&self.meili, INDEX_PERSONALITY_TEMPLATES)?,
+            rule_count: get_document_count(&self.meili, INDEX_BLEND_RULES)?,
         })
     }
 
@@ -616,14 +627,14 @@ impl PersonalityIndexManager {
             .delete_all_documents(INDEX_PERSONALITY_TEMPLATES)
             .map_err(|e| PersonalityIndexError::Clear {
                 index: INDEX_PERSONALITY_TEMPLATES.to_string(),
-                source: e.to_string(),
+                detail: e.to_string(),
             })?;
 
         self.meili
             .wait_for_task(task.uid, Some(INDEX_TIMEOUT))
-            .map_err(|e| PersonalityIndexError::TaskFailed {
+            .map_err(|e| PersonalityIndexError::TaskWaitFailed {
                 index: INDEX_PERSONALITY_TEMPLATES.to_string(),
-                source: e.to_string(),
+                detail: e.to_string(),
             })?;
 
         log::info!("Cleared all templates");
@@ -637,14 +648,14 @@ impl PersonalityIndexManager {
             .delete_all_documents(INDEX_BLEND_RULES)
             .map_err(|e| PersonalityIndexError::Clear {
                 index: INDEX_BLEND_RULES.to_string(),
-                source: e.to_string(),
+                detail: e.to_string(),
             })?;
 
         self.meili
             .wait_for_task(task.uid, Some(INDEX_TIMEOUT))
-            .map_err(|e| PersonalityIndexError::TaskFailed {
+            .map_err(|e| PersonalityIndexError::TaskWaitFailed {
                 index: INDEX_BLEND_RULES.to_string(),
-                source: e.to_string(),
+                detail: e.to_string(),
             })?;
 
         log::info!("Cleared all blend rules");
@@ -756,7 +767,7 @@ mod tests {
     fn test_personality_index_error_display() {
         let err = PersonalityIndexError::Check {
             index: "test_index".to_string(),
-            source: "connection failed".to_string(),
+            detail: "connection failed".to_string(),
         };
         assert_eq!(
             err.to_string(),
@@ -765,7 +776,7 @@ mod tests {
 
         let err = PersonalityIndexError::AddDocuments {
             index: "test_index".to_string(),
-            source: "serialization error".to_string(),
+            detail: "serialization error".to_string(),
         };
         assert!(err.to_string().contains("test_index"));
         assert!(err.to_string().contains("serialization error"));
@@ -773,13 +784,13 @@ mod tests {
         let err = PersonalityIndexError::GetDocument {
             index: "test_index".to_string(),
             doc_id: "doc-123".to_string(),
-            source: "not found".to_string(),
+            detail: "not found".to_string(),
         };
         assert!(err.to_string().contains("doc-123"));
 
-        let err = PersonalityIndexError::TaskFailed {
+        let err = PersonalityIndexError::TaskWaitFailed {
             index: "test_index".to_string(),
-            source: "timeout exceeded".to_string(),
+            detail: "timeout exceeded".to_string(),
         };
         assert!(err.to_string().contains("test_index"));
         assert!(err.to_string().contains("timeout exceeded"));
@@ -789,7 +800,7 @@ mod tests {
     fn test_personality_index_error_to_string() {
         let err = PersonalityIndexError::Search {
             index: "test".to_string(),
-            source: "query failed".to_string(),
+            detail: "query failed".to_string(),
         };
         let s: String = err.into();
         assert!(s.contains("Search failed"));

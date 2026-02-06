@@ -31,10 +31,10 @@
 //! let template = store.get(&template_id).await?;
 //!
 //! // Search
-//! let results = store.search("forgotten realms sage").await?;
+//! let results = store.search("forgotten realms sage")?;
 //!
 //! // Filter by game system
-//! let dnd_templates = store.filter_by_game_system("dnd5e").await?;
+//! let dnd_templates = store.filter_by_game_system("dnd5e")?;
 //! ```
 
 use super::errors::{PersonalityExtensionError, TemplateError};
@@ -77,8 +77,8 @@ pub struct SettingTemplateStore {
 impl SettingTemplateStore {
     /// Create a store from an existing index manager.
     ///
-    /// This is the primary constructor. The `PersonalityIndexManager` wraps
-    /// an `Arc<MeilisearchLib>` for embedded search operations.
+    /// This is the primary constructor. The `PersonalityIndexManager` holds
+    /// an `Arc<MeilisearchLib>` used for embedded search operations.
     pub fn from_manager(index_manager: Arc<PersonalityIndexManager>) -> Self {
         let capacity =
             NonZeroUsize::new(DEFAULT_CACHE_CAPACITY).unwrap();
@@ -215,7 +215,7 @@ impl SettingTemplateStore {
     // ========================================================================
 
     /// Filter templates by game system.
-    pub async fn filter_by_game_system(
+    pub fn filter_by_game_system(
         &self,
         game_system: &str,
     ) -> Result<Vec<SettingTemplate>, PersonalityExtensionError> {
@@ -227,7 +227,7 @@ impl SettingTemplateStore {
     }
 
     /// Filter templates by setting name.
-    pub async fn filter_by_setting(
+    pub fn filter_by_setting(
         &self,
         setting_name: &str,
     ) -> Result<Vec<SettingTemplate>, PersonalityExtensionError> {
@@ -240,7 +240,7 @@ impl SettingTemplateStore {
     }
 
     /// Filter templates by both game system and setting.
-    pub async fn filter_by_game_system_and_setting(
+    pub fn filter_by_game_system_and_setting(
         &self,
         game_system: &str,
         setting_name: &str,
@@ -258,7 +258,7 @@ impl SettingTemplateStore {
     }
 
     /// List built-in templates only.
-    pub async fn list_builtin(&self) -> Result<Vec<SettingTemplate>, PersonalityExtensionError> {
+    pub fn list_builtin(&self) -> Result<Vec<SettingTemplate>, PersonalityExtensionError> {
         let docs = self
             .index_manager
             .list_builtin_templates(DEFAULT_SEARCH_LIMIT)?;
@@ -267,7 +267,7 @@ impl SettingTemplateStore {
     }
 
     /// List templates for a specific campaign.
-    pub async fn filter_by_campaign(
+    pub fn filter_by_campaign(
         &self,
         campaign_id: &str,
     ) -> Result<Vec<SettingTemplate>, PersonalityExtensionError> {
@@ -279,7 +279,7 @@ impl SettingTemplateStore {
     }
 
     /// Filter templates by tag.
-    pub async fn filter_by_tag(
+    pub fn filter_by_tag(
         &self,
         tag: &str,
     ) -> Result<Vec<SettingTemplate>, PersonalityExtensionError> {
@@ -298,12 +298,12 @@ impl SettingTemplateStore {
     /// Search templates by keyword.
     ///
     /// Searches across name, description, vocabulary keys, and common phrases.
-    pub async fn search(&self, keyword: &str) -> Result<Vec<SettingTemplate>, PersonalityExtensionError> {
-        self.search_with_limit(keyword, DEFAULT_SEARCH_LIMIT).await
+    pub fn search(&self, keyword: &str) -> Result<Vec<SettingTemplate>, PersonalityExtensionError> {
+        self.search_with_limit(keyword, DEFAULT_SEARCH_LIMIT)
     }
 
     /// Search templates with a custom limit.
-    pub async fn search_with_limit(
+    pub fn search_with_limit(
         &self,
         keyword: &str,
         limit: usize,
@@ -316,7 +316,7 @@ impl SettingTemplateStore {
     }
 
     /// Search templates with a filter.
-    pub async fn search_filtered(
+    pub fn search_filtered(
         &self,
         keyword: &str,
         filter: &str,
@@ -889,7 +889,7 @@ mod tests {
         tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 
         // Search by name
-        let results = store.search("Forgotten Realms").await.unwrap();
+        let results = store.search("Forgotten Realms").unwrap();
         assert!(!results.is_empty());
 
         // Cleanup
@@ -916,7 +916,7 @@ mod tests {
         // Wait for indexing
         tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 
-        let results = store.filter_by_game_system("dnd5e").await.unwrap();
+        let results = store.filter_by_game_system("dnd5e").unwrap();
         assert!(!results.is_empty());
 
         // Cleanup

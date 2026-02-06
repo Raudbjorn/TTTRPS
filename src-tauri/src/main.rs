@@ -57,7 +57,7 @@ fn main() {
             });
             log::info!("Database initialized at {:?}", database.path());
 
-            // Initialize Embedded Meilisearch (must be before init_defaults for personality indexes)
+            // Initialize embedded Meilisearch (must be before init_defaults for personality indexes)
             let meili_db_path = app_dir.join("meilisearch");
             let embedded_search = std::sync::Arc::new(
                 ttrpg_assistant::core::search::EmbeddedSearch::new(meili_db_path)
