@@ -171,6 +171,10 @@ impl SettingTemplateStore {
     /// Save a template (creates or updates).
     ///
     /// Automatically updates vocabulary_keys and invalidates cache.
+    ///
+    /// NOTE: `upsert_template` is a synchronous disk I/O call via embedded
+    /// Meilisearch. This is acceptable because the in-process engine uses
+    /// mmap-backed storage, making typical writes sub-millisecond.
     pub async fn save(&self, template: &SettingTemplate) -> Result<(), PersonalityExtensionError> {
         // Prepare template for indexing
         let mut template = template.clone();
@@ -180,7 +184,7 @@ impl SettingTemplateStore {
         // Convert to SettingPersonalityTemplate for indexing
         let spt: super::types::SettingPersonalityTemplate = template.clone().into();
 
-        // Save to Meilisearch
+        // Save to Meilisearch (sync I/O, fast for embedded engine)
         self.index_manager.upsert_template(&spt)?;
 
         // Update cache
@@ -742,6 +746,30 @@ mod tests {
     use super::*;
     use std::collections::HashMap;
 
+    /// Set up a test store with a temporary Meilisearch instance.
+    ///
+    /// Returns `(TempDir, SettingTemplateStore)`. The `TempDir` must be kept
+    /// alive for the duration of the test to prevent premature cleanup.
+    fn setup_test_store() -> (tempfile::TempDir, SettingTemplateStore) {
+        setup_test_store_with_capacity(DEFAULT_CACHE_CAPACITY)
+    }
+
+    fn setup_test_store_with_capacity(
+        capacity: usize,
+    ) -> (tempfile::TempDir, SettingTemplateStore) {
+        use meilisearch_lib::MeilisearchLib;
+        let temp_dir = tempfile::TempDir::new().unwrap();
+        let config = meilisearch_lib::Config::builder()
+            .db_path(temp_dir.path())
+            .build()
+            .unwrap();
+        let meili = Arc::new(MeilisearchLib::new(config).unwrap());
+        let index_manager = Arc::new(PersonalityIndexManager::new(meili));
+        index_manager.initialize_indexes().unwrap();
+        let store = SettingTemplateStore::from_manager_with_capacity(index_manager, capacity);
+        (temp_dir, store)
+    }
+
     fn sample_template() -> SettingTemplate {
         let mut vocab = HashMap::new();
         for i in 0..10 {
@@ -798,17 +826,7 @@ mod tests {
     #[tokio::test]
     #[ignore = "Requires embedded Meilisearch instance"]
     async fn test_store_crud_operations() {
-        use meilisearch_lib::MeilisearchLib;
-        let temp_dir = tempfile::TempDir::new().unwrap();
-        let config = meilisearch_lib::Config::builder()
-            .db_path(temp_dir.path())
-            .build()
-            .unwrap();
-        let meili = Arc::new(MeilisearchLib::new(config).unwrap());
-        let index_manager = Arc::new(PersonalityIndexManager::new(meili));
-        index_manager.initialize_indexes().unwrap();
-        let store = SettingTemplateStore::from_manager(index_manager);
-
+        let (_tmp, store) = setup_test_store();
         let template = sample_template();
 
         // Save
@@ -830,17 +848,7 @@ mod tests {
     #[tokio::test]
     #[ignore = "Requires embedded Meilisearch instance"]
     async fn test_store_cache_behavior() {
-        use meilisearch_lib::MeilisearchLib;
-        let temp_dir = tempfile::TempDir::new().unwrap();
-        let config = meilisearch_lib::Config::builder()
-            .db_path(temp_dir.path())
-            .build()
-            .unwrap();
-        let meili = Arc::new(MeilisearchLib::new(config).unwrap());
-        let index_manager = Arc::new(PersonalityIndexManager::new(meili));
-        index_manager.initialize_indexes().unwrap();
-        let store = SettingTemplateStore::from_manager_with_capacity(index_manager, 10);
-
+        let (_tmp, store) = setup_test_store_with_capacity(10);
         let template = sample_template();
         store.save(&template).await.unwrap();
 
@@ -863,17 +871,7 @@ mod tests {
     #[tokio::test]
     #[ignore = "Requires embedded Meilisearch instance"]
     async fn test_store_search() {
-        use meilisearch_lib::MeilisearchLib;
-        let temp_dir = tempfile::TempDir::new().unwrap();
-        let config = meilisearch_lib::Config::builder()
-            .db_path(temp_dir.path())
-            .build()
-            .unwrap();
-        let meili = Arc::new(MeilisearchLib::new(config).unwrap());
-        let index_manager = Arc::new(PersonalityIndexManager::new(meili));
-        index_manager.initialize_indexes().unwrap();
-        let store = SettingTemplateStore::from_manager(index_manager);
-
+        let (_tmp, store) = setup_test_store();
         let template = SettingTemplate::builder("Forgotten Realms Sage", "storyteller")
             .game_system("dnd5e")
             .setting_name("Forgotten Realms")
@@ -899,17 +897,7 @@ mod tests {
     #[tokio::test]
     #[ignore = "Requires embedded Meilisearch instance"]
     async fn test_store_filter_by_game_system() {
-        use meilisearch_lib::MeilisearchLib;
-        let temp_dir = tempfile::TempDir::new().unwrap();
-        let config = meilisearch_lib::Config::builder()
-            .db_path(temp_dir.path())
-            .build()
-            .unwrap();
-        let meili = Arc::new(MeilisearchLib::new(config).unwrap());
-        let index_manager = Arc::new(PersonalityIndexManager::new(meili));
-        index_manager.initialize_indexes().unwrap();
-        let store = SettingTemplateStore::from_manager(index_manager);
-
+        let (_tmp, store) = setup_test_store();
         let template = sample_template();
         store.save(&template).await.unwrap();
 

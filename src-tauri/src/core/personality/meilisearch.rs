@@ -3,14 +3,9 @@
 //! Defines the Meilisearch indexes, settings, and operations for the
 //! personality template and blend rule storage.
 //!
-//! ## Migration Note
-//!
-//! This module has been migrated from HTTP-based `meilisearch_sdk` to the
-//! embedded `meilisearch_lib`. All operations are now synchronous and use
-//! the `MeilisearchLib` API directly, eliminating the need for an external
-//! Meilisearch HTTP server.
+//! All operations use the embedded `meilisearch_lib` (synchronous, no HTTP).
 
-use super::errors::{PersonalityExtensionError, TemplateError, BlendRuleError};
+use super::errors::PersonalityExtensionError;
 use super::types::{
     BlendRule, BlendRuleDocument, SettingPersonalityTemplate, TemplateDocument, TemplateId,
     BlendRuleId,
@@ -386,7 +381,7 @@ impl PersonalityIndexManager {
             match serde_json::from_value::<TemplateDocument>(hit.document) {
                 Ok(doc) => docs.push(doc),
                 Err(e) => {
-                    log::warn!("Failed to deserialize template search hit: {}", e);
+                    log::error!("Failed to deserialize template search hit: {}", e);
                 }
             }
         }
@@ -540,7 +535,7 @@ impl PersonalityIndexManager {
             match serde_json::from_value::<BlendRuleDocument>(hit.document) {
                 Ok(doc) => docs.push(doc),
                 Err(e) => {
-                    log::warn!("Failed to deserialize blend rule search hit: {}", e);
+                    log::error!("Failed to deserialize blend rule search hit: {}", e);
                 }
             }
         }
@@ -567,7 +562,8 @@ impl PersonalityIndexManager {
         self.list_blend_rules(Some(&filter), limit)
     }
 
-    /// List blend rules where `enabled = true`, ordered by priority (descending).
+    /// List blend rules that are enabled (i.e., `enabled = true`), ordered by
+    /// priority (descending). Disabled rules are excluded from results.
     pub fn list_enabled_rules(
         &self,
         limit: usize,
@@ -590,7 +586,7 @@ impl PersonalityIndexManager {
             match serde_json::from_value::<BlendRuleDocument>(hit.document) {
                 Ok(doc) => docs.push(doc),
                 Err(e) => {
-                    log::warn!("Failed to deserialize enabled rule search hit: {}", e);
+                    log::error!("Failed to deserialize enabled rule search hit: {}", e);
                 }
             }
         }
