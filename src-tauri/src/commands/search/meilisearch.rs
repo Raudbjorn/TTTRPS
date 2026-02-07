@@ -15,9 +15,14 @@ use meilisearch_lib::{
 use crate::commands::AppState;
 use crate::core::meilisearch_chat::{
     ChatLLMSource, ChatPrompts, ChatProviderConfig, ChatProviderInfo, ChatWorkspaceSettings,
-    list_chat_providers as get_chat_providers, DEFAULT_DM_SYSTEM_PROMPT,
-    DEFAULT_SEARCH_DESCRIPTION, DEFAULT_SEARCH_INDEX_PARAM, DEFAULT_SEARCH_Q_PARAM,
-    GROK_API_BASE_URL, GROK_DEFAULT_MODEL,
+    list_chat_providers as get_chat_providers, AZURE_DEFAULT_API_VERSION,
+    AZURE_DEFAULT_DEPLOYMENT, COHERE_API_BASE_URL, COHERE_DEFAULT_MODEL, DEEPSEEK_API_BASE_URL,
+    DEEPSEEK_DEFAULT_MODEL, DEFAULT_DM_SYSTEM_PROMPT, DEFAULT_SEARCH_DESCRIPTION,
+    DEFAULT_SEARCH_INDEX_PARAM, DEFAULT_SEARCH_Q_PARAM, GOOGLE_API_BASE_URL,
+    GOOGLE_DEFAULT_MODEL, GROK_API_BASE_URL, GROK_DEFAULT_MODEL, GROQ_API_BASE_URL,
+    GROQ_DEFAULT_MODEL, OAUTH_PROXY_API_KEY_PLACEHOLDER, OLLAMA_API_KEY_PLACEHOLDER,
+    OLLAMA_DEFAULT_HOST, OLLAMA_DEFAULT_MODEL, OPENROUTER_API_BASE_URL,
+    TASK_COMPLETION_TIMEOUT_SECS, TOGETHER_API_BASE_URL,
 };
 use crate::core::llm::model_selector::model_selector;
 
@@ -248,7 +253,7 @@ fn map_provider_to_chat_config(
             let base_url = format!("{}/v1", host.trim_end_matches('/'));
             ChatConfig {
                 source: ChatSource::VLlm,
-                api_key: "ollama".to_string(), // Placeholder required by Meilisearch
+                api_key: OLLAMA_API_KEY_PLACEHOLDER.to_string(),
                 base_url: Some(base_url),
                 model: model.clone(),
                 org_id: None,
@@ -263,10 +268,10 @@ fn map_provider_to_chat_config(
         ChatProviderConfig::Google { api_key, model } => ChatConfig {
             source: ChatSource::VLlm,
             api_key: api_key.clone(),
-            base_url: Some("https://generativelanguage.googleapis.com/v1beta/openai".to_string()),
+            base_url: Some(GOOGLE_API_BASE_URL.to_string()),
             model: model
                 .as_deref()
-                .unwrap_or("gemini-2.0-flash")
+                .unwrap_or(GOOGLE_DEFAULT_MODEL)
                 .to_string(),
             org_id: None,
             project_id: None,
@@ -280,7 +285,7 @@ fn map_provider_to_chat_config(
         ChatProviderConfig::OpenRouter { api_key, model } => ChatConfig {
             source: ChatSource::VLlm,
             api_key: api_key.clone(),
-            base_url: Some("https://openrouter.ai/api/v1".to_string()),
+            base_url: Some(OPENROUTER_API_BASE_URL.to_string()),
             model: model.clone(),
             org_id: None,
             project_id: None,
@@ -293,7 +298,7 @@ fn map_provider_to_chat_config(
         ChatProviderConfig::Groq { api_key, model } => ChatConfig {
             source: ChatSource::VLlm,
             api_key: api_key.clone(),
-            base_url: Some("https://api.groq.com/openai/v1".to_string()),
+            base_url: Some(GROQ_API_BASE_URL.to_string()),
             model: model.clone(),
             org_id: None,
             project_id: None,
@@ -306,7 +311,7 @@ fn map_provider_to_chat_config(
         ChatProviderConfig::Together { api_key, model } => ChatConfig {
             source: ChatSource::VLlm,
             api_key: api_key.clone(),
-            base_url: Some("https://api.together.xyz/v1".to_string()),
+            base_url: Some(TOGETHER_API_BASE_URL.to_string()),
             model: model.clone(),
             org_id: None,
             project_id: None,
@@ -319,7 +324,7 @@ fn map_provider_to_chat_config(
         ChatProviderConfig::Cohere { api_key, model } => ChatConfig {
             source: ChatSource::VLlm,
             api_key: api_key.clone(),
-            base_url: Some("https://api.cohere.ai/v1".to_string()),
+            base_url: Some(COHERE_API_BASE_URL.to_string()),
             model: model.clone(),
             org_id: None,
             project_id: None,
@@ -332,7 +337,7 @@ fn map_provider_to_chat_config(
         ChatProviderConfig::DeepSeek { api_key, model } => ChatConfig {
             source: ChatSource::VLlm,
             api_key: api_key.clone(),
-            base_url: Some("https://api.deepseek.com/v1".to_string()),
+            base_url: Some(DEEPSEEK_API_BASE_URL.to_string()),
             model: model.clone(),
             org_id: None,
             project_id: None,
@@ -345,7 +350,7 @@ fn map_provider_to_chat_config(
         // OAuth-based providers: no API key, use placeholder via VLlm
         ChatProviderConfig::ClaudeOAuth { model, .. } => ChatConfig {
             source: ChatSource::VLlm,
-            api_key: "oauth-proxy".to_string(),
+            api_key: OAUTH_PROXY_API_KEY_PLACEHOLDER.to_string(),
             base_url: None, // Will use proxy URL if configured
             model: model.clone(),
             org_id: None,
@@ -358,7 +363,7 @@ fn map_provider_to_chat_config(
 
         ChatProviderConfig::Gemini { model, .. } => ChatConfig {
             source: ChatSource::VLlm,
-            api_key: "oauth-proxy".to_string(),
+            api_key: OAUTH_PROXY_API_KEY_PLACEHOLDER.to_string(),
             base_url: None,
             model: model.clone(),
             org_id: None,
@@ -371,7 +376,7 @@ fn map_provider_to_chat_config(
 
         ChatProviderConfig::Copilot { model, .. } => ChatConfig {
             source: ChatSource::VLlm,
-            api_key: "oauth-proxy".to_string(),
+            api_key: OAUTH_PROXY_API_KEY_PLACEHOLDER.to_string(),
             base_url: None,
             model: model.clone(),
             org_id: None,
@@ -475,8 +480,8 @@ fn parse_provider_string(
         }
 
         "ollama" => {
-            let ollama_host = host.unwrap_or_else(|| "http://localhost:11434".to_string());
-            let ollama_model = model.unwrap_or_else(|| "llama3.2".to_string());
+            let ollama_host = host.unwrap_or_else(|| OLLAMA_DEFAULT_HOST.to_string());
+            let ollama_model = model.unwrap_or_else(|| OLLAMA_DEFAULT_MODEL.to_string());
             Ok(ChatProviderConfig::Ollama {
                 host: ollama_host,
                 model: ollama_model,
@@ -517,8 +522,8 @@ fn parse_provider_string(
             Ok(ChatProviderConfig::AzureOpenAI {
                 api_key: key,
                 base_url: base,
-                deployment_id: model.unwrap_or_else(|| "gpt-4".to_string()),
-                api_version: "2024-06-01".to_string(),
+                deployment_id: model.unwrap_or_else(|| AZURE_DEFAULT_DEPLOYMENT.to_string()),
+                api_version: AZURE_DEFAULT_API_VERSION.to_string(),
             })
         }
 
@@ -526,7 +531,7 @@ fn parse_provider_string(
             let key = api_key.ok_or_else(|| {
                 "Groq requires an API key. Set it in Settings > API Keys.".to_string()
             })?;
-            let m = model.unwrap_or_else(|| "llama-3.3-70b-versatile".to_string());
+            let m = model.unwrap_or_else(|| GROQ_DEFAULT_MODEL.to_string());
             Ok(ChatProviderConfig::Groq {
                 api_key: key,
                 model: m,
@@ -551,7 +556,7 @@ fn parse_provider_string(
             let key = api_key.ok_or_else(|| {
                 "Cohere requires an API key. Set it in Settings > API Keys.".to_string()
             })?;
-            let m = model.unwrap_or_else(|| "command-r-plus".to_string());
+            let m = model.unwrap_or_else(|| COHERE_DEFAULT_MODEL.to_string());
             Ok(ChatProviderConfig::Cohere {
                 api_key: key,
                 model: m,
@@ -562,7 +567,7 @@ fn parse_provider_string(
             let key = api_key.ok_or_else(|| {
                 "DeepSeek requires an API key. Set it in Settings > API Keys.".to_string()
             })?;
-            let m = model.unwrap_or_else(|| "deepseek-chat".to_string());
+            let m = model.unwrap_or_else(|| DEEPSEEK_DEFAULT_MODEL.to_string());
             Ok(ChatProviderConfig::DeepSeek {
                 api_key: key,
                 model: m,
@@ -591,7 +596,7 @@ fn parse_provider_string(
 // Meilisearch Health and Indexing Commands
 // ============================================================================
 
-/// Get Meilisearch health status
+/// Get Meilisearch health status with per-index document counts.
 #[tauri::command]
 pub async fn check_meilisearch_health(
     state: State<'_, AppState>,
@@ -600,18 +605,49 @@ pub async fn check_meilisearch_health(
     let health = meili.health();
     let healthy = health.status == "available";
 
+    // Gather per-index document counts via spawn_blocking (synchronous MeilisearchLib API)
+    let meili_stats = state.embedded_search.clone_inner();
+    let counts = tokio::task::spawn_blocking(move || -> Result<HashMap<String, u64>, String> {
+        let mut counts = HashMap::new();
+        let (_, indexes) = meili_stats
+            .list_indexes(0, 200)
+            .map_err(|e| format!("Failed to list indexes: {}", e))?;
+        for index in indexes {
+            match meili_stats.index_stats(&index.uid) {
+                Ok(stats) => {
+                    counts.insert(index.uid, stats.number_of_documents);
+                }
+                Err(e) => {
+                    log::warn!("Failed to get stats for index '{}': {}", index.uid, e);
+                }
+            }
+        }
+        Ok(counts)
+    })
+    .await
+    .map_err(|e| format!("Task join error: {}", e))?
+    .unwrap_or_default();
+
     Ok(MeilisearchStatus {
         healthy,
         host: "embedded".to_string(),
-        document_counts: None,
+        document_counts: if counts.is_empty() {
+            None
+        } else {
+            Some(counts)
+        },
     })
 }
+
+/// Indexes that must not be cleared via reindex_library (non-library system data).
+const PROTECTED_INDEXES: &[&str] = &["chat"];
 
 /// Reindex a library by clearing all documents from the specified index (or all indexes).
 ///
 /// # Arguments
 ///
-/// * `index_name` - If `Some`, clears only the named index. If `None`, clears all indexes.
+/// * `index_name` - If `Some`, clears only the named index. If `None`, clears all
+///   non-protected indexes. Protected indexes (e.g., `chat`) are always skipped.
 ///
 /// # Returns
 ///
@@ -625,6 +661,15 @@ pub async fn reindex_library(
 
     match index_name {
         Some(ref name) => {
+            // Validate against protected indexes
+            if PROTECTED_INDEXES.contains(&name.as_str()) {
+                return Err(format!(
+                    "Index '{}' is protected and cannot be cleared via reindex. \
+                     Only library content indexes may be reindexed.",
+                    name
+                ));
+            }
+
             log::info!("reindex_library: clearing documents from index '{}'", name);
 
             let uid = name.clone();
@@ -639,7 +684,7 @@ pub async fn reindex_library(
             let task_id = task.uid;
             let meili2 = state.embedded_search.clone_inner();
             let completed = tokio::task::spawn_blocking(move || {
-                meili2.wait_for_task(task_id, Some(Duration::from_secs(60)))
+                meili2.wait_for_task(task_id, Some(Duration::from_secs(TASK_COMPLETION_TIMEOUT_SECS)))
             })
             .await
             .map_err(|e| format!("Task join error: {}", e))?
@@ -689,8 +734,16 @@ pub async fn reindex_library(
                 offset += page_len;
             }
 
-            let total = all_indexes.len();
-            let indexes = all_indexes;
+            // Filter out protected indexes
+            let indexes: Vec<_> = all_indexes
+                .into_iter()
+                .filter(|idx| !PROTECTED_INDEXES.contains(&idx.uid.as_str()))
+                .collect();
+            let total = indexes.len();
+
+            if total == 0 {
+                return Ok("No clearable library indexes found.".to_string());
+            }
 
             let mut cleared = Vec::new();
             let mut errors = Vec::new();
@@ -707,7 +760,7 @@ pub async fn reindex_library(
                         let meili_wait = state.embedded_search.clone_inner();
 
                         match tokio::task::spawn_blocking(move || {
-                            meili_wait.wait_for_task(task_id, Some(Duration::from_secs(60)))
+                            meili_wait.wait_for_task(task_id, Some(Duration::from_secs(TASK_COMPLETION_TIMEOUT_SECS)))
                         })
                         .await
                         {
@@ -779,7 +832,14 @@ pub async fn configure_chat_workspace(
         provider.provider_id()
     );
 
-    let config = map_provider_to_chat_config(&provider, custom_prompts.as_ref())?;
+    // map_provider_to_chat_config may call model_selector().select_model_sync() which
+    // does blocking file I/O. Wrap in spawn_blocking to avoid stalling the Tokio runtime.
+    let provider_clone = provider.clone();
+    let config = tokio::task::spawn_blocking(move || {
+        map_provider_to_chat_config(&provider_clone, custom_prompts.as_ref())
+    })
+    .await
+    .map_err(|e| format!("Task join error: {}", e))??;
 
     let meili = state.embedded_search.inner();
     meili.set_chat_config(Some(config));
@@ -846,15 +906,20 @@ pub async fn configure_meilisearch_chat(
 
     let custom_prompts = custom_system_prompt.map(|prompt| ChatPrompts::with_system_prompt(&prompt));
 
-    let config = map_provider_to_chat_config(&provider_config, custom_prompts.as_ref())?;
+    // map_provider_to_chat_config may call model_selector().select_model_sync() which
+    // does blocking file I/O. Wrap in spawn_blocking to avoid stalling the Tokio runtime.
+    let config = tokio::task::spawn_blocking(move || {
+        map_provider_to_chat_config(&provider_config, custom_prompts.as_ref())
+    })
+    .await
+    .map_err(|e| format!("Task join error: {}", e))??;
 
     let meili = state.embedded_search.inner();
     meili.set_chat_config(Some(config));
 
     log::info!(
-        "configure_meilisearch_chat: configured provider '{}' ({})",
+        "configure_meilisearch_chat: configured provider '{}'",
         provider,
-        provider_config.provider_id()
     );
 
     Ok(())
@@ -867,6 +932,9 @@ pub async fn configure_meilisearch_chat(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Fake API key for tests. Clearly not a real credential.
+    const TEST_FAKE_API_KEY: &str = "test_00000000_fake_key_00000000";
 
     // ========================================================================
     // mask_api_key tests
@@ -943,8 +1011,8 @@ mod tests {
         let config = parse_provider_string("ollama", None, None, None);
         assert!(config.is_ok());
         if let ChatProviderConfig::Ollama { host, model } = config.unwrap() {
-            assert_eq!(host, "http://localhost:11434");
-            assert_eq!(model, "llama3.2");
+            assert_eq!(host, OLLAMA_DEFAULT_HOST);
+            assert_eq!(model, OLLAMA_DEFAULT_MODEL);
         } else {
             panic!("Expected Ollama variant");
         }
@@ -1240,7 +1308,7 @@ mod tests {
     fn test_map_config_to_settings_openai() {
         let config = ChatConfig {
             source: ChatSource::OpenAi,
-            api_key: "not-a-real-key-for-testing-only".to_string(),
+            api_key: TEST_FAKE_API_KEY.to_string(),
             base_url: None,
             model: "gpt-4o".to_string(),
             org_id: Some("org-123".to_string()),
@@ -1265,7 +1333,7 @@ mod tests {
     fn test_map_config_to_settings_anthropic() {
         let config = ChatConfig {
             source: ChatSource::Anthropic,
-            api_key: "not-a-real-key-for-testing-only".to_string(),
+            api_key: TEST_FAKE_API_KEY.to_string(),
             base_url: None,
             model: "claude-sonnet-4-20250514".to_string(),
             org_id: None,
