@@ -59,6 +59,7 @@ mod ttrpg;
 pub mod embeddings;
 pub mod fusion;
 pub mod hybrid;
+pub mod preprocessing;
 pub mod providers;
 pub mod query;
 pub mod synonyms;
@@ -113,6 +114,11 @@ pub use query::{
 };
 pub use synonyms::{
     ClarificationPrompt, DiceNotation, ExpansionInfo, QueryExpansionResult, TTRPGSynonyms,
+};
+
+// Meilisearch-lib preprocessing integration
+pub use preprocessing::{
+    MeilisearchLibPreprocessor, PreprocessingResult, PreprocessorBuilder,
 };
 
 #[cfg(test)]

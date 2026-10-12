@@ -18,6 +18,7 @@ use crate::core::credentials::CredentialManager;
 use crate::core::sidecar_manager::{SidecarManager, MeilisearchConfig};
 use crate::core::search::SearchClient;
 use crate::core::meilisearch_pipeline::MeilisearchPipeline;
+use crate::core::search::MeilisearchLibPreprocessor;
 use crate::core::campaign::versioning::VersionManager;
 use crate::core::campaign::world_state::WorldStateManager;
 use crate::core::campaign::relationships::RelationshipManager;
@@ -78,6 +79,8 @@ pub struct AppState {
     pub blend_rule_store: Arc<BlendRuleStore>,
     pub personality_blender: Arc<PersonalityBlender>,
     pub contextual_personality_manager: Arc<ContextualPersonalityManager>,
+    // Query preprocessing using meilisearch-lib (O(1) typo correction + synonym expansion)
+    pub query_preprocessor: AsyncRwLock<Option<MeilisearchLibPreprocessor>>,
 }
 
 impl AppState {

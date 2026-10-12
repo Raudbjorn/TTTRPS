@@ -7,6 +7,9 @@ license = "MIT"
 repository = "https://github.com/Raudbjorn/MDMAI"
 edition = "2021"
 
+# Prevent being pulled into parent meili-dev workspace
+[workspace]
+
 [build-dependencies]
 tauri-build = { version = "2.5", features = [] }
 
@@ -56,6 +59,9 @@ flate2 = "1.0"
 
 # Meilisearch for unified search (replaces lancedb + tantivy)
 meilisearch-sdk = "0.31"
+
+# meilisearch-lib for query preprocessing (typo correction, synonyms, etc.)
+meilisearch-lib = { path = "../../crates/meilisearch-lib", default-features = false }
 # LRU cache for archetype resolution
 lru = "0.16"
 dirs = "6.0"

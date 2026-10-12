@@ -132,6 +132,11 @@ fn main() {
                 blend_rule_store,
                 personality_blender,
                 contextual_personality_manager,
+                // Query preprocessing using meilisearch-lib (O(1) typo correction + synonym expansion)
+                // Initialized with TTRPG defaults; can be customized via Tauri commands
+                query_preprocessor: tokio::sync::RwLock::new(Some(
+                    ttrpg_assistant::core::search::MeilisearchLibPreprocessor::with_ttrpg_defaults()
+                )),
             });
 
             // Initialize Archetype Registry after Meilisearch starts

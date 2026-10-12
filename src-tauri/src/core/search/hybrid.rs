@@ -30,6 +30,7 @@ use thiserror::Error;
 
 use super::embeddings::{EmbeddingError, EmbeddingProvider};
 use super::fusion::{FusedSearchResult, FusionStrategy, RRFConfig, RRFEngine};
+use super::preprocessing::MeilisearchLibPreprocessor;
 use super::synonyms::TTRPGSynonyms;
 use crate::core::query_expansion::QueryExpander;
 use crate::core::search::{SearchClient, SearchDocument};
@@ -350,6 +351,9 @@ pub struct HybridSearchEngine {
     spell_corrector: SpellCorrector,
     synonyms: TTRPGSynonyms,
     rrf_engine: RRFEngine,
+    /// Optional meilisearch-lib preprocessor for O(1) typo correction and synonym expansion.
+    /// When set, this takes precedence over spell_corrector and synonyms.
+    meilisearch_preprocessor: Option<MeilisearchLibPreprocessor>,
 }
 
 impl HybridSearchEngine {
@@ -368,12 +372,65 @@ impl HybridSearchEngine {
             spell_corrector: SpellCorrector::new(),
             synonyms: TTRPGSynonyms::new(),
             rrf_engine,
+            meilisearch_preprocessor: None,
         }
     }
 
     /// Create with default configuration
     pub fn with_defaults(search_client: Arc<SearchClient>) -> Self {
         Self::new(search_client, None, HybridConfig::default())
+    }
+
+    /// Create with meilisearch-lib preprocessing enabled.
+    ///
+    /// This uses meilisearch-lib's O(1) SymSpell typo correction and
+    /// comprehensive TTRPG synonym expansion instead of the built-in
+    /// SpellCorrector and TTRPGSynonyms.
+    pub fn with_meilisearch_preprocessing(search_client: Arc<SearchClient>) -> Self {
+        let mut engine = Self::with_defaults(search_client);
+        engine.meilisearch_preprocessor = Some(MeilisearchLibPreprocessor::with_ttrpg_defaults());
+        engine
+    }
+
+    /// Enable meilisearch-lib preprocessing.
+    ///
+    /// When enabled, the meilisearch-lib QueryPipeline handles typo correction
+    /// and synonym expansion instead of the built-in SpellCorrector and TTRPGSynonyms.
+    ///
+    /// Benefits:
+    /// - O(1) typo correction using SymSpell algorithm
+    /// - Meilisearch-compatible tolerance rules (5 chars = 1 typo, 9 chars = 2 typos)
+    /// - Comprehensive TTRPG synonym dictionary
+    pub fn with_meilisearch_preprocessor(mut self, preprocessor: MeilisearchLibPreprocessor) -> Self {
+        self.meilisearch_preprocessor = Some(preprocessor);
+        self
+    }
+
+    /// Enable meilisearch-lib preprocessing with TTRPG defaults.
+    pub fn enable_meilisearch_preprocessing(mut self) -> Self {
+        self.meilisearch_preprocessor = Some(MeilisearchLibPreprocessor::with_ttrpg_defaults());
+        self
+    }
+
+    /// Disable meilisearch-lib preprocessing, reverting to built-in corrector and synonyms.
+    pub fn disable_meilisearch_preprocessing(mut self) -> Self {
+        self.meilisearch_preprocessor = None;
+        self
+    }
+
+    /// Check if meilisearch-lib preprocessing is enabled.
+    pub fn has_meilisearch_preprocessing(&self) -> bool {
+        self.meilisearch_preprocessor.is_some()
+    }
+
+    /// Get a reference to the meilisearch-lib preprocessor (if enabled).
+    pub fn meilisearch_preprocessor(&self) -> Option<&MeilisearchLibPreprocessor> {
+        self.meilisearch_preprocessor.as_ref()
+    }
+
+    /// Get a mutable reference to the meilisearch-lib preprocessor (if enabled).
+    pub fn meilisearch_preprocessor_mut(&mut self) -> Option<&mut MeilisearchLibPreprocessor> {
+        self.meilisearch_preprocessor.as_mut()
     }
 
     /// Set embedding provider
@@ -403,37 +460,64 @@ impl HybridSearchEngine {
         let start = std::time::Instant::now();
         let mut hints = Vec::new();
 
-        // Step 1: Apply spell correction
-        let (corrected_query, corrected) = if self.config.spell_correction {
-            let result = self.spell_corrector.correct(query);
-            if result.has_corrections {
-                hints.push(format!("Did you mean: '{}'?", result.corrected_query));
-                let cq = result.corrected_query.clone();
-                (cq.clone(), Some(cq))
+        // Use meilisearch-lib preprocessor if available, otherwise use built-in
+        let (corrected_query, corrected, expanded_query, expanded) = if let Some(preprocessor) = &self.meilisearch_preprocessor {
+            // Use meilisearch-lib's O(1) preprocessing
+            let result = preprocessor.process(query);
+
+            let corrected = if result.has_corrections() {
+                hints.push(format!("Did you mean: '{}'?", result.correction.corrected_query));
+                Some(result.correction.corrected_query.clone())
+            } else {
+                None
+            };
+
+            let expanded = if result.has_expansions() {
+                hints.extend(result.hints.clone());
+                Some(result.expansion.expanded_query.clone())
+            } else {
+                None
+            };
+
+            // Use embedding_text for semantic search (corrected but not expanded)
+            let search_query = result.expansion.expanded_query.clone();
+            (result.embedding_text.clone(), corrected, search_query, expanded)
+        } else {
+            // Fall back to built-in spell correction and expansion
+            // Step 1: Apply spell correction
+            let (corrected_query, corrected) = if self.config.spell_correction {
+                let result = self.spell_corrector.correct(query);
+                if result.has_corrections {
+                    hints.push(format!("Did you mean: '{}'?", result.corrected_query));
+                    let cq = result.corrected_query.clone();
+                    (cq.clone(), Some(cq))
+                } else {
+                    (query.to_string(), None)
+                }
             } else {
                 (query.to_string(), None)
-            }
-        } else {
-            (query.to_string(), None)
-        };
+            };
 
-        // Step 2: Apply query expansion with TTRPG synonyms
-        let (expanded_query, expanded) = if self.config.query_expansion {
-            let result = self.synonyms.expand_query(&corrected_query);
-            if result.was_expanded {
-                hints.extend(result.hints.clone());
-                (result.expanded_query.clone(), Some(result.expanded_query))
-            } else {
-                // Fallback to standard query expander
-                let std_expansion = self.query_expander.expand(&corrected_query);
-                if std_expansion.expanded_terms.len() > 1 {
-                    (std_expansion.expanded_query, None)
+            // Step 2: Apply query expansion with TTRPG synonyms
+            let (expanded_query, expanded) = if self.config.query_expansion {
+                let result = self.synonyms.expand_query(&corrected_query);
+                if result.was_expanded {
+                    hints.extend(result.hints.clone());
+                    (result.expanded_query.clone(), Some(result.expanded_query))
                 } else {
-                    (corrected_query.clone(), None)
+                    // Fallback to standard query expander
+                    let std_expansion = self.query_expander.expand(&corrected_query);
+                    if std_expansion.expanded_terms.len() > 1 {
+                        (std_expansion.expanded_query, None)
+                    } else {
+                        (corrected_query.clone(), None)
+                    }
                 }
-            }
-        } else {
-            (corrected_query.clone(), None)
+            } else {
+                (corrected_query.clone(), None)
+            };
+
+            (corrected_query, corrected, expanded_query, expanded)
         };
 
         // Step 3: Build filter
